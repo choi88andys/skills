@@ -1,0 +1,11 @@
+{
+  "$schema": "../policy.schema.json",
+  "_note": "Personal skills collection — trunk workflow, direct main commits (mattpocock/skills style).",
+  "branchStrategy": {
+    "type": "trunk",
+    "defaultBranch": "main",
+    "protectedBranches": [],
+    "requireWorktree": false,
+    "allowedPrefixes": []
+  }
+}
