@@ -1,11 +1,20 @@
 {
   "$schema": "../policy.schema.json",
-  "_note": "Personal skills collection — trunk workflow, direct main commits (mattpocock/skills style).",
+  "_note": "Personal skills plugin marketplace — gitflow with main as stable release, develop as integration. Checkout-based (no worktree required). Plugin marketplace clients pull main; develop accumulates unreleased changes.",
   "branchStrategy": {
-    "type": "trunk",
-    "defaultBranch": "main",
-    "protectedBranches": [],
+    "type": "gitflow",
+    "defaultBranch": "develop",
+    "protectedBranches": ["main", "master", "develop"],
     "requireWorktree": false,
-    "allowedPrefixes": []
+    "allowedPrefixes": [
+      "feature/",
+      "fix/",
+      "chore/",
+      "refactor/",
+      "hotfix/",
+      "release/",
+      "docs/",
+      "test/"
+    ]
   }
 }

@@ -1,0 +1,25 @@
+# Example .immutable-prd/config.yml for a two-repo SDD project — SPEC repo side.
+#
+# Place at: <spec-repo-root>/.immutable-prd/config.yml
+# The /immutable:prd skill reads this file. If absent, the skill falls back to
+# inferred defaults (see ../SCHEMA.md).
+#
+# For the APP repo side (ADR companion), use config-two-repo-app.yml.
+
+version: 2
+
+# Repository mode.
+#   two-repo-spec: this is the spec repo (pitches only)
+#   two-repo-app:  this is the app repo (adr only)
+#   single-repo:   both pitches and adr live in this repo
+repo_mode: two-repo-spec
+
+# Team working language for user-facing prompts.
+team_language: ko
+
+# Path to pitches (required; relative to repo root).
+pitches_path: pitches/
+
+# Template paths (optional; defaults derived from pitches_path).
+templates:
+  pitch: pitches/TEMPLATE.md

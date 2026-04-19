@@ -1,0 +1,19 @@
+# Example .immutable-prd/config.yml for a single-repo SDD project.
+#
+# Place at: <app-repo-root>/.immutable-prd/config.yml
+# Pitches live in a `spec/` subtree; ADRs live at the app repo root alongside code.
+
+version: 2
+
+repo_mode: single-repo
+team_language: ko
+
+# Pitches in a subtree (common convention to separate from implementation).
+pitches_path: spec/pitches/
+
+# ADRs at the app repo root alongside code.
+adr_path: adr/
+
+templates:
+  pitch: spec/pitches/TEMPLATE.md
+  adr: adr/TEMPLATE.md

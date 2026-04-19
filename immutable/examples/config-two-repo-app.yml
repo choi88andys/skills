@@ -1,0 +1,23 @@
+# Example .immutable-prd/config.yml for a two-repo SDD project — APP repo side.
+#
+# Place at: <app-repo-root>/.immutable-prd/config.yml
+# The /immutable:adr skill reads this file. ADR pitch references are resolved
+# against the sibling spec repo declared in `spec_repo_path`.
+
+version: 2
+
+repo_mode: two-repo-app
+team_language: ko
+
+# Path to ADRs in this app repo.
+adr_path: adr/
+
+# Sibling spec repo.
+# Can be absolute or relative to this repo's root. /immutable:adr resolves
+# pitch filenames against <spec_repo_path>/<pitches_path_in_spec>.
+# If null, ADRs may still reference pitches by filename but existence is not validated.
+spec_repo_path: ../myproject-spec
+pitches_path_in_spec: pitches/
+
+templates:
+  adr: adr/TEMPLATE.md

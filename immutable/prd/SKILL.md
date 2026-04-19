@@ -1,10 +1,10 @@
 ---
-name: immutable-prd
-description: Guided authoring for immutable, append-only PRD/pitch files. Conducts a grill-me style interview with context intake, domain-language check, multi-persona adversarial review, and a 90% completeness gate before writing any file. Use when a team needs to produce new spec/PRD content or version-update existing ones in an append-only SDD repo. Triggers - "/immutable-prd", "pitch 작성", "스펙 작성", "PRD 추가", "피치 만들어".
+name: prd
+description: Guided authoring for immutable, append-only PRD/pitch files. Conducts a grill-me style interview with context intake, domain-language check, multi-persona adversarial review, and a 90% completeness gate before writing any file. Use when a team needs to produce new spec/PRD content or version-update existing ones in an append-only SDD repo. Triggers - "/immutable:prd", "pitch 작성", "스펙 작성", "PRD 추가", "피치 만들어".
 allowed-tools: Read, Write, Edit, Bash, Glob, Grep, WebFetch
 ---
 
-# /immutable-prd — Guided Immutable PRD Authoring
+# /immutable:prd — Guided Immutable PRD Authoring
 
 Interactively author an append-only pitch-style PRD file. Enforces format, structure, scope, and domain language. Generates the file only when the answer set passes a 90% completeness gate.
 
@@ -43,12 +43,12 @@ The skill only **writes** the file. It never commits or pushes. The user reviews
 ## Invocation
 
 ```
-/immutable-prd
+/immutable:prd
 ```
 
 Optional free-text argument for initial context:
 ```
-/immutable-prd 공지에 자동 모달 기능 추가
+/immutable:prd 공지에 자동 모달 기능 추가
 ```
 
 ---
