@@ -130,14 +130,27 @@ Skip the interview. Request a reason string. Flip the target file's `deprecated:
 
 After intent is confirmed, ask whether the user has supporting materials. This stage is **opt-in** — the user can skip.
 
-### Prompt
+### Prompt (verbatim required)
 
-> "참고 자료가 있으면 첨부해주세요 (없으면 '없음'). 다음 중 해당되는 것만:
->
-> (a) Figma URL — 해당 기능의 화면 1~3개
-> (b) Notion/Docs URL — 요약 페이지 1개 (워크스페이스 루트 금지)
-> (c) 로컬 초안 파일 경로 — .md/.txt, 5페이지 이내
-> (d) 슬랙/채팅 요약 — 텍스트로 붙여넣기, 핵심 3~5개 메시지"
+The block between `>>> BEGIN VERBATIM` and `<<< END VERBATIM` MUST be displayed to the user **verbatim**. Do not paraphrase, shorten, reorder, or drop guardrail lines (quantity caps, "거절됩니다", "금지", example URLs). Translate to the team's working language only when language is not Korean — preserve every cap and example when translating.
+
+```
+>>> BEGIN VERBATIM
+참고 자료가 있으면 첨부해주세요 (없으면 '없음'). 다음 중 해당되는 것만:
+
+(a) Figma — 단일 프레임 노드 URL, 1~3개
+    예: figma.com/design/.../?node-id=123-456
+    ※ 파일 전체 URL은 거절됩니다
+
+(b) Notion/Docs — feature 요약 페이지 1개
+    ※ 워크스페이스 루트 URL 금지
+
+(c) 로컬 파일 — .md/.txt, 5페이지 이내
+
+(d) 텍스트 붙여넣기 — 정리된 요지, 30줄 이내
+    채팅 로그 전체 X, 결정/요구사항 위주
+<<< END VERBATIM
+```
 
 ### Filtering (anti-dumping)
 
@@ -146,9 +159,11 @@ Before processing, validate inputs:
 | Signal | Action |
 |---|---|
 | File or document > 5,000 words | Refuse. Ask user to specify 1–3 relevant sections only. |
-| Figma project URL (not screen node) | Ask for a specific node/frame URL. |
-| Notion workspace root URL | Ask for the specific feature-related page URL. |
+| Figma project / file root URL (no `node-id` query param) | Refuse. Ask for a single frame/node URL with `node-id`. |
+| More than 3 Figma node URLs | Refuse. Ask user to keep to 1–3 core screens. |
+| Notion workspace root URL or DB view URL | Refuse. Ask for a single feature-related page URL. |
 | > 10 pages total across attachments | Refuse. Ask user to distill to essentials first. |
+| Pasted text > 30 lines | Refuse. Ask user to distill to key decisions/requirements. |
 | URL to authenticated service without MCP integration | Note that content can't be fetched; ask user to paste the summary as text instead. |
 
 Do not proceed with raw dumps. Distillation is the user's responsibility; interpretation is the skill's.
