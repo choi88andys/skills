@@ -1,0 +1,210 @@
+# default-ko.yml — Korean default profile for /immutable:prd authoring.
+#
+# A profile is a declarative bundle of tunables: section headings, adversarial
+# personas, 90% gate thresholds, identifier regex, filename conventions.
+# Skills read this file to render prompts, validate answers, and assemble the
+# final pitch. Teams override selected fields via their own `profile.yml`;
+# missing fields fall back to the default profile referenced in config.yml.
+#
+# This file reflects the hardcoded defaults baked into the v0.4 /immutable:prd
+# skill (Korean working language). Reorganized as data so v0.5+ skills can
+# consume it at runtime instead of embedding the Korean prompts inline.
+#
+# NOTE: User-facing strings live inline in this profile for v0.5 simplicity.
+# v0.6+ may delegate fully to `strings/strings.<locale>.yml` (see S3 roadmap).
+
+# Schema revision of this profile file.
+# Bumped on breaking changes to the profile keys below.
+profile_schema: 1
+
+# Team working language key. Must match `strings/strings.<locale>.yml` when
+# strings catalog lookup is enabled. v0.5 renders inline strings from this file.
+locale: ko
+
+# Identifier shown in skill prompts ("default-ko profile"). User-facing.
+display_name: "한국어 기본 프로필"
+
+# -----------------------------------------------------------------------------
+# Pitch body sections.
+#   id         — stable snake_case English, referenced by skill logic.
+#   heading    — user-facing section heading rendered into the pitch file.
+#   required   — whether the section is mandatory. `false` = conditional.
+#   min_items  — minimum blocks/rows for the 90% gate to consider this section complete.
+#   description — hint shown during interview; also used as gate pass condition.
+# Order of entries = order of Stage 2 branches + final file layout.
+# -----------------------------------------------------------------------------
+sections:
+  - id: background
+    heading: "배경과 문제"
+    required: true
+    min_items: 1
+    description: "제3자가 3줄 이내로 '왜 필요한지'를 요약할 수 있어야 한다."
+  - id: user_stories
+    heading: "사용자 스토리 및 수용 조건"
+    required: true
+    min_items: 2
+    description: "Given/When/Then 블록 ≥2개. happy path + alternate/error 최소 1개씩."
+  - id: edge_cases
+    heading: "엣지 케이스"
+    required: true
+    min_items: 2
+    description: "명시적 처리(expected behavior)가 적힌 행 ≥2개."
+  - id: no_gos
+    heading: "범위 제외 (No-gos)"
+    required: true
+    min_items: 1
+    description: "deferred / intentionally-not-provided / outside-scope 중 하나로 분류된 항목 ≥1개."
+  - id: feature_flag
+    heading: "Feature Flag"
+    required: false
+    min_items: 0
+    description: "플래그 사용 시에만 섹션 추가. Key + 상태 + 초기 상태 + fallback UX 4요소."
+
+# -----------------------------------------------------------------------------
+# Adversarial review personas (Stage 4).
+# Each persona MUST surface ≥1 gap. "Looks good" is prohibited.
+# Gaps raised by 2+ personas are promoted one severity level.
+# -----------------------------------------------------------------------------
+personas:
+  - id: new_engineer
+    name: "신입 개발자"
+    question: "이 문서만 보고 pitch를 구현할 수 있는가?"
+    checks:
+      - "모호한 지시어 ('적절히', '보기 좋게', '자연스럽게')"
+      - "GWT 블록이 구현 가능한 수준으로 구체적인가"
+      - "다른 도메인에 대한 드러나지 않은 의존성"
+  - id: customer_support
+    name: "고객지원"
+    question: "사용자가 각 엣지 케이스에서 무엇을 보는가?"
+    checks:
+      - "네트워크 / 권한 / 외부 의존 실패 모드 커버"
+      - "에러 메시지 문구 정의 또는 명시적 no-go 배치"
+      - "과도한 hand-wave 표현 ('라이브러리 기본 동작에 위임') 사용 여부"
+  - id: product_lead
+    name: "제품 책임자"
+    question: "이 pitch가 Feature 규모에 맞는가?"
+    checks:
+      - "단일 플래그로 on/off 가능한가"
+      - "2~6주 내 완결 가능한가"
+      - "Epic 규모 콘텐츠가 섞여있지 않은가"
+      - "기존 active pitch와 겹침/충돌 여부"
+
+# -----------------------------------------------------------------------------
+# RFC 2119 normative keywords used inside pitch body.
+# Bracket syntax `[KEYWORD]` — multi-word keys use `token` for rendering.
+# -----------------------------------------------------------------------------
+normative_keywords:
+  - key: MUST
+    token: "MUST"
+    meaning: "반드시 해야 함 (예외 없음)"
+  - key: MUST_NOT
+    token: "MUST NOT"
+    meaning: "절대 해서는 안 됨"
+  - key: SHOULD
+    token: "SHOULD"
+    meaning: "가능하면 해야 함. 정당한 이유가 있으면 예외 허용"
+  - key: SHOULD_NOT
+    token: "SHOULD NOT"
+    meaning: "가능하면 하지 말아야 함"
+  - key: MAY
+    token: "MAY"
+    meaning: "해도 되고 안 해도 됨 (선택)"
+
+# -----------------------------------------------------------------------------
+# 90% completeness gate (Stage 5).
+#   total               — number of criteria below.
+#   pass_threshold      — minimum pass count to allow file generation.
+#   reject_on_unresolved — any `[미확정]` tag blocks regardless of pass count.
+# -----------------------------------------------------------------------------
+gate:
+  total: 7
+  pass_threshold: 6
+  reject_on_unresolved: true
+  unresolved_tag: "[미확정]"
+  criteria:
+    - id: background_clear
+      label: "배경 명확"
+      pass_condition: "제3자가 3줄 이내로 의도를 요약할 수 있고 [미확정] 태그가 남아있지 않다"
+    - id: gwt_minimum
+      label: "GWT 2개 이상"
+      pass_condition: "구조가 완결된 Given/When/Then 블록이 2개 이상"
+    - id: normative_minimum
+      label: "Normative 3개 이상"
+      pass_condition: "본문에 대괄호 키워드 구문이 3개 이상"
+    - id: edge_cases_minimum
+      label: "엣지 케이스 2행 이상"
+      pass_condition: "명시적 처리가 적힌 행이 2개 이상"
+    - id: no_gos_minimum
+      label: "No-go 1개 이상"
+      pass_condition: "분류된 범위 제외 항목이 1개 이상"
+    - id: no_code_identifiers
+      label: "코드 식별자 0개"
+      pass_condition: "Stage 3 식별자 스캔을 통과"
+    - id: feature_scope
+      label: "Feature 규모"
+      pass_condition: "단일 플래그 토글 테스트 통과 + 2~6주 완결 가능"
+
+# -----------------------------------------------------------------------------
+# Code identifier detection patterns (Stage 3).
+# Hit in pitch body → return to Stage 2 for the relevant branch.
+# Regex evaluated with standard PCRE semantics.
+# -----------------------------------------------------------------------------
+identifier_patterns:
+  - id: camelCase
+    regex: '\b[a-z][a-zA-Z0-9]*[A-Z][a-zA-Z0-9]*\b'
+    hint: "camelCase 식별자 (변수·함수·메서드 추정)"
+  - id: snake_case
+    regex: '\b[a-z]+_[a-z_]+\b'
+    hint: "snake_case 식별자 (파이썬/파일명 추정)"
+  - id: PascalCase
+    regex: '\b[A-Z][a-z]+[A-Z][a-zA-Z]*\b'
+    hint: "PascalCase 식별자 (클래스·타입 추정)"
+  - id: file_path
+    regex: '\b[a-z]+/[a-z_/]+\.(dart|swift|ts|js|py|kt)\b'
+    hint: "코드 파일 경로"
+
+# -----------------------------------------------------------------------------
+# Naming conventions (pitch files).
+# -----------------------------------------------------------------------------
+naming:
+  filename_pattern: '^\d{4}-\d{2}-\d{2}-[a-z0-9][a-z0-9-]*\.md$'
+  date_format: "%Y-%m-%d"
+  slug_case: kebab
+  slug_language: en
+  forbidden_slug_patterns:
+    - id: delta_describing
+      regex: '^(figma-alignment|policy-update|code-aligned|v\d)'
+      reason: "delta-describing slug — 주제가 아닌 변경 내역을 담음"
+    - id: timeliness
+      regex: '^(latest|final|current)(-|$)'
+      reason: "시점성 표현 — 매 새 버전마다 의미가 바뀜"
+
+# -----------------------------------------------------------------------------
+# Feature flag conventions (Branch F).
+# -----------------------------------------------------------------------------
+feature_flag:
+  key_prefix: "ff_"
+  states:
+    - deployed
+    - hidden
+  default_initial: hidden
+  required_fields:
+    - key
+    - states
+    - initial_state
+    - fallback_ux
+
+# -----------------------------------------------------------------------------
+# Domain allowlist policy.
+# -----------------------------------------------------------------------------
+domain_allowlist:
+  source: "pitches/README.md"
+  reserved_domains:
+    - id: "_shared"
+      description: "특정 도메인에 속하지 않는 공통 관심사 (인증·로깅·에러 처리 등)"
+    - id: "_global"
+      description: "ADR 전용 — 도메인 경계를 넘는 아키텍처 결정"
+      adr_only: true
+  new_domain_review:
+    near_duplicate_threshold: 2    # Levenshtein distance
+    requires_lead_approval: true

@@ -1,0 +1,45 @@
+# immutable plugin config (v0.5 — config schema v3).
+#
+# This starter bootstraps a Korean-language spec repo (pitches only).
+# To customize behavior beyond language/paths, copy a profile from
+# `immutable/examples/_profiles/` into this repo and point `profile:` at it
+# (commented example below). Missing fields fall back to the default
+# profile matching `team_language`.
+#
+# Compatibility: setting `version: 2` (without `profile:`) continues to work
+# in v0.5 — the plugin auto-upgrades by loading the default profile matching
+# `team_language`. Run `/immutable:migrate` when you want to graduate to v3.
+
+# Config schema version.
+#   2 — v0.3 / v0.4 layout, hardcoded defaults (auto-upgraded in v0.5+)
+#   3 — v0.5+ layout, optional `profile:` field
+version: 3
+
+# Repository mode for THIS repo.
+#   two-repo-spec: this is the spec repo (pitches only)
+#   two-repo-app:  this is the app repo (ADRs only)
+#   single-repo:   both pitches and ADRs live here
+repo_mode: two-repo-spec
+
+# Team working language for user-facing prompts.
+# Must match one of `immutable/strings/strings.<locale>.yml` when i18n is enabled.
+# v0.5 ships en + ko + ja catalogs.
+team_language: ko
+
+# Path to pitches (required in two-repo-spec and single-repo modes).
+pitches_path: pitches/
+
+# Template overrides (optional — defaults shown).
+templates:
+  pitch: pitches/TEMPLATE.md
+
+# Profile selection (optional in v0.5).
+#
+# Unset → the plugin selects the default profile matching `team_language`
+# (default-ko / default-en / etc. — bundled with the plugin).
+#
+# Set to a path (absolute or repo-relative) for a team-specific override.
+# Uncomment and edit below to customize sections, personas, gate thresholds,
+# or identifier regex without touching skill code.
+#
+# profile: .immutable-prd/profile.yml

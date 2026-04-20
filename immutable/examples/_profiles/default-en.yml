@@ -1,0 +1,161 @@
+# default-en.yml — English default profile for /immutable:prd authoring.
+#
+# Mirrors default-ko.yml with English canonical section headings, personas,
+# and prompts. Teams with English as their working language select this
+# profile via `config.yml: profile: examples/_profiles/default-en.yml`
+# (or by running `/immutable:init` and picking the en option).
+#
+# See default-ko.yml for per-field documentation; only values differ.
+
+profile_schema: 1
+
+locale: en
+
+display_name: "English default profile"
+
+sections:
+  - id: background
+    heading: "Background and Problem"
+    required: true
+    min_items: 1
+    description: "A third party can summarize intent in ≤3 lines."
+  - id: user_stories
+    heading: "User Stories and Acceptance Criteria"
+    required: true
+    min_items: 2
+    description: "≥2 Given/When/Then blocks covering happy path + alternate/error."
+  - id: edge_cases
+    heading: "Edge Cases"
+    required: true
+    min_items: 2
+    description: "≥2 rows with explicit handling (expected behavior)."
+  - id: no_gos
+    heading: "Out of Scope"
+    required: true
+    min_items: 1
+    description: "≥1 item classified as deferred / intentionally-not-provided / outside-scope."
+  - id: feature_flag
+    heading: "Feature Flag"
+    required: false
+    min_items: 0
+    description: "Only when used. Key + states + initial state + fallback UX."
+
+personas:
+  - id: new_engineer
+    name: "New Engineer"
+    question: "Could I implement this pitch with only this document?"
+    checks:
+      - "Vague directives (\"appropriately\", \"nicely\", \"naturally\")"
+      - "GWT blocks concrete enough to implement"
+      - "Unstated dependencies on other domains"
+  - id: customer_support
+    name: "Customer Support"
+    question: "What does the user see in every edge case?"
+    checks:
+      - "Coverage of network / permission / external-dependency failure modes"
+      - "Defined error messaging or explicit no-go placement"
+      - "Excessive hand-wave phrases (\"delegated to library defaults\")"
+  - id: product_lead
+    name: "Product Lead"
+    question: "Is this pitch at Feature scale?"
+    checks:
+      - "Single-flag toggleability"
+      - "Completion within 2–6 weeks"
+      - "Epic-level content that should be split"
+      - "Overlap or conflict with existing active pitches"
+
+normative_keywords:
+  - key: MUST
+    token: "MUST"
+    meaning: "Required, no exceptions."
+  - key: MUST_NOT
+    token: "MUST NOT"
+    meaning: "Forbidden."
+  - key: SHOULD
+    token: "SHOULD"
+    meaning: "Recommended; justified exceptions allowed."
+  - key: SHOULD_NOT
+    token: "SHOULD NOT"
+    meaning: "Discouraged."
+  - key: MAY
+    token: "MAY"
+    meaning: "Optional."
+
+gate:
+  total: 7
+  pass_threshold: 6
+  reject_on_unresolved: true
+  unresolved_tag: "[TBD]"
+  criteria:
+    - id: background_clear
+      label: "Background clear"
+      pass_condition: "Third party can summarize intent in ≤3 lines; no [TBD] tags remain."
+    - id: gwt_minimum
+      label: "≥2 GWT blocks"
+      pass_condition: "≥2 structurally complete Given/When/Then blocks."
+    - id: normative_minimum
+      label: "≥3 normative statements"
+      pass_condition: "≥3 bracketed normative statements across the body."
+    - id: edge_cases_minimum
+      label: "≥2 edge-case rows"
+      pass_condition: "≥2 rows with explicit handling."
+    - id: no_gos_minimum
+      label: "≥1 no-go"
+      pass_condition: "≥1 classified out-of-scope item."
+    - id: no_code_identifiers
+      label: "0 code identifiers"
+      pass_condition: "Stage 3 identifier scan passes cleanly."
+    - id: feature_scope
+      label: "Feature-scale scope"
+      pass_condition: "Single-flag toggle test passes; 2–6 week completability."
+
+identifier_patterns:
+  - id: camelCase
+    regex: '\b[a-z][a-zA-Z0-9]*[A-Z][a-zA-Z0-9]*\b'
+    hint: "camelCase identifier (likely variable/function/method)"
+  - id: snake_case
+    regex: '\b[a-z]+_[a-z_]+\b'
+    hint: "snake_case identifier (likely Python or filename)"
+  - id: PascalCase
+    regex: '\b[A-Z][a-z]+[A-Z][a-zA-Z]*\b'
+    hint: "PascalCase identifier (likely class/type)"
+  - id: file_path
+    regex: '\b[a-z]+/[a-z_/]+\.(dart|swift|ts|js|py|kt)\b'
+    hint: "Source file path"
+
+naming:
+  filename_pattern: '^\d{4}-\d{2}-\d{2}-[a-z0-9][a-z0-9-]*\.md$'
+  date_format: "%Y-%m-%d"
+  slug_case: kebab
+  slug_language: en
+  forbidden_slug_patterns:
+    - id: delta_describing
+      regex: '^(figma-alignment|policy-update|code-aligned|v\d)'
+      reason: "delta-describing slug — captures the change, not the subject"
+    - id: timeliness
+      regex: '^(latest|final|current)(-|$)'
+      reason: "timeliness-bound term — meaning drifts with every new version"
+
+feature_flag:
+  key_prefix: "ff_"
+  states:
+    - deployed
+    - hidden
+  default_initial: hidden
+  required_fields:
+    - key
+    - states
+    - initial_state
+    - fallback_ux
+
+domain_allowlist:
+  source: "pitches/README.md"
+  reserved_domains:
+    - id: "_shared"
+      description: "Cross-cutting concerns not scoped to a specific domain (auth, logging, error handling)."
+    - id: "_global"
+      description: "ADR-only — architectural decisions that cut across all domains."
+      adr_only: true
+  new_domain_review:
+    near_duplicate_threshold: 2
+    requires_lead_approval: true

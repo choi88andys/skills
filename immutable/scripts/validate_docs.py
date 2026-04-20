@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""validate_docs.py — stand-alone validator for immutable-prd SDD repos (v0.3).
+"""validate_docs.py — stand-alone validator for immutable SDD repos.
 
-Checks the invariants documented in prd/SCHEMA.md for a repo that adopts the
-v0.3 two-doc-type model: `pitch` (spec repo) + `adr` (app repo).
+Checks the invariants documented in SCHEMA.md for a repo that adopts the
+two-doc-type model: `pitch` (spec repo) + `adr` (app repo).
 
 Designed to run:
 
@@ -22,6 +22,25 @@ Coverage (matches SCHEMA.md "Validation invariants"):
 
 Not covered (deferred): cycle detection on supersede chains, body-level
 constraints (e.g., ADR "Consequences" section presence).
+
+--- v0.5 roadmap (S1 stub, completed in S4) ---
+This validator currently treats `version: 2` and `version: 3` identically —
+both are accepted; neither loads a profile file. The regex constants below
+(`FILENAME_RE`), the reserved-domain list (`_global`), and the domain
+allowlist parser are hardcoded. S4 completes profile-awareness:
+
+  * When `config.yml` declares `profile:`, load that profile YAML and
+    consume `naming.filename_pattern`, `domain_allowlist.reserved_domains`,
+    and any future per-profile rules instead of hardcoded values.
+  * When `profile:` is unset, fall back to `default-<team_language>` in
+    `immutable/examples/_profiles/` (ships with the plugin).
+  * Add body-level section checks (ADR requires Context / Decision /
+    Consequences / Alternatives — section headings come from the profile).
+
+Profile-aware behavior is not wired up in S1/v0.5 preview. The v0.4 invariants
+above continue to catch the critical violations. This is the stub referenced
+by the v0.5 roadmap.
+------------------------------------------------
 
 Exit code 0 when clean; 1 when any check fails. Errors print to stderr.
 
