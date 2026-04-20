@@ -15,6 +15,34 @@ Interactively author an append-only Architecture Decision Record. Shares the app
 
 User-facing prompts MUST use the team's language from `.immutable-prd/config.yml` (`team_language`, default `ko`). Skill instructions are English; user-visible strings translate consistently.
 
+## Profile Resolution (v0.5+)
+
+The skill is **profile-aware** in v0.5. ADR-specific tunables — body sections, persona checks, the 6-criterion gate — live under the `adr:` block of the active profile YAML.
+
+### Resolution order
+
+1. If `.immutable-prd/config.yml` declares `profile: <path>` (v3 configs only) AND the file exists → load it.
+2. Else load the bundled default matching `team_language` from `${CLAUDE_PLUGIN_ROOT}/examples/_profiles/default-<lang>.yml`.
+3. If no matching locale profile exists → fall back to `default-en.yml` with a one-line warning.
+
+### Backward compatibility (zero-action migration)
+
+`version: 2` configs (without `profile:`) continue to work — the skill auto-loads the bundled default profile matching `team_language`. Behavior is identical to v0.4. Run `/immutable:migrate` (S4) when ready to graduate to v3.
+
+### Profile fields consumed by /immutable:adr in v0.5
+
+| Profile field | Where used |
+|---|---|
+| `adr.sections[].heading` | Stage 6 body assembly (rendered in ADR file) |
+| `adr.sections[].id` / `min_items` / `description` | Stage 3 interview branches (completion criteria) |
+| `adr.gate.total` / `pass_threshold` / `criteria` | Stage 5 90% completeness gate |
+| `adr.gate.unresolved_tag` | Stage 3/5 unresolved-answer tag (e.g., `[미확정]` for ko, `[TBD]` for en) |
+| `adr.personas[].name` / `question` / `checks` | Stage 4 adversarial review (data SSoT; v0.5 prose stays inline) |
+| `naming.filename_pattern` / `slug_case` / `forbidden_slug_patterns` | Stage 6 filename validation (shared with pitch) |
+| `domain_allowlist.source` / `reserved_domains` | Stage 1 domain check (`_global` reserved here) |
+
+The Korean inline strings below remain as the v0.5 default rendering — they match `default-ko.yml`'s `adr` block. When `team_language: en`, render the equivalent strings from `default-en.yml`. v0.6+ moves all inline strings to a `strings/strings.<locale>.yml` catalog (S3 deliverable).
+
 ## Preconditions
 
 1. `.immutable-prd/config.yml` exists at the app repo root (or detected via walk-up). `repo_mode` must be `two-repo-app` or `single-repo`. If absent, prompt the user to create one via the skeleton in `../SCHEMA.md`. Stop if declined.
@@ -62,6 +90,7 @@ If the user passed no argument, ask once:
 ### 1.2 Environment scan (parallel)
 
 - Read `.immutable-prd/config.yml` → resolve ADR directory, pitches path, team language.
+- **Load profile** per the resolution order in **Profile Resolution** above. Cache `profile.adr.*` for the rest of the session.
 - Glob ADR directory for existing files. Read frontmatter of each to build the supersede chain index.
 - If the user's intent mentions a specific domain or feature, cross-reference with active pitches in that domain.
 
@@ -274,41 +303,49 @@ references:
 
 ### Body structure
 
+Section headings are sourced from `profile.adr.sections[].heading` (looked up by `id`, not hardcoded). Order MUST follow the entries in `profile.adr.sections`.
+
 ```
 # <ADR Title>
 
-## 맥락 (Context)
+## <profile.adr.sections[id=context].heading>
 
-(Branch A)
+(Branch A — default-ko: `맥락 (Context)`; default-en: `Context`)
 
-## 결정 (Decision)
+## <profile.adr.sections[id=decision].heading>
 
-(Branch B — single declarative sentence, then optional 1-paragraph elaboration)
+(Branch B — default-ko: `결정 (Decision)`; default-en: `Decision`. Single declarative sentence, then optional 1-paragraph elaboration.)
 
-## 결과 (Consequences)
+## <profile.adr.sections[id=consequences].heading>
 
-### 긍정적 영향
+(Branch C — default-ko: `결과 (Consequences)`; default-en: `Consequences`. Sub-headings render in the team's language: positive / negative / cost-of-adoption.)
+
+### <positive impact heading>
 - …
 
-### 부정적 영향 / 트레이드오프
+### <negative impact / trade-offs heading>
 - …
 
-### 채택 비용 / 중립
+### <cost of adoption / neutral heading>
 - …
 
-## 검토한 대안 (Alternatives Considered)
+## <profile.adr.sections[id=alternatives].heading>
 
-- **<대안 A>** — <기각 사유>. <재검토 조건>.
-- **<대안 B>** — …
+(Branch D — default-ko: `검토한 대안 (Alternatives Considered)`; default-en: `Alternatives Considered`)
 
-## 재검토 조건 (Revisit Triggers)
+- **<Alt A>** — <rejection reason>. <revisit trigger>.
+- **<Alt B>** — …
 
-(Branch E)
+## <profile.adr.sections[id=revisit_triggers].heading>
 
-## 범위 제외
+(Branch E — default-ko: `재검토 조건 (Revisit Triggers)`; default-en: `Revisit Triggers`)
 
-(Optional — things this ADR explicitly does NOT decide)
+## <profile.adr.sections[id=scope_exclusions].heading>
+
+(Optional — `profile.adr.sections[id=scope_exclusions].required: false`. Default-ko: `범위 제외`; default-en: `Out of Scope`. Omit the section entirely when no exclusions exist.)
 ```
+
+The Consequences sub-headings (positive / negative / cost-of-adoption) are not yet expressed as profile fields in v0.5 — they use the inline defaults shown above (matching default-ko / default-en). v0.6 strings catalog will lift them.
 
 ### Handoff
 

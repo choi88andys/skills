@@ -159,3 +159,87 @@ domain_allowlist:
   new_domain_review:
     near_duplicate_threshold: 2
     requires_lead_approval: true
+
+# -----------------------------------------------------------------------------
+# ADR-specific overrides (added v0.5 / S2). See default-ko.yml for full notes.
+# -----------------------------------------------------------------------------
+adr:
+  sections:
+    - id: context
+      heading: "Context"
+      required: true
+      min_items: 1
+      description: "A third party can summarize what triggered this decision in ≤3 sentences."
+    - id: decision
+      heading: "Decision"
+      required: true
+      min_items: 1
+      description: "A single declarative sentence readable out of context."
+    - id: consequences
+      heading: "Consequences"
+      required: true
+      min_items: 4
+      description: "≥2 positive AND ≥2 negative consequences explicitly listed. Cost-of-adoption optional."
+    - id: alternatives
+      heading: "Alternatives Considered"
+      required: true
+      min_items: 2
+      description: "≥2 alternatives with rejection reason + revisit trigger."
+    - id: revisit_triggers
+      heading: "Revisit Triggers"
+      required: true
+      min_items: 1
+      description: "≥1 metric, milestone, or scheduled review date."
+    - id: scope_exclusions
+      heading: "Out of Scope"
+      required: false
+      min_items: 0
+      description: "Things this ADR explicitly does NOT decide. Optional section."
+
+  personas:
+    - id: new_engineer
+      name: "New Engineer (onboarding next quarter)"
+      question: "Can I understand this decision and apply it consistently from this document alone?"
+      checks:
+        - "Vague decision statements (\"appropriate direction\")"
+        - "Missing rollback or escape hatch"
+        - "Unstated prerequisites (tooling, infra, SDK version)"
+    - id: maintainer
+      name: "Maintainer (2 years from now)"
+      question: "Will I know whether this decision still applies when I inherit this codebase?"
+      checks:
+        - "Absent revisit triggers — \"decide and never look back\""
+        - "Undocumented assumptions that will silently become false"
+        - "Missing link to the pitch(es) that justify the decision"
+    - id: product_lead
+      name: "Product Lead"
+      question: "Does this decision respect the product promise in the referenced pitches?"
+      checks:
+        - "Trade-offs that quietly break a referenced pitch's [MUST] requirement"
+        - "Scope creep (ADR decides more than it claims)"
+        - "Missing linkage when the decision affects an in-flight feature"
+
+  gate:
+    total: 6
+    pass_threshold: 5
+    reject_on_unresolved: true
+    unresolved_tag: "[TBD]"
+    criteria:
+      - id: context_clear
+        label: "Context clear"
+        pass_condition: "Third party summarizes trigger in ≤3 lines; no [TBD] tags remain."
+      - id: decision_singular
+        label: "Single declarative decision"
+        pass_condition: "A single declarative sentence, not a paragraph of hedges."
+      - id: consequences_balanced
+        label: "Consequences balanced"
+        pass_condition: "≥2 positive AND ≥2 negative consequences explicitly listed."
+      - id: alternatives_considered
+        label: "Alternatives considered"
+        pass_condition: "≥2 alternatives with rejection reason."
+      - id: revisit_trigger_present
+        label: "Revisit trigger present"
+        pass_condition: "≥1 metric, milestone, or scheduled review date."
+      - id: references_valid
+        label: "References valid"
+        pass_condition: "references.pitches non-empty (unless _global), all referenced files exist."

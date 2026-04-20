@@ -208,3 +208,96 @@ domain_allowlist:
   new_domain_review:
     near_duplicate_threshold: 2    # Levenshtein distance
     requires_lead_approval: true
+
+# -----------------------------------------------------------------------------
+# ADR-specific overrides (added v0.5 / S2).
+#
+# Pitch fields above (sections, personas, gate, feature_flag) only apply to
+# /immutable:prd. ADR has its own body shape, persona set, and 6-criterion
+# gate — captured below so /immutable:adr can lookup section headings and
+# completeness criteria from the profile instead of hardcoding them.
+#
+# v0.5 scope: /immutable:adr consumes `adr.sections[].heading` for body
+# assembly only. `adr.personas` and `adr.gate` are populated for S3+ use
+# (skill text still references them inline for v0.5 simplicity).
+# -----------------------------------------------------------------------------
+adr:
+  sections:
+    - id: context
+      heading: "맥락 (Context)"
+      required: true
+      min_items: 1
+      description: "제3자가 3줄 이내로 '무엇이 이 결정을 촉발했는지' 요약 가능."
+    - id: decision
+      heading: "결정 (Decision)"
+      required: true
+      min_items: 1
+      description: "맥락 없이 읽어도 의미가 통하는 단일 선언문 1개."
+    - id: consequences
+      heading: "결과 (Consequences)"
+      required: true
+      min_items: 4
+      description: "긍정적 영향 ≥2 AND 부정적 영향 / 트레이드오프 ≥2 명시. 채택 비용은 선택."
+    - id: alternatives
+      heading: "검토한 대안 (Alternatives Considered)"
+      required: true
+      min_items: 2
+      description: "기각 사유 + 재검토 조건이 적힌 대안 ≥2개."
+    - id: revisit_triggers
+      heading: "재검토 조건 (Revisit Triggers)"
+      required: true
+      min_items: 1
+      description: "metric / milestone / 예정된 리뷰 일자 중 ≥1."
+    - id: scope_exclusions
+      heading: "범위 제외"
+      required: false
+      min_items: 0
+      description: "해당 ADR이 명시적으로 결정하지 않는 항목. 선택 섹션."
+
+  personas:
+    - id: new_engineer
+      name: "신입 개발자 (다음 분기 합류)"
+      question: "이 결정을 이 문서만 보고 일관되게 적용할 수 있는가?"
+      checks:
+        - "모호한 결정 진술 ('적절한 방향으로')"
+        - "롤백 또는 escape hatch 누락"
+        - "전제조건 (도구·인프라·SDK 버전 등) 미기재"
+    - id: maintainer
+      name: "유지관리자 (2년 후 인수)"
+      question: "이 코드베이스를 물려받았을 때 이 결정이 여전히 유효한지 알 수 있는가?"
+      checks:
+        - "재검토 조건 부재 — '결정한 뒤 다시 보지 않음'"
+        - "조용히 거짓이 될 미기재 가정"
+        - "결정을 정당화한 pitch 링크 누락"
+    - id: product_lead
+      name: "제품 책임자"
+      question: "이 결정이 참조 pitch들의 product promise를 존중하는가?"
+      checks:
+        - "참조된 pitch의 [MUST] 요구를 조용히 무력화하는 트레이드오프"
+        - "scope creep — ADR이 선언한 것보다 더 많이 결정"
+        - "진행 중 feature와 명확히 연결되지 않은 누락 링크"
+
+  gate:
+    total: 6
+    pass_threshold: 5
+    reject_on_unresolved: true
+    unresolved_tag: "[미확정]"
+    criteria:
+      - id: context_clear
+        label: "맥락 명확"
+        pass_condition: "제3자가 3줄 이내로 트리거를 요약 가능, [미확정] 잔존 없음"
+      - id: decision_singular
+        label: "단일 선언문"
+        pass_condition: "단일 선언문 1개 (헤지 단락 아님)"
+      - id: consequences_balanced
+        label: "결과 균형"
+        pass_condition: "긍정적 ≥2 AND 부정적 ≥2 명시"
+      - id: alternatives_considered
+        label: "대안 검토"
+        pass_condition: "기각 사유 적힌 대안 ≥2개"
+      - id: revisit_trigger_present
+        label: "재검토 조건"
+        pass_condition: "metric / milestone / 리뷰 일자 ≥1"
+      - id: references_valid
+        label: "참조 유효"
+        pass_condition: "references.pitches 비어있지 않음 (또는 _global), 모든 참조 파일 존재"

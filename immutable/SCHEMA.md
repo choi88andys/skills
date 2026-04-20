@@ -83,20 +83,20 @@ ADR references pitches by filename. The `/immutable:adr` skill resolves pitch fi
 
 ```
 <app-repo>/
+├── .immutable-prd/
+│   └── config.yml           # at app root so /immutable:prd and /immutable:adr both resolve via walk-up
 ├── spec/                    # subtree housing pitches
-│   ├── pitches/
-│   │   ├── README.md
-│   │   ├── TEMPLATE.md
-│   │   └── <domain>/YYYY-MM-DD-<slug>.md
-│   └── .immutable-prd/
-│       └── config.yml
+│   └── pitches/
+│       ├── README.md
+│       ├── TEMPLATE.md
+│       └── <domain>/YYYY-MM-DD-<slug>.md
 ├── adr/                     # ADRs live at app repo root (alongside code)
 │   ├── TEMPLATE.md
 │   └── YYYY-MM-DD-<slug>.md
 └── lib/
 ```
 
-In single-repo mode a single `config.yml` declares both `pitches_path` and `adr_path`.
+In single-repo mode a single `config.yml` at the app repo root declares both `pitches_path` and `adr_path`. Config must live at the app root (not inside `spec/`) so the walk-up resolver finds it regardless of which subtree the skill is invoked from.
 
 ---
 
@@ -403,7 +403,24 @@ domain_allowlist:
   new_domain_review:
     near_duplicate_threshold: <int>       # Levenshtein distance
     requires_lead_approval: true | false
+
+# ADR-specific overrides (added v0.5 / S2).
+# Top-level `sections`, `personas`, `gate`, `feature_flag` apply to /immutable:prd
+# only. ADR has its own body shape (Nygard template), persona set, and 6-criterion
+# gate — captured under this `adr:` block so /immutable:adr can lookup section
+# headings and completeness criteria from the profile instead of hardcoding them.
+adr:
+  sections: [ … ]                         # ADR body sections (id, heading, required, min_items, description)
+  personas: [ … ]                         # 3 ADR personas for Stage 4
+  gate:                                   # ADR 6-criterion completeness gate
+    total: <int>
+    pass_threshold: <int>                 # e.g. 5 of 6
+    reject_on_unresolved: true
+    unresolved_tag: "<locale literal>"
+    criteria: [ … ]
 ```
+
+**v0.5 consumption scope**: `/immutable:adr` reads `adr.sections[].heading` for body assembly. `adr.personas` and `adr.gate` are populated for forward compatibility — skill text still references them inline in v0.5 to keep the diff minimal. S3+ shifts the inline strings into a strings catalog and lets profiles fully drive personas/gate.
 
 ### Profile resolution order
 

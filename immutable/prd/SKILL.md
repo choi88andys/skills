@@ -10,7 +10,38 @@ Interactively author an append-only pitch-style PRD file. Enforces format, struc
 
 ## Language Directive
 
-**All user-facing prompts, questions, and messages MUST be in the team's working language (default: Korean).** The skill instructions below are in English for maintainability, but every message shown to the user is in the team's language. If the team works in a different language, translate all user-facing strings consistently.
+**All user-facing prompts, questions, and messages MUST be in the team's working language (default: Korean, set by `team_language` in `.immutable-prd/config.yml`).** The skill instructions below are in English for maintainability; every message shown to the user is in the team's language. If the team works in a different language, translate all user-facing strings consistently.
+
+## Profile Resolution (v0.5+)
+
+The skill is **profile-aware** in v0.5: section headings, the gate threshold, persona checks, identifier-detection regex, and filename rules are sourced from a profile YAML rather than hardcoded.
+
+### Resolution order
+
+1. If `.immutable-prd/config.yml` declares `profile: <path>` (v3 configs only) AND the file exists → load it.
+2. Else load the bundled default matching `team_language` from `${CLAUDE_PLUGIN_ROOT}/examples/_profiles/default-<lang>.yml`.
+3. If no matching locale profile exists → fall back to `default-en.yml` with a one-line warning.
+
+### Backward compatibility (zero-action migration)
+
+`version: 2` configs (without `profile:`) continue to work unchanged — the skill auto-loads the bundled default profile matching `team_language`. Behavior is identical to v0.4. Run `/immutable:migrate` (S4) when ready to graduate to v3.
+
+### Profile fields consumed by /immutable:prd in v0.5
+
+| Profile field | Where used |
+|---|---|
+| `sections[].heading` | Stage 6 body assembly (rendered in pitch file) |
+| `sections[].id` / `min_items` / `description` | Stage 2 interview branches (completion criteria) |
+| `normative_keywords[].token` / `meaning` | Stage 2 Branch C bracket vocabulary |
+| `identifier_patterns[].regex` / `hint` | Stage 3 code-identifier detection |
+| `naming.filename_pattern` / `slug_case` / `forbidden_slug_patterns` | Stage 6 filename validation |
+| `feature_flag.*` | Stage 2 Branch F (key prefix, states, fallback) |
+| `domain_allowlist.source` / `reserved_domains` | Stage 1 / Stage 3 domain checks |
+| `gate.total` / `pass_threshold` / `criteria` | Stage 5 90% completeness gate |
+| `gate.unresolved_tag` | Stage 2/5 unresolved-answer tag (e.g., `[미확정]` for ko, `[TBD]` for en) |
+| `gate.reject_on_unresolved` | Stage 5 hard-block flag |
+
+The Korean inline strings below remain as the v0.5 default rendering — they match `default-ko.yml`. When `team_language: en`, render the equivalent strings from `default-en.yml`. v0.6+ moves all inline strings to a `strings/strings.<locale>.yml` catalog (S3 deliverable).
 
 ## Preconditions
 
@@ -81,10 +112,15 @@ If the user did not pass an argument, ask exactly once:
 
 Use Bash + Glob + Read to collect:
 
-1. Confirm `pitches/` exists in CWD. If not, stop:
+1. **Resolve config + profile** (added v0.5):
+   - Walk up from CWD to find `.immutable-prd/config.yml` (use `scripts/find_config.sh`).
+   - If config absent: prompt the user to run `/immutable:init` first, or fall back to the inferred-defaults path documented in `../SCHEMA.md`.
+   - Read `team_language`, `profile:` (if v3), and other config fields.
+   - Load profile per the resolution order in **Profile Resolution** above. Cache the parsed profile for the rest of the session.
+2. Confirm `pitches/` exists in CWD (or at the configured `pitches_path`). If not, stop:
    > "현재 디렉토리에 pitches/가 없습니다. 스펙 레포 루트에서 다시 실행해주세요."
-2. Read `pitches/README.md` — extract domain allowlist from the allowed-domains table (rows matching `` | `<name>` | ``).
-3. For each allowlisted domain directory, scan `*.md` frontmatter to find the active pitch (`deprecated: false`, not `README.md`, not `TEMPLATE.md`).
+3. Read `pitches/README.md` — extract domain allowlist from the allowed-domains table (rows matching `` | `<name>` | ``). Use `profile.domain_allowlist.source` if it differs from the default `pitches/README.md`.
+4. For each allowlisted domain directory, scan `*.md` frontmatter to find the active pitch (`deprecated: false`, not `README.md`, not `TEMPLATE.md`).
 
 ### 1.3 Classify intent
 
@@ -226,7 +262,7 @@ At least one happy path + at least one alternate/error branch. Minimum 2 GWT blo
 
 #### Branch C — Normative Keywords
 
-For each GWT, extract binding statements using the five RFC 2119 keywords:
+For each GWT, extract binding statements using the bracket vocabulary from `profile.normative_keywords`. The bundled defaults are RFC 2119:
 
 - `[MUST]` — required, no exceptions
 - `[MUST NOT]` — forbidden
@@ -234,7 +270,9 @@ For each GWT, extract binding statements using the five RFC 2119 keywords:
 - `[SHOULD NOT]` — discouraged
 - `[MAY]` — optional
 
-**Completion criterion**: at least 3 bracketed normative statements across the body.
+When the profile overrides `normative_keywords`, render the team's tokens instead of these defaults. Token + meaning come from `profile.normative_keywords[].token` and `.meaning`.
+
+**Completion criterion**: at least 3 bracketed normative statements across the body (matches `profile.gate.criteria[id=normative_minimum]`).
 
 #### Branch D — Edge Cases
 
@@ -278,14 +316,16 @@ Apply the **Goldilocks test**: "Can this entire feature be toggled on/off by a s
 
 ### Checks
 
-1. **Code identifier detection** via regex:
+1. **Code identifier detection** via the regex list in `profile.identifier_patterns`. Bundled defaults (default-ko / default-en):
    - camelCase: `\b[a-z][a-zA-Z0-9]*[A-Z][a-zA-Z0-9]*\b`
    - snake_case: `\b[a-z]+_[a-z_]+\b`
    - PascalCase: `\b[A-Z][a-z]+[A-Z][a-zA-Z]*\b`
    - file paths: `\b[a-z]+/[a-z_/]+\.(dart|swift|ts|js|py|kt)\b`
 
+   Teams override via a custom profile (e.g., add Kotlin object literals, Swift enum cases). Use the `hint` field from `profile.identifier_patterns[]` for the warning message.
+
    On hit:
-   > "본문에 코드 식별자 '`XYZ`'가 있습니다. 도메인 용어로 바꿔주세요."
+   > "본문에 코드 식별자 '`XYZ`'가 있습니다. 도메인 용어로 바꿔주세요. (감지 패턴: <hint>)"
 
 2. **Terminology consistency** against existing active pitches. If a new word is introduced for an already-named concept, call it out.
 
@@ -403,14 +443,16 @@ deprecated: false
 
 ### Body assembly
 
-Start from `pitches/TEMPLATE.md`. Populate sections from interview answers:
+Start from `pitches/TEMPLATE.md`. Populate sections from interview answers, using **section headings from `profile.sections[].heading`** (looked up by `id`, not hardcoded):
 
 - `# <title>` — user-confirmed title
-- `## 배경과 문제` — Branch A
-- `## 사용자 스토리 및 수용 조건` — Branch B + Branch C (normatives injected)
-- `## 엣지 케이스` — Branch D
-- `## 범위 제외 (No-gos)` — Branch E
-- `## Feature Flag` — Branch F (only when used)
+- `## <profile.sections[id=background].heading>` — Branch A (default-ko: `배경과 문제`; default-en: `Background and Problem`)
+- `## <profile.sections[id=user_stories].heading>` — Branch B + Branch C (default-ko: `사용자 스토리 및 수용 조건`; default-en: `User Stories and Acceptance Criteria`)
+- `## <profile.sections[id=edge_cases].heading>` — Branch D (default-ko: `엣지 케이스`; default-en: `Edge Cases`)
+- `## <profile.sections[id=no_gos].heading>` — Branch E (default-ko: `범위 제외 (No-gos)`; default-en: `Out of Scope`)
+- `## <profile.sections[id=feature_flag].heading>` — Branch F (only when used; default-ko/en: `Feature Flag`)
+
+Section order MUST follow the order of entries in `profile.sections`. Skill consults `profile.sections[i].id` to know which interview branch's content fills each section.
 
 ### Handoff output
 

@@ -1,0 +1,28 @@
+# immutable plugin config (v0.5 — config schema v3).
+#
+# This starter bootstraps an English-language single-repo (pitches + ADRs in
+# the same repo). Pitches live in `spec/pitches/`; ADRs at the app repo root.
+#
+# Config lives at app repo root so the walk-up resolver finds it whether
+# `/immutable:prd` is invoked from inside spec/ or `/immutable:adr` from
+# alongside ADRs.
+
+version: 3
+
+repo_mode: single-repo
+
+team_language: en
+
+# Pitches in a subtree (separates from implementation).
+pitches_path: spec/pitches/
+
+# ADRs at the app repo root alongside code.
+adr_path: adr/
+
+templates:
+  pitch: spec/pitches/TEMPLATE.md
+  adr: adr/TEMPLATE.md
+
+# Profile selection (optional in v0.5).
+# Unset → bundled default profile matching `team_language`.
+# profile: .immutable-prd/profile.yml
