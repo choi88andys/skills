@@ -4,7 +4,7 @@ Shared schema reference for the immutable SDD toolkit. The `/immutable:prd` skil
 
 **Status**: v0.4 base schema. v0.5 introduces **config schema v3** — an optional profile system that externalizes what v0.4 hardcoded into skill code (section headings, adversarial personas, 90% gate thresholds, identifier regex, filename conventions). Doc types, append-only semantics, and supersede chain rules are unchanged.
 
-**Compatibility**: v2 configs (`version: 2`, no `profile:` field) continue to work without modification. The plugin auto-loads the default profile that matches `team_language` — zero action required. Teams can graduate to v3 by running `/immutable:migrate` (S4 deliverable) or by hand-editing `.immutable-prd/config.yml`.
+**Compatibility**: v2 configs (`version: 2`, no `profile:` field) continue to work without modification. The plugin auto-loads the default profile that matches `team_language` — zero action required. Teams can graduate to v3 by running `/immutable:migrate` (v0.5 / S4) or by hand-editing `.immutable-prd/config.yml`.
 
 **Scope of v0.5 schema changes**: config file only. Frontmatter fields, filename rules, supersede mechanics, and validation invariants are unchanged. Any v0.4 pitch or ADR remains valid under v0.5.
 
@@ -188,7 +188,7 @@ All other v2 fields (`repo_mode`, `team_language`, `pitches_path`, `adr_path`, `
 **Interop rule**: `version: 2` without `profile:` is valid in v0.5+. The plugin auto-loads the default profile matching `team_language`. Authors opt in to customization by either:
 
 - bumping `version: 2 → 3` and adding `profile:` (explicit, recommended), or
-- running `/immutable:migrate` (S4) which performs the bump and seeds a default-copy profile file.
+- running `/immutable:migrate` (v0.5 / S4) which performs the bump and seeds a default-copy profile file.
 
 ### Detection & fallback
 
@@ -297,10 +297,14 @@ Checked at generation time by the `/immutable:adr` skill, and by CI via `scripts
 2. **Supersede chain integrity**: `supersedes` target exists in the same directory, has `deprecated: true`, and no cycles.
 3. **At most one active per chain**: per (domain, type), exactly one file has `deprecated: false`.
 4. **Reference existence**: every filename in `references.pitches` exists at the configured pitches location.
-5. **Reference policy**: ADR `references.pitches` non-empty unless `domain: _global`.
-6. **Domain allowlist**: pitch/ADR `domain` is in `pitches/README.md`, with `_global` reserved (allowed for ADRs only, validator special-cases and skips the allowlist lookup).
-7. **Filename format**: matches `YYYY-MM-DD-<kebab-slug>\.md`.
-8. **Body constraints**: type-specific (pitch forbids code identifiers; ADR requires Context / Decision / Consequences / Alternatives sections).
+5. **Reference policy**: ADR `references.pitches` non-empty unless the domain is declared `adr_only` in `profile.domain_allowlist.reserved_domains` (e.g., `_global`).
+6. **Domain allowlist**: pitch/ADR `domain` is in `pitches/README.md`, with reserved domains special-cased (validator reads the reserved list + `adr_only` flag from the profile and skips allowlist lookup for reserved IDs).
+7. **Filename format**: matches `profile.naming.filename_pattern` (default `^\d{4}-\d{2}-\d{2}-[a-z0-9][a-z0-9-]*\.md$` when no profile is loaded).
+8. **Body constraints**: type-specific.
+   - *pitch*: forbids code identifiers (enforced by `/immutable:prd` at authoring time, not by the CI validator).
+   - *ADR*: each section marked `required: true` in `profile.adr.sections[]` must appear as an `##` heading. **Opt-in via `scripts/validate_docs.py --strict-body`** (off by default, for backward compatibility with v0.4 ADRs authored before the profile system existed).
+
+**Profile awareness** (v0.5+): the CI validator loads the profile via the same resolution order as the skills — config.yml `profile:` → bundled `default-<team_language>.yml` → hardcoded last-resort defaults. v2 configs get the bundled default automatically; no config bump required.
 
 ---
 
@@ -596,8 +600,8 @@ v0.3 makes no promise of backward compatibility for the dropped doc types. They 
 
 **Graduate to v3** when you want to override section headings, gate thresholds, personas, or identifier regex:
 
-1. Run `/immutable:migrate` (S4). It bumps `version: 2 → 3` in your existing `config.yml`, copies the matching default profile into `.immutable-prd/profile.yml`, and adds a pointer `profile: .immutable-prd/profile.yml`.
-2. Edit `profile.yml` — change only the fields you want to diverge from the default.
+1. Run `/immutable:migrate` (available in v0.5). It bumps `version: 2 → 3` in your existing `config.yml`, copies the matching default profile into `.immutable-prd/profile.yml`, and uncomments the `profile: .immutable-prd/profile.yml` pointer. The operation is idempotent and zero-data-loss — re-running on an already-migrated repo aborts cleanly, and an existing `profile.yml` is preserved.
+2. Edit `profile.yml` — change only the fields you want to diverge from the default. Unedited fields continue to fall back to the bundled default.
 3. Commit both files in the same PR. Existing pitches and ADRs remain valid (no body changes required).
 
 **Manual upgrade** (without `/immutable:migrate`):

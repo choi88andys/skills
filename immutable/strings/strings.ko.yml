@@ -50,7 +50,7 @@ strings:
     이 디렉토리는 이미 immutable로 초기화되어 있습니다 (.immutable-prd/config.yml 존재).
 
     옵션:
-    - v2 → v3 업그레이드: `/immutable:migrate` (S4 deliverable, 아직 미출시 시 수동 편집)
+    - v2 → v3 업그레이드: `/immutable:migrate` 실행 (idempotent, zero-data-loss)
     - 재-부트스트랩: `.immutable-prd/config.yml`을 먼저 삭제한 뒤 `/immutable:init` 재실행
     - 추가 starter 적용 (single → two-repo 분리 등): 별도 디렉토리에서 init 실행 후 수동 통합
 
@@ -234,6 +234,66 @@ strings:
   adr.consequences.positive_heading: "긍정적 영향"
   adr.consequences.negative_heading: "부정적 영향 / 트레이드오프"
   adr.consequences.cost_of_adoption_heading: "채택 비용 / 중립"
+
+  # ==========================================================================
+  # migrate skill  (v0.5 / S4)
+  # ==========================================================================
+
+  migrate.stage1.not_initialized: |
+    현재 디렉토리와 상위 경로에서 `.immutable-prd/config.yml`을 찾지 못했습니다.
+
+    `/immutable:migrate`는 이미 초기화된 immutable SDD 레포에서만 실행합니다. 새 레포를 시작한다면 먼저 `/immutable:init`을 실행해주세요.
+
+    작업을 중단합니다.
+
+  migrate.stage1.already_v3: |
+    이미 config schema v{current_version}로 마이그레이션되어 있습니다 ({config_path}).
+
+    `/immutable:migrate`는 `version: 2` → `version: 3` 전환 전용입니다. 추가 작업은 필요하지 않습니다.
+
+    참고:
+    - repo-local profile 편집이 필요하면 `.immutable-prd/profile.yml` 파일을 직접 수정하세요.
+    - profile을 새로 도입하려면 `cp ${CLAUDE_PLUGIN_ROOT}/examples/_profiles/default-<lang>.yml .immutable-prd/profile.yml` 후 config.yml의 `profile:` 라인 주석 해제.
+
+    작업을 중단합니다.
+
+  migrate.stage2.plan_preview: |
+    다음 변경을 수행합니다:
+
+    1. config schema 버전 업그레이드: {current_version} → {target_version}
+    2. bundled profile 복사: {profile_source_path} → {profile_dest_path}
+    3. config.yml의 `# profile: ...` 주석 해제 → `profile: .immutable-prd/profile.yml`
+
+    Preconditions:
+    - 작업은 idempotent합니다 (이미 v3이거나 profile.yml이 존재하면 안전하게 skip).
+    - git 명령은 실행하지 않습니다 — 변경 검토 후 직접 커밋해주세요.
+
+    진행할까요? (yes / no)
+
+  migrate.stage2.user_declined: |
+    마이그레이션을 취소했습니다. 파일 변경 없음.
+
+    작업을 중단합니다.
+
+  migrate.stage3.profile_exists_warning: |
+    {profile_dest_path}가 이미 존재합니다. 기존 파일을 보존하고 복사를 건너뜁니다. config.yml의 version bump + `profile:` 활성화는 그대로 진행합니다.
+
+  migrate.stage4.handoff: |
+    마이그레이션 완료:
+    - {config_path}: version 3으로 업그레이드, `profile:` 라인 활성화
+    - {profile_path}: repo-local profile 준비됨 (편집 가능)
+
+    다음 단계:
+
+    ```bash
+    git add .immutable-prd/config.yml .immutable-prd/profile.yml
+    git commit -m "chore(immutable): migrate config v2 → v3"
+    ```
+
+    참고:
+    - profile.yml의 sections / personas / gate / naming 필드를 자유롭게 편집하세요.
+    - 편집하지 않은 필드는 bundled default로 fallback됩니다.
+    - 문제 발생 시 `git restore .immutable-prd/config.yml` + `rm .immutable-prd/profile.yml`로 롤백.
 
   # ==========================================================================
   # common (shared across skills)

@@ -15,31 +15,31 @@ Coverage (matches SCHEMA.md "Validation invariants"):
   2. Each doc's frontmatter parses and contains required fields.
   3. Referenced pitch filenames resolve to an existing file (in this repo for
      spec/single-repo mode, in sibling spec repo for app-repo mode).
-  4. Reference policy — ADR `references.pitches` non-empty unless `domain: _global`.
-  5. Domain allowlist (with `_global` ADR special-case).
-  6. Filename format matches `YYYY-MM-DD-<kebab-slug>.md`.
+  4. Reference policy — ADR `references.pitches` non-empty unless the domain is
+     declared `adr_only` in the profile's `domain_allowlist.reserved_domains`
+     (e.g., `_global`).
+  5. Domain allowlist — `pitches/README.md` rows, with reserved-domain
+     special-cases sourced from the profile.
+  6. Filename format — matches the profile's `naming.filename_pattern`
+     (falls back to `YYYY-MM-DD-<kebab-slug>.md` when no profile is set).
   7. Single-active-per-chain invariant per (domain, type).
+  8. ADR body-level check — **optional, enabled via `--strict-body`.** Every
+     `profile.adr.sections[i].required == true` entry must appear as an `##`
+     heading. Off by default to preserve backward compatibility with v0.4 ADRs
+     authored before the profile system existed.
 
-Not covered (deferred): cycle detection on supersede chains, body-level
-constraints (e.g., ADR "Consequences" section presence).
+Not covered (deferred): cycle detection on supersede chains.
 
---- v0.5 roadmap (S1 stub, completed in S4) ---
-This validator currently treats `version: 2` and `version: 3` identically —
-both are accepted; neither loads a profile file. The regex constants below
-(`FILENAME_RE`), the reserved-domain list (`_global`), and the domain
-allowlist parser are hardcoded. S4 completes profile-awareness:
+--- Profile awareness (v0.5 / S4) ---
+This validator is profile-aware. Resolution order per run:
 
-  * When `config.yml` declares `profile:`, load that profile YAML and
-    consume `naming.filename_pattern`, `domain_allowlist.reserved_domains`,
-    and any future per-profile rules instead of hardcoded values.
-  * When `profile:` is unset, fall back to `default-<team_language>` in
-    `immutable/examples/_profiles/` (ships with the plugin).
-  * Add body-level section checks (ADR requires Context / Decision /
-    Consequences / Alternatives — section headings come from the profile).
+  1. If `config.yml` declares `profile:` and the file exists, load it.
+  2. Otherwise load the bundled default matching `team_language` from
+     `<plugin>/examples/_profiles/default-<lang>.yml` (relative to this script).
+  3. Otherwise fall back to the hardcoded DEFAULT_* constants below.
 
-Profile-aware behavior is not wired up in S1/v0.5 preview. The v0.4 invariants
-above continue to catch the critical violations. This is the stub referenced
-by the v0.5 roadmap.
+`version: 2` and `version: 3` configs are both accepted. v2 configs trigger
+step 2 automatically (bundled default profile) — zero user action required.
 ------------------------------------------------
 
 Exit code 0 when clean; 1 when any check fails. Errors print to stderr.
@@ -65,8 +65,17 @@ except ImportError:
     sys.exit(2)
 
 
-FILENAME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}-[a-z0-9][a-z0-9-]*\.md$")
+# Last-resort defaults used only when profile loading fails entirely.
+# Profile fields normally supply these values (see load_profile + helpers).
+DEFAULT_FILENAME_REGEX = r"^\d{4}-\d{2}-\d{2}-[a-z0-9][a-z0-9-]*\.md$"
+DEFAULT_RESERVED_DOMAINS: dict[str, dict[str, Any]] = {
+    "_global": {"adr_only": True},
+    "_shared": {"adr_only": False},
+}
+
 FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---\n", re.DOTALL)
+HEADING_RE = re.compile(r"^(#+) +(.+?)\s*$", re.MULTILINE)
+FENCED_CODE_RE = re.compile(r"```.*?```", re.DOTALL)
 
 DOC_TYPES = ("pitch", "adr")
 REPO_MODES = ("two-repo-spec", "two-repo-app", "single-repo")
@@ -122,6 +131,94 @@ def load_config(path: Path) -> dict[str, Any]:
             die(f"config.yml repo_mode=single-repo requires {sorted(missing_paths)}")
 
     return data
+
+
+def load_profile(config: dict[str, Any], repo_root: Path) -> dict[str, Any]:
+    """Resolve and load the active profile for this repo.
+
+    Resolution order:
+      1. config.yml `profile:` (relative to repo_root) — load if exists.
+      2. Bundled `default-<team_language>.yml` next to this script — load if exists.
+      3. Empty dict — callers fall back to the DEFAULT_* module constants.
+
+    Parse failures at steps 1–2 emit a warning and fall through to the next
+    step. Missing-file at step 1 silently falls through (user may point at a
+    profile that is pending creation).
+    """
+    profile_ref = config.get("profile")
+    if profile_ref:
+        candidate = (repo_root / profile_ref).resolve()
+        if candidate.exists():
+            try:
+                with candidate.open("r", encoding="utf-8") as fh:
+                    return yaml.safe_load(fh) or {}
+            except yaml.YAMLError as exc:
+                sys.stderr.write(
+                    f"warning: profile at {candidate} failed to parse ({exc}); "
+                    f"falling back to bundled default.\n"
+                )
+
+    team_lang = config.get("team_language", "en")
+    script_dir = Path(__file__).resolve().parent
+    bundled = script_dir.parent / "examples" / "_profiles" / f"default-{team_lang}.yml"
+    if bundled.exists():
+        try:
+            with bundled.open("r", encoding="utf-8") as fh:
+                return yaml.safe_load(fh) or {}
+        except yaml.YAMLError as exc:
+            sys.stderr.write(
+                f"warning: bundled profile {bundled} failed to parse ({exc}); "
+                f"using hardcoded defaults.\n"
+            )
+
+    return {}
+
+
+def profile_filename_pattern(profile: dict[str, Any]) -> re.Pattern[str]:
+    pattern = profile.get("naming", {}).get("filename_pattern") if profile else None
+    if not pattern:
+        pattern = DEFAULT_FILENAME_REGEX
+    try:
+        return re.compile(pattern)
+    except re.error as exc:
+        sys.stderr.write(
+            f"warning: profile naming.filename_pattern is invalid regex ({exc}); "
+            f"using built-in default.\n"
+        )
+        return re.compile(DEFAULT_FILENAME_REGEX)
+
+
+def profile_reserved_domains(profile: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    reserved = (
+        profile.get("domain_allowlist", {}).get("reserved_domains") if profile else None
+    )
+    if not reserved:
+        return dict(DEFAULT_RESERVED_DOMAINS)
+    result: dict[str, dict[str, Any]] = {}
+    for entry in reserved:
+        if not isinstance(entry, dict):
+            continue
+        key = entry.get("id")
+        if not key:
+            continue
+        result[key] = {"adr_only": bool(entry.get("adr_only", False))}
+    return result or dict(DEFAULT_RESERVED_DOMAINS)
+
+
+def profile_required_adr_headings(profile: dict[str, Any]) -> list[str]:
+    sections = profile.get("adr", {}).get("sections") if profile else None
+    if not sections:
+        return []
+    out: list[str] = []
+    for entry in sections:
+        if not isinstance(entry, dict):
+            continue
+        if entry.get("required") is not True:
+            continue
+        heading = entry.get("heading")
+        if heading:
+            out.append(str(heading).strip())
+    return out
 
 
 def load_frontmatter(md_path: Path) -> dict[str, Any] | None:
@@ -198,11 +295,15 @@ def iter_docs(doc_root: Path, doc_type: str) -> list[Path]:
     ]
 
 
-def check_filename(path: Path, violations: list[str]) -> None:
-    if not FILENAME_RE.match(path.name):
+def check_filename(
+    path: Path,
+    filename_pattern: re.Pattern[str],
+    violations: list[str],
+) -> None:
+    if not filename_pattern.match(path.name):
         warn(
             violations,
-            f"filename format violation: {path} (expected YYYY-MM-DD-<kebab-slug>.md)",
+            f"filename format violation: {path} (expected pattern: {filename_pattern.pattern})",
         )
 
 
@@ -240,17 +341,18 @@ def check_domain(
     fm: dict[str, Any],
     doc_type: str,
     allow: set[str],
+    reserved: dict[str, dict[str, Any]],
     violations: list[str],
 ) -> None:
     domain = fm.get("domain")
     if domain is None:
         warn(violations, f"{path}: missing frontmatter `domain`")
         return
-    if domain == "_global":
-        if doc_type != "adr":
+    if domain in reserved:
+        if reserved[domain].get("adr_only") and doc_type != "adr":
             warn(
                 violations,
-                f"{path}: `_global` domain is reserved for ADRs; got doc_type={doc_type}",
+                f"{path}: `{domain}` domain is reserved for ADRs; got doc_type={doc_type}",
             )
         return
     if allow and domain not in allow:
@@ -265,6 +367,7 @@ def check_references(
     fm: dict[str, Any],
     doc_type: str,
     pitches_ref_root: Path | None,
+    reserved: dict[str, dict[str, Any]],
     violations: list[str],
 ) -> None:
     refs = fm.get("references") or {}
@@ -273,12 +376,18 @@ def check_references(
         warn(violations, f"{path}: references.pitches must be a list")
         return
 
-    # Reference policy: ADR must have ≥1 pitch unless _global.
-    if doc_type == "adr":
-        if not listed and fm.get("domain") != "_global":
+    # Reference policy: ADR must have ≥1 pitch unless its domain is declared
+    # `adr_only` in the profile's reserved-domain list (e.g., _global).
+    if doc_type == "adr" and not listed:
+        domain = fm.get("domain")
+        is_adr_only_reserved = (
+            domain in reserved and reserved[domain].get("adr_only")
+        )
+        if not is_adr_only_reserved:
             warn(
                 violations,
-                f"{path}: ADR references.pitches must be non-empty (or use domain: _global)",
+                f"{path}: ADR references.pitches must be non-empty "
+                f"(or use an ADR-only reserved domain like `_global`)",
             )
 
     # Existence check (pitches only — v0.3 doesn't model adrs/designs/tech_specs refs).
@@ -290,6 +399,40 @@ def check_references(
             warn(
                 violations,
                 f"{path}: references.pitches file not found: {value} (searched {pitches_ref_root})",
+            )
+
+
+def validate_adr_body(
+    path: Path,
+    required_headings: list[str],
+    violations: list[str],
+) -> None:
+    """Check that every profile-required ADR section appears as an H2 heading.
+
+    Fenced code blocks are stripped before heading detection so literal `##` in
+    example code does not false-match. Heading comparison is exact after strip()
+    — users who customize headings update the profile, so the profile's
+    `sections[i].heading` is the authoritative string.
+    """
+    if not required_headings:
+        return
+    text = path.read_text(encoding="utf-8")
+    fm_match = FRONTMATTER_RE.match(text)
+    body = text[fm_match.end():] if fm_match else text
+    body = FENCED_CODE_RE.sub("", body)
+
+    found_h2: set[str] = set()
+    for match in HEADING_RE.finditer(body):
+        level = len(match.group(1))
+        if level == 2:
+            found_h2.add(match.group(2).strip())
+
+    for heading in required_headings:
+        if heading not in found_h2:
+            warn(
+                violations,
+                f"{path}: missing required ADR section `## {heading}` "
+                f"(profile-driven body check)",
             )
 
 
@@ -331,6 +474,15 @@ def main() -> int:
         action="store_true",
         help="Emit a JSON summary instead of human-readable text.",
     )
+    parser.add_argument(
+        "--strict-body",
+        action="store_true",
+        help=(
+            "Also check that each ADR body contains every profile-required "
+            "section heading as H2. Default: off (backward-compatible with "
+            "v0.4 repos authored before the profile system existed)."
+        ),
+    )
     args = parser.parse_args()
 
     config_path = args.config or find_config()
@@ -343,6 +495,13 @@ def main() -> int:
     config = load_config(config_path)
 
     repo_root = config_path.parent.parent
+    profile = load_profile(config, repo_root)
+    filename_pattern = profile_filename_pattern(profile)
+    reserved = profile_reserved_domains(profile)
+    required_adr_headings = (
+        profile_required_adr_headings(profile) if args.strict_body else []
+    )
+
     dirs = resolve_dirs(config, repo_root)
     pitches_ref_root = resolve_pitches_for_reference(config, repo_root)
 
@@ -359,14 +518,23 @@ def main() -> int:
             continue
         collected: list[tuple[Path, dict[str, Any]]] = []
         for md_path in iter_docs(doc_root, doc_type):
-            check_filename(md_path, violations)
+            check_filename(md_path, filename_pattern, violations)
             fm = load_frontmatter(md_path)
             fm_checked = check_frontmatter(md_path, doc_type, fm, violations)
             if fm_checked:
-                check_domain(md_path, fm_checked, doc_type, allow, violations)
-                check_references(
-                    md_path, fm_checked, doc_type, pitches_ref_root, violations
+                check_domain(
+                    md_path, fm_checked, doc_type, allow, reserved, violations
                 )
+                check_references(
+                    md_path,
+                    fm_checked,
+                    doc_type,
+                    pitches_ref_root,
+                    reserved,
+                    violations,
+                )
+                if doc_type == "adr" and args.strict_body:
+                    validate_adr_body(md_path, required_adr_headings, violations)
                 collected.append((md_path, fm_checked))
         check_single_active_invariant(doc_type, collected, violations)
 

@@ -24,7 +24,7 @@ strings:
     This directory is already initialized with immutable (.immutable-prd/config.yml exists).
 
     Options:
-    - v2 → v3 upgrade: `/immutable:migrate` (S4 deliverable; edit by hand until released)
+    - v2 → v3 upgrade: run `/immutable:migrate` (idempotent, zero-data-loss)
     - Re-bootstrap: delete `.immutable-prd/config.yml` first, then rerun `/immutable:init`
     - Apply an additional starter (e.g., single → two-repo split): run init in a separate directory and merge manually
 
@@ -208,6 +208,66 @@ strings:
   adr.consequences.positive_heading: "Positive"
   adr.consequences.negative_heading: "Negative / Trade-offs"
   adr.consequences.cost_of_adoption_heading: "Cost of adoption / Neutral"
+
+  # ==========================================================================
+  # migrate skill  (v0.5 / S4)
+  # ==========================================================================
+
+  migrate.stage1.not_initialized: |
+    Could not find `.immutable-prd/config.yml` in the current directory or any parent.
+
+    `/immutable:migrate` only runs against an already-initialized immutable SDD repo. If you are starting a new repo, run `/immutable:init` first.
+
+    Aborting.
+
+  migrate.stage1.already_v3: |
+    This repo is already at config schema v{current_version} ({config_path}).
+
+    `/immutable:migrate` handles only the `version: 2` → `version: 3` transition. No further action required.
+
+    Notes:
+    - To edit a repo-local profile, open `.immutable-prd/profile.yml` directly.
+    - To introduce a profile now, run `cp ${CLAUDE_PLUGIN_ROOT}/examples/_profiles/default-<lang>.yml .immutable-prd/profile.yml`, then uncomment the `profile:` line in config.yml.
+
+    Aborting.
+
+  migrate.stage2.plan_preview: |
+    The following changes will be made:
+
+    1. Config schema version bump: {current_version} → {target_version}
+    2. Copy bundled profile: {profile_source_path} → {profile_dest_path}
+    3. Uncomment `# profile: ...` in config.yml → `profile: .immutable-prd/profile.yml`
+
+    Preconditions:
+    - The operation is idempotent (skips safely if already v3 or profile.yml exists).
+    - No git commands are executed — review the changes and commit yourself.
+
+    Proceed? (yes / no)
+
+  migrate.stage2.user_declined: |
+    Migration cancelled. No files changed.
+
+    Aborting.
+
+  migrate.stage3.profile_exists_warning: |
+    {profile_dest_path} already exists. Preserving it and skipping the copy. The version bump and `profile:` line activation in config.yml will still proceed.
+
+  migrate.stage4.handoff: |
+    Migration complete:
+    - {config_path}: upgraded to version 3, `profile:` line activated
+    - {profile_path}: repo-local profile ready (editable)
+
+    Next steps:
+
+    ```bash
+    git add .immutable-prd/config.yml .immutable-prd/profile.yml
+    git commit -m "chore(immutable): migrate config v2 → v3"
+    ```
+
+    Notes:
+    - Edit any of the sections / personas / gate / naming fields in profile.yml freely.
+    - Fields you do not edit fall back to the bundled default.
+    - To roll back on trouble: `git restore .immutable-prd/config.yml` + `rm .immutable-prd/profile.yml`.
 
   # ==========================================================================
   # common (shared across skills)

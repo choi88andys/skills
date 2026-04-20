@@ -10,7 +10,7 @@
   "plugins": [
     {
       "name": "immutable",
-      "description": "Append-only SDD toolkit. `/immutable:init` bootstraps a starter (six modes: spec/app/single × ko/en). `/immutable:prd` authors pitches (WHAT). `/immutable:adr` authors Architecture Decision Records (WHY). All three enforce grill-me interview, adversarial review, and a 90% completeness gate. v0.5 introduces profile-driven section headings + zero-action migration for v2 configs.",
+      "description": "Append-only SDD toolkit. `/immutable:init` bootstraps a starter (six modes: spec/app/single × ko/en). `/immutable:prd` authors pitches (WHAT). `/immutable:adr` authors Architecture Decision Records (WHY). `/immutable:migrate` upgrades v0.4 repos to the v0.5 profile system (idempotent, zero-data-loss). All authoring skills enforce grill-me interview, adversarial review, and a 90% completeness gate. v0.5 introduces profile-driven section headings + zero-action migration for v2 configs.",
       "source": "./immutable",
       "keywords": [
         "sdd",
@@ -23,12 +23,15 @@
         "immutable",
         "init",
         "bootstrap",
-        "starter"
+        "starter",
+        "migrate",
+        "profile"
       ],
       "skills": [
         "./init",
         "./prd",
-        "./adr"
+        "./adr",
+        "./migrate"
       ]
     }
   ]
