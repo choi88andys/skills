@@ -1,0 +1,286 @@
+# strings.ko.yml — Korean workflow prompts for immutable SDD skills.
+#
+# PURPOSE
+#   SSoT for SKILL.md prose: Stage questions, refusal messages, confirmation
+#   templates, handoff blocks. Profile YAML owns structural i18n (section
+#   headings, persona names, gate criteria labels) — this catalog owns
+#   workflow scaffolding that is NOT tied to a structured data item's id.
+#
+# RESOLUTION ORDER (skill lookup)
+#   1. ${CLAUDE_PLUGIN_ROOT}/strings/strings.<team_language>.yml  (primary)
+#   2. strings.en.yml                                             (fallback, warns once per missing key)
+#   3. Hardcoded English fallback inside SKILL.md                 (last resort, warns once)
+#
+# INTERPOLATION
+#   Single-brace mustache: {placeholder}. Placeholders are snake_case.
+#   The skill performs dict substitution — no conditionals, no loops.
+#   Branching is expressed by separate keys, not conditionals inside a value.
+#
+# KEY NAMING
+#   <skill>.<stage>.<purpose>
+#     <skill>   — init | prd | adr | common  (common = shared across skills)
+#     <stage>   — stage1..stage6 OR functional group (intake, gate, handoff,
+#                 anti_dumping, probe, intent_desc, placeholder)
+#     <purpose> — descriptive snake_case
+#
+# RESPONSIBILITY SPLIT  (do NOT duplicate across catalog and profile)
+#   Profile owns:  section headings, persona name/question/checks,
+#                  gate criteria labels + pass_conditions, unresolved_tag,
+#                  reserved domain descriptions, display_name,
+#                  forbidden_slug reasons.
+#   Catalog owns:  every user-facing prose string in SKILL.md prompts.
+
+schema: 1
+locale: ko
+
+strings:
+  # ==========================================================================
+  # init skill
+  # ==========================================================================
+
+  init.stage1.probe_summary: |
+    현재 디렉토리 상태:
+    - .git: {git_status}
+    - 기존 immutable 설정: {immutable_status}
+    - 감지된 디렉토리: {detected_dirs}
+    - 추천 모드: {recommended_mode}
+    - 추천 근거: {recommendation_reason}
+
+  init.stage1.already_initialized: |
+    이 디렉토리는 이미 immutable로 초기화되어 있습니다 (.immutable-prd/config.yml 존재).
+
+    옵션:
+    - v2 → v3 업그레이드: `/immutable:migrate` (S4 deliverable, 아직 미출시 시 수동 편집)
+    - 재-부트스트랩: `.immutable-prd/config.yml`을 먼저 삭제한 뒤 `/immutable:init` 재실행
+    - 추가 starter 적용 (single → two-repo 분리 등): 별도 디렉토리에서 init 실행 후 수동 통합
+
+    작업을 중단합니다.
+
+  init.stage2.mode_question: |
+    어떤 starter로 시작할까요?
+
+    (1) two-repo-spec — 스펙 전용 레포 (pitches/만, sibling app repo와 분리 운영)
+    (2) two-repo-app — 앱 전용 레포 (adr/만, sibling spec repo 참조)
+    (3) single-repo — pitches + adr 합본 레포 (작은 팀 / 단일 레포 운영 시)
+
+    [추천: ({recommended_number}) — {recommendation_reason}]
+
+    번호 또는 옵션 이름으로 선택해주세요.
+
+  init.stage2.mode_conflict_warning: |
+    선택한 모드({chosen_mode})는 감지된 코드 디렉토리({detected_dirs})와 어울리지 않습니다. 보통 {suggested_alternatives}이 적합합니다. 그래도 진행하시겠습니까?
+
+  init.stage3.language_question: |
+    팀 작업 언어를 선택해주세요:
+
+    (1) Korean (ko) — 기본
+    (2) English (en)
+
+    [추천: (1)]
+
+    번호로 선택해주세요. (다른 언어는 v0.6+ 지원 예정.)
+
+  init.stage4.profile_question: |
+    프로필 (섹션 헤딩, 적대적 리뷰 personas, 90% gate criteria 등 customization) 처리 방식:
+
+    (1) bundled default 사용 — config.yml에 `profile:` 명시 안 함. 플러그인이 자동으로 default-<lang>를 로드. **권장 (가장 간단, 추후 변경 가능)**
+    (2) repo-local 복사 — `.immutable-prd/profile.yml`로 default를 복사하고 config가 그것을 가리킴. 팀이 즉시 editable
+    (3) skip 후 나중에 결정 — config에 주석으로만 남김 (현재는 동작 X와 동일)
+
+    [추천: (1)]
+
+  init.stage4.repo_local_hint: "프로필 파일을 직접 편집해서 sections / personas / gate threshold를 customize할 수 있습니다."
+
+  init.stage4.skip_hint: "나중에 (2)로 전환하려면 `cp ${CLAUDE_PLUGIN_ROOT}/examples/_profiles/default-{lang}.yml .immutable-prd/profile.yml` 실행 후 config.yml의 `profile:` 라인 주석 해제."
+
+  init.stage5.copy_report: |
+    복사 완료 ({copied_count}개):
+    {copied_list}
+
+    건너뜀 (이미 존재, {skipped_count}개):
+    {skipped_list}
+
+  init.stage5.profile_copy_note: |
+    - .immutable-prd/profile.yml (편집 가능)
+    - .immutable-prd/config.yml에 profile: 라인 활성화됨
+
+  init.stage6.git_init_suggestion: |
+    이 디렉토리는 git 레포가 아닙니다. 다음 명령으로 초기화할 수 있습니다:
+
+    ```bash
+    git init
+    git add .
+    git commit -m "feat: bootstrap immutable SDD"
+    ```
+
+    (스킬은 git 명령을 실행하지 않습니다. 위 명령을 직접 실행해주세요.)
+
+  init.stage6.git_commit_suggestion: |
+    기존 git 레포가 감지되었습니다. 다음 명령으로 변경사항을 커밋할 수 있습니다:
+
+    ```bash
+    git add .
+    git commit -m "feat: bootstrap immutable SDD"
+    ```
+
+  init.stage7.handoff_two_repo_spec: |
+    Bootstrap 완료 (mode: two-repo-spec, lang: {lang}).
+
+    다음 단계:
+    1. 위 Stage 6의 git 명령 실행
+    2. `pitches/README.md`의 도메인 허용 목록 편집 — 예시 행을 실제 팀 도메인으로 교체
+    3. 첫 pitch 작성: `/immutable:prd`
+
+    참고:
+    - Pitch 컨벤션 전체: `CONTRIBUTING.md`
+    - ADR은 sibling app repo에서 따로 운영 (`/immutable:init` for app starter)
+
+  init.stage7.handoff_two_repo_app: |
+    Bootstrap 완료 (mode: two-repo-app, lang: {lang}).
+
+    다음 단계:
+    1. 위 Stage 6의 git 명령 실행
+    2. `.immutable-prd/config.yml`의 `spec_repo_path: ../<your-spec-repo>` 수정 — placeholder를 실제 sibling spec repo 경로로 교체
+    3. 첫 ADR 작성: `/immutable:adr`
+
+    참고:
+    - ADR 컨벤션: `adr/README.md`
+    - Pitches는 sibling spec repo에서 따로 작성
+
+  init.stage7.handoff_single_repo: |
+    Bootstrap 완료 (mode: single-repo, lang: {lang}).
+
+    다음 단계:
+    1. 위 Stage 6의 git 명령 실행
+    2. `spec/pitches/README.md`의 도메인 허용 목록 편집
+    3. 첫 pitch 작성: `/immutable:prd` (또는 첫 ADR: `/immutable:adr`)
+
+    참고:
+    - Pitch 컨벤션: `spec/CONTRIBUTING.md`
+    - ADR 컨벤션: `adr/README.md`
+
+  init.probe.status_present: "있음"
+  init.probe.status_absent: "없음"
+  init.probe.immutable_with_config: "있음 (config.yml 발견)"
+
+  # ==========================================================================
+  # prd skill
+  # ==========================================================================
+
+  prd.stage1.intent_question: "무엇을 작성하려고 하세요? 한두 문장으로 간단히 설명해주세요."
+
+  prd.stage1.no_pitches_dir: "현재 디렉토리에 pitches/가 없습니다. 스펙 레포 루트에서 다시 실행해주세요."
+
+  prd.stage1.confirmation: |
+    [{domain}] {intent_desc}
+    기준 파일: {base_file}
+    인터뷰를 시작할까요?
+
+    (1) 맞음 — 인터뷰 시작
+    (2) 다른 도메인 — 직접 지정
+    (3) 신규 도메인 — 허용 목록 추가 절차 안내
+    (4) 폐기만 — 인터뷰 없이 deprecated 플립
+
+  prd.intent_desc.new: "새 pitch 생성으로 이해했습니다"
+  prd.intent_desc.new_domain: "새 도메인 + 새 pitch 생성으로 이해했습니다"
+  prd.intent_desc.update: "도메인 업데이트로 이해했습니다"
+  prd.intent_desc.deprecate_only: "폐기 처리로 이해했습니다"
+
+  prd.stage1_5.intake_prompt_verbatim: |
+    참고 자료가 있으면 첨부해주세요 (없으면 '없음'). 다음 중 해당되는 것만:
+
+    (a) Figma — 단일 프레임 노드 URL, 1~3개
+        예: figma.com/design/.../?node-id=123-456
+        ※ 파일 전체 URL은 거절됩니다
+
+    (b) Notion/Docs — feature 요약 페이지 1개
+        ※ 워크스페이스 루트 URL 금지
+
+    (c) 로컬 파일 — .md/.txt, 5페이지 이내
+
+    (d) 텍스트 붙여넣기 — 정리된 요지, 30줄 이내
+        채팅 로그 전체 X, 결정/요구사항 위주
+
+  prd.stage1_5.summary_confirmation: "이 자료에서 다음을 읽었습니다. 해석이 맞습니까? 틀린 부분이나 이 pitch 범위 밖 내용이 있으면 지적해주세요."
+
+  prd.stage1_5.scope_alignment: "이 자료들 중 이번 pitch에 담겨야 할 내용은 무엇이고, 자료에 없지만 pitch에 추가되어야 할 동작은 무엇입니까?"
+
+  prd.stage3.identifier_warning: "본문에 코드 식별자 '`{identifier}`'가 있습니다. 도메인 용어로 바꿔주세요. (감지 패턴: {hint})"
+
+  prd.stage6.handoff: |
+    생성된 파일:
+    - `{new_file_path}`
+    {deprecated_line}
+
+    등록 방법 (두 가지 중 택 1)
+
+    {github_web_steps}
+
+    {cli_steps}
+
+  prd.stage6.deprecated_line: "- (update인 경우) `{old_file_path}` — deprecated: true로 플립됨"
+
+  # ==========================================================================
+  # adr skill
+  # ==========================================================================
+
+  adr.stage1.intent_question: "무엇을 결정하려고 하세요? 한두 문장으로 설명해주세요."
+
+  adr.stage1.scope_question: |
+    이 결정의 범위가 어떻게 되나요?
+    (1) 특정 도메인의 pitch에 종속 (도메인 이름 지정)
+    (2) 여러 도메인/기능에 걸친 전역 결정 (`_global`)
+
+  adr.consequences.positive_heading: "긍정적 영향"
+  adr.consequences.negative_heading: "부정적 영향 / 트레이드오프"
+  adr.consequences.cost_of_adoption_heading: "채택 비용 / 중립"
+
+  # ==========================================================================
+  # common (shared across skills)
+  # ==========================================================================
+
+  common.anti_dumping.file_too_large: "첨부 파일이 너무 깁니다 (5,000단어 초과). 관련된 1~3개 섹션만 지정해주세요."
+  common.anti_dumping.figma_root_url: "Figma 파일 전체 URL은 거절됩니다. `node-id` 쿼리가 포함된 단일 프레임/노드 URL로 다시 제출해주세요."
+  common.anti_dumping.figma_too_many: "Figma node URL이 너무 많습니다. 핵심 1~3개 화면만 유지해주세요."
+  common.anti_dumping.notion_root_url: "Notion 워크스페이스 루트 또는 DB 뷰 URL은 거절됩니다. feature 관련 단일 페이지 URL로 다시 제출해주세요."
+  common.anti_dumping.too_many_pages: "첨부 총량이 10페이지를 초과합니다. 핵심으로 먼저 정리해주세요."
+  common.anti_dumping.pasted_too_long: "붙여넣기 텍스트가 30줄을 초과합니다. 핵심 결정/요구사항 위주로 정리해주세요."
+  common.anti_dumping.auth_url: "인증이 필요한 URL은 fetch 불가. 요약 내용을 텍스트로 직접 붙여넣어주세요."
+
+  common.gate.refusal_template: |
+    아직 생성 기준에 미달합니다:
+
+    {criteria_rows}
+
+    {next_action}
+
+  common.gate.row_template: "□ [{n}] {label} — {status}"
+  common.gate.status_pass: "통과"
+  common.gate.status_fail: "미통과"
+
+  common.adv_review.accept: "반영"
+  common.adv_review.move_to_no_go: "No-go로 이동"
+  common.adv_review.reject: "반려"
+
+  common.handoff.github_web_steps: |
+    [A] GitHub 웹 — 권장
+      1. 스펙 레포의 GitHub 페이지 접속
+      2. 위 경로에 파일 업로드 또는 직접 생성
+      3. 커밋 메시지 컨벤션 (CONTRIBUTING.md 참조):
+         - 신규: `feat(pitch): add <domain> - <slug>`
+         - 업데이트: `feat(pitch): update <domain> - <요지>`
+         - 폐기: `chore(pitch): deprecate <domain> - <사유>`
+      4. "Commit directly to main" 선택
+
+  common.handoff.cli_steps: |
+    [B] CLI
+      git add pitches/<경로>
+      git commit -m "<메시지>"
+      git push origin main
+
+  common.placeholder.none: "해당 없음"
+  common.placeholder.n_a: "N/A"
+  common.separator.or: " 또는 "
+  common.separator.list_comma: ", "
+
+  common.fallback_warning: "⚠️ strings fallback: `{key}` missing in strings.{requested_locale}.yml — using strings.en.yml"

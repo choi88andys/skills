@@ -1,0 +1,23 @@
+# strings.ja.yml — Japanese workflow prompts scaffold for immutable SDD skills.
+#
+# STATUS
+#   Scaffold only. All keys currently fall back to strings.en.yml with a
+#   one-line warning per the resolution rules documented in strings.ko.yml.
+#   Add translations incrementally — any key present below is used; any key
+#   missing triggers fallback.
+#
+# ADDING TRANSLATIONS
+#   Mirror the key layout from strings.ko.yml / strings.en.yml. Use the
+#   same hierarchical key names (`<skill>.<stage>.<purpose>`). Keep the
+#   {placeholder} interpolation tokens intact — reorder placeholders as
+#   needed for Japanese grammar, but do not rename them.
+#
+# See strings.ko.yml for full documentation of schema, key naming, and
+# the catalog vs. profile responsibility split.
+
+schema: 1
+locale: ja
+
+strings:
+  # Example translation (uncomment and translate as needed):
+  # prd.stage1.intent_question: "何を書こうとしていますか? 一〜二文で簡単に説明してください。"

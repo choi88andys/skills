@@ -448,6 +448,134 @@ Additional locales (e.g., `default-ja`) may be added without schema change.
 
 ---
 
+## Strings catalog (v0.5, S3)
+
+A **strings catalog** externalizes every user-facing workflow prompt (Stage questions, refusal messages, confirmation templates, handoff blocks) that v0.4 embedded inline as Korean literals in `prd/SKILL.md`, `adr/SKILL.md`, and `init/SKILL.md`. Catalogs live at `immutable/strings/strings.<locale>.yml`. The plugin bundles `strings.ko.yml` + `strings.en.yml` (and a Japanese scaffold `strings.ja.yml`); additional locales drop in without schema changes.
+
+### Why a catalog (separate from profiles)
+
+Profiles (v0.5 / S1–S2) already externalized **id-bound data** — section headings, persona names/questions/checks, gate criteria labels, domain allowlist descriptions. But the prose around those data items (Stage 1 intent question, Stage 4 refusal template, Stage 7 handoff block) stayed inline Korean, which forced any non-Korean team to fork the skill. S3 lifts that remaining prose into a catalog so:
+
+1. Adding a locale is a file addition, not a SKILL.md edit.
+2. Teams can override team-specific vocabulary without forking the plugin (future `strings_path:` config field, post-S3).
+3. v0.5 release polishing is scoped cleanly — SKILL.md changes ship separately from translation additions.
+
+### 3-tier positioning
+
+| Tier | Examples | Home |
+|---|---|---|
+| Core-Closed | append-only, supersede chain, doctype identity, 3 core frontmatter fields | SKILL.md + SCHEMA.md |
+| Guided-Default | section names, personas, gate criteria, RFC 2119 keywords, filename patterns | **Profile YAML** |
+| Open | domain allowlist, identifier regex, feature-flag prefix, **i18n strings (this catalog)**, frontmatter team extensions | Per-repo / **strings catalog** |
+
+Strings catalog is Open: plugin-bundled defaults cover the common case; teams override by extending or forking later.
+
+### Catalog vs. profile responsibility split
+
+To prevent drift from duplication, each string lives in exactly one place:
+
+| Content | Owner | Why |
+|---|---|---|
+| Section headings (`배경과 문제`, `Background and Problem`) | **Profile** (`sections[i].heading`) | Bound to the section `id`. Team overrides by forking a profile. |
+| Persona name / question / checks[] | **Profile** (`personas[i].*`) | Bound to persona `id`. |
+| Gate criterion label + pass_condition | **Profile** (`gate.criteria[i].*`) | Bound to criterion `id`. |
+| Unresolved tag (`[미확정]` / `[TBD]`) | **Profile** (`gate.unresolved_tag`) | Locale-specific literal wired into gate logic. |
+| Reserved domain description | **Profile** (`domain_allowlist.reserved_domains[i].description`) | Bound to domain `id`. |
+| `display_name`, forbidden slug `reason` | **Profile** | Bound to their structural item's `id`. |
+| Stage interview questions ("무엇을 작성...") | **Catalog** | No `id` — pure workflow prompt. |
+| Refusal messages (Stage 1, Stage 5, anti-dumping) | **Catalog** | Workflow scaffolding, not data. |
+| Confirmation templates (Stage 1.4, Stage 1.5 summary check) | **Catalog** | Workflow scaffolding. |
+| Handoff messages (Stage 6, Stage 7) | **Catalog** | Workflow scaffolding. |
+| Stage 1.5 VERBATIM context-intake block | **Catalog** | The whole block is a prompt; the verbatim contract applies to the rendered value per locale. |
+
+**Never duplicate**: if a string is in the profile (e.g., `personas[0].name = "신입 개발자"`), SKILL.md reads it through the profile — never through the catalog. The catalog holds only SKILL.md prose.
+
+### Schema (`strings.<locale>.yml`)
+
+```yaml
+# Schema revision — bumped on breaking changes to key layout.
+schema: 1
+
+# Locale key. Matches `team_language` in config.yml. The file's basename
+# (`strings.<locale>.yml`) must match this value.
+locale: ko  # | en | ja | …
+
+# Flat, dot-notated hierarchical keys.
+strings:
+  <skill>.<stage>.<purpose>: |
+    Multi-line value with {placeholder} interpolation.
+  <skill>.<stage>.<atom>: "Single-line value."
+```
+
+### Key naming convention
+
+`<skill>.<stage>.<purpose>` — all snake_case English.
+
+| Segment | Values |
+|---|---|
+| `<skill>` | `init` / `prd` / `adr` / `common` (shared across skills) |
+| `<stage>` | `stage1`..`stage6`, OR a functional group: `intake`, `gate`, `handoff`, `anti_dumping`, `probe`, `intent_desc`, `placeholder`, `consequences` |
+| `<purpose>` | descriptive snake_case (e.g., `intent_question`, `refusal_template`, `summary_confirmation`) |
+
+Rationale for flat dot-notation over nested YAML maps:
+- `grep`-friendly (one key per line in usage sites)
+- single-level lookup in skills (no path traversal)
+- locale drift is trivially detectable by key-diffing two catalogs
+
+### Interpolation grammar
+
+Single-brace mustache: `{placeholder}` where `placeholder` is snake_case. The skill performs **simple dict substitution** — no conditionals, no loops.
+
+Branching is expressed by separate keys, not by conditionals inside a value:
+
+```yaml
+# Good — two keys
+prd.intent_desc.new: "새 pitch 생성으로 이해했습니다"
+prd.intent_desc.update: "도메인 업데이트로 이해했습니다"
+
+# Bad — conditional inside value (DO NOT DO)
+# prd.intent_desc: "{if new}새 pitch...{else}도메인 업데이트...{/if}"
+```
+
+Literal `{` or `}` is not needed in current prompts; future need would introduce `{{` / `}}` escaping (not specified here).
+
+### Resolution order (3-tier fallback)
+
+When a skill needs a string, it resolves the catalog in this order:
+
+1. **Primary catalog** — `${CLAUDE_PLUGIN_ROOT}/strings/strings.<team_language>.yml` (where `team_language` comes from `.immutable-prd/config.yml`). Look up the key.
+2. **English fallback** — if key missing in primary, look up in `strings.en.yml`. Emit a one-line warning (`common.fallback_warning`) to the user stream (never silent).
+3. **Hardcoded fallback** — if key missing in both catalogs (only possible via plugin file corruption), the skill emits a warning and aborts the stage with a generic English message. This path should never fire in a correctly installed plugin.
+
+The warning on step 2 is visible — missing translations surface immediately instead of degrading silently. Teams catch drift the first time a stage runs.
+
+### Zero-action migration
+
+v2 and v3 `config.yml` users both get strings catalog for free: the plugin resolves `${CLAUDE_PLUGIN_ROOT}/strings/strings.<team_language>.yml` regardless of config version. No config bump is required to benefit from S3. Teams wanting team-specific strings catalogs (e.g., organization-wide terminology override) are handled by a future `strings_path:` config field (post-S3, when a real use case materializes).
+
+### Bundled catalogs
+
+| Catalog | Location | Status |
+|---|---|---|
+| `strings.ko` | `immutable/strings/strings.ko.yml` | Canonical — Korean workflow prompts (SSoT for the Korean UX) |
+| `strings.en` | `immutable/strings/strings.en.yml` | Canonical — English workflow prompts (also serves as fallback target) |
+| `strings.ja` | `immutable/strings/strings.ja.yml` | Scaffold only — empty `strings: {}` map; every key falls back to `en` |
+
+Add a new locale without any schema change: drop `strings.<locale>.yml` next to the existing files and (optionally) ship a matching `default-<locale>.yml` profile.
+
+### Catalog authoring checklist
+
+When adding or changing a catalog entry:
+
+1. Key follows `<skill>.<stage>.<purpose>` naming.
+2. Placeholders are snake_case and documented at the substitution site in SKILL.md.
+3. Value does NOT duplicate a profile field (see the responsibility split table above).
+4. Multi-line values use YAML block scalar (`|`) with 2-space indentation inside `strings:`.
+5. For every key added to `strings.ko.yml`, a corresponding key exists in `strings.en.yml` (otherwise the primary → fallback diff produces a warning on first use).
+6. SKILL.md is updated to reference the key (no inline Korean prose remains).
+
+---
+
 ## Migration
 
 ### From v0.2 → v0.3/v0.4

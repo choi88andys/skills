@@ -11,9 +11,17 @@ Interactively author an append-only Architecture Decision Record. Shares the app
 
 > **Schema reference**: see [`../SCHEMA.md`](../SCHEMA.md) for shared frontmatter, reference policy, and directory conventions.
 
-## Language Directive
+## Strings catalog & locale (v0.5 / S3)
 
-User-facing prompts MUST use the team's language from `.immutable-prd/config.yml` (`team_language`, default `ko`). Skill instructions are English; user-visible strings translate consistently.
+All user-facing prompts are sourced from `${CLAUDE_PLUGIN_ROOT}/strings/strings.<team_language>.yml` — not embedded inline. SKILL.md refers to catalog keys via the pattern ``render `<key>` `` with single-brace `{placeholder}` substitution performed by the skill.
+
+**Locale resolution**: `team_language` comes from `.immutable-prd/config.yml` (default: `ko`). Per-string fallback:
+
+1. `strings.<team_language>.yml` (primary)
+2. `strings.en.yml` (fallback — emit one-line warning via `common.fallback_warning`, never silent)
+3. Hardcoded last-resort English in this SKILL.md (plugin file corruption; emit warning and abort the stage)
+
+See `../SCHEMA.md#strings-catalog-v05-s3` for the schema, responsibility split (catalog vs. profile), and key naming convention.
 
 ## Profile Resolution (v0.5+)
 
@@ -36,12 +44,12 @@ The skill is **profile-aware** in v0.5. ADR-specific tunables — body sections,
 | `adr.sections[].heading` | Stage 6 body assembly (rendered in ADR file) |
 | `adr.sections[].id` / `min_items` / `description` | Stage 3 interview branches (completion criteria) |
 | `adr.gate.total` / `pass_threshold` / `criteria` | Stage 5 90% completeness gate |
-| `adr.gate.unresolved_tag` | Stage 3/5 unresolved-answer tag (e.g., `[미확정]` for ko, `[TBD]` for en) |
+| `adr.gate.unresolved_tag` | Stage 3/5 unresolved-answer tag — literal value sourced from the active profile per locale |
 | `adr.personas[].name` / `question` / `checks` | Stage 4 adversarial review (data SSoT; v0.5 prose stays inline) |
 | `naming.filename_pattern` / `slug_case` / `forbidden_slug_patterns` | Stage 6 filename validation (shared with pitch) |
 | `domain_allowlist.source` / `reserved_domains` | Stage 1 domain check (`_global` reserved here) |
 
-The Korean inline strings below remain as the v0.5 default rendering — they match `default-ko.yml`'s `adr` block. When `team_language: en`, render the equivalent strings from `default-en.yml`. v0.6+ moves all inline strings to a `strings/strings.<locale>.yml` catalog (S3 deliverable).
+Profile-owned strings (ADR section headings, persona names, gate criteria) render from the active profile. Stage prompts, refusal messages, and the consequences sub-headings (positive / negative / cost-of-adoption) are sourced from the strings catalog per the "Strings catalog & locale" section above.
 
 ## Preconditions
 
@@ -83,9 +91,7 @@ Stop immediately on any stage failure. Loop back to Stage 3 when Stage 4 finds i
 
 ### 1.1 Initial context
 
-If the user passed no argument, ask once:
-
-> "무엇을 결정하려고 하세요? 한두 문장으로 설명해주세요."
+If the user passed no argument, ask once using `adr.stage1.intent_question` (no substitutions).
 
 ### 1.2 Environment scan (parallel)
 
@@ -104,11 +110,7 @@ If the user passed no argument, ask once:
 
 ### 1.4 Scope classification
 
-Ask which scope the ADR covers:
-
-> "이 결정의 범위가 어떻게 되나요?
-> (1) 특정 도메인의 pitch에 종속 (도메인 이름 지정)
-> (2) 여러 도메인/기능에 걸친 전역 결정 (`_global`)"
+Ask which scope the ADR covers by rendering `adr.stage1.scope_question` (no substitutions).
 
 - Scope `(1)` → `domain: <name>`, `references.pitches` must include ≥1 active pitch in that domain.
 - Scope `(2)` → `domain: _global`, `references.pitches` may be empty. Require a written scope statement in the body.
@@ -139,17 +141,11 @@ Opt-in. Accept curated external materials:
 - **External docs**: RFC, benchmark report, vendor comparison. URL or local path.
 - **Discussion excerpts**: paste summaries of Slack / Discord threads (5k-word cap).
 
-Reuse the anti-dumping filters from `/immutable:prd` Stage 1.5:
-
-| Signal | Action |
-|---|---|
-| Document > 5,000 words | Refuse. Ask for 1–3 relevant sections only. |
-| > 10 pages total | Refuse. Ask to distill. |
-| Authenticated URL without integration | Ask for pasted summary. |
+Reuse the anti-dumping filters from `/immutable:prd` Stage 1.5 — for each violation render the matching `common.anti_dumping.*` key (see the prd skill for the full signal → key table).
 
 For each accepted attachment, **summarize → confirm with user → store corrected summary only**. Discard raw dumps.
 
-Skip path: if user says "없음", proceed to Stage 3.
+Skip path: if the user replies with a negative/empty response (e.g., `없음`, `none`, `no`, `skip`, empty line), proceed to Stage 3.
 
 ---
 
@@ -217,38 +213,25 @@ Each persona MUST surface ≥1 gap. Gaps raised by 2+ personas escalate one seve
 
 ### Persona 1 — New Engineer (onboarding next quarter)
 
-Question: "Can I understand this decision and apply it consistently from this document alone?"
-
-Check for:
-- Vague decision statements ("적절한 방향으로")
-- Missing rollback or escape hatch
-- Unstated prerequisites (e.g., tooling, infra, SDK version)
+Apply the checks from `profile.adr.personas[id=new_engineer].checks[]` (profile owns the locale-specific anti-pattern examples). The persona's central question comes from `profile.adr.personas[id=new_engineer].question`.
 
 ### Persona 2 — Maintainer (2 years from now)
 
-Question: "Will I know whether this decision still applies when I inherit this codebase?"
-
-Check for:
-- Absent revisit triggers — "decide X; never look back"
-- Undocumented assumptions that will silently become false
-- Missing link to the pitch(es) that justify the decision
+Apply the checks from `profile.adr.personas[id=maintainer].checks[]`. The persona's central question comes from `profile.adr.personas[id=maintainer].question`.
 
 ### Persona 3 — Product Lead
 
-Question: "Does this decision respect the product promise in the referenced pitches?"
-
-Check for:
-- Trade-offs that quietly break a referenced pitch's `[MUST]` requirement
-- Scope creep (ADR decides more than it claims)
-- Missing linkage when the decision obviously affects a feature currently in progress
+Apply the checks from `profile.adr.personas[id=product_lead].checks[]`. The persona's central question comes from `profile.adr.personas[id=product_lead].question`.
 
 ### Output
 
-Numbered list per persona. For each finding, offer:
+Numbered list per persona. Format per row: `[<profile.adr.personas[i].name>] <n>. <finding text>`.
 
-- **반영** → return to Stage 3 for revision
-- **No-go로 이동** → add to "Explicitly out of scope" in the body
-- **반려** → record counter-reasoning; proceed
+For each finding, offer three action choices rendered from the catalog:
+
+- `common.adv_review.accept` → return to Stage 3 for revision
+- `common.adv_review.move_to_no_go` → add to the ADR's scope-exclusions section
+- `common.adv_review.reject` → record counter-reasoning; proceed
 
 ---
 
@@ -258,7 +241,7 @@ Numbered list per persona. For each finding, offer:
 
 | # | Criterion | Pass Condition |
 |---|---|---|
-| 1 | Context is clear | Third party summarizes trigger in ≤3 lines; no `[미확정]` remains |
+| 1 | Context is clear | Third party summarizes trigger in ≤3 lines; no `<profile.adr.gate.unresolved_tag>` remains |
 | 2 | Decision is one sentence | A single declarative statement, not a paragraph of hedges |
 | 3 | Consequences balanced | ≥2 positive AND ≥2 negative explicitly listed |
 | 4 | Alternatives considered | ≥2 alternatives with rejection reason |
@@ -269,7 +252,7 @@ Numbered list per persona. For each finding, offer:
 
 - **5 or 6 of 6 pass** → proceed to generation
 - **Fewer than 5 pass** → refuse; loop to the relevant branch
-- **Any `[미확정]` tag anywhere** → refuse regardless of count
+- **Any `<profile.adr.gate.unresolved_tag>` tag anywhere** → refuse regardless of count
 
 ### Refusal format
 
@@ -310,42 +293,42 @@ Section headings are sourced from `profile.adr.sections[].heading` (looked up by
 
 ## <profile.adr.sections[id=context].heading>
 
-(Branch A — default-ko: `맥락 (Context)`; default-en: `Context`)
+(Branch A content)
 
 ## <profile.adr.sections[id=decision].heading>
 
-(Branch B — default-ko: `결정 (Decision)`; default-en: `Decision`. Single declarative sentence, then optional 1-paragraph elaboration.)
+(Branch B content. Single declarative sentence, then optional 1-paragraph elaboration.)
 
 ## <profile.adr.sections[id=consequences].heading>
 
-(Branch C — default-ko: `결과 (Consequences)`; default-en: `Consequences`. Sub-headings render in the team's language: positive / negative / cost-of-adoption.)
+(Branch C content. Sub-headings are sourced from the strings catalog:)
 
-### <positive impact heading>
+### <adr.consequences.positive_heading>
 - …
 
-### <negative impact / trade-offs heading>
+### <adr.consequences.negative_heading>
 - …
 
-### <cost of adoption / neutral heading>
+### <adr.consequences.cost_of_adoption_heading>
 - …
 
 ## <profile.adr.sections[id=alternatives].heading>
 
-(Branch D — default-ko: `검토한 대안 (Alternatives Considered)`; default-en: `Alternatives Considered`)
+(Branch D content)
 
 - **<Alt A>** — <rejection reason>. <revisit trigger>.
 - **<Alt B>** — …
 
 ## <profile.adr.sections[id=revisit_triggers].heading>
 
-(Branch E — default-ko: `재검토 조건 (Revisit Triggers)`; default-en: `Revisit Triggers`)
+(Branch E content)
 
 ## <profile.adr.sections[id=scope_exclusions].heading>
 
-(Optional — `profile.adr.sections[id=scope_exclusions].required: false`. Default-ko: `범위 제외`; default-en: `Out of Scope`. Omit the section entirely when no exclusions exist.)
+(Optional — `profile.adr.sections[id=scope_exclusions].required: false`. Omit the section entirely when no exclusions exist.)
 ```
 
-The Consequences sub-headings (positive / negative / cost-of-adoption) are not yet expressed as profile fields in v0.5 — they use the inline defaults shown above (matching default-ko / default-en). v0.6 strings catalog will lift them.
+The Consequences sub-headings (positive / negative / cost-of-adoption) are owned by the strings catalog (`adr.consequences.*`). Section headings remain owned by the profile.
 
 ### Handoff
 
@@ -356,7 +339,7 @@ Emit commit instructions (GitHub GUI / CLI), do NOT commit.
 ## Hard Prohibitions
 
 1. Never write a file that fails the 90% gate.
-2. Never advance with any `[미확정]` tag.
+2. Never advance with any `<profile.adr.gate.unresolved_tag>` tag.
 3. Never edit body of an existing ADR. Append-only + supersede chain.
 4. Never commit or push.
 5. Never generate an ADR with `references.pitches` empty unless `domain: _global` AND the body includes a scope statement.

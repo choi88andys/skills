@@ -1,0 +1,260 @@
+# strings.en.yml — English workflow prompts for immutable SDD skills.
+#
+# Mirror of strings.ko.yml. See that file for full documentation of schema,
+# key naming convention, interpolation syntax, resolution order, and the
+# catalog vs. profile responsibility split.
+
+schema: 1
+locale: en
+
+strings:
+  # ==========================================================================
+  # init skill
+  # ==========================================================================
+
+  init.stage1.probe_summary: |
+    Current directory state:
+    - .git: {git_status}
+    - Existing immutable config: {immutable_status}
+    - Detected directories: {detected_dirs}
+    - Recommended mode: {recommended_mode}
+    - Recommendation basis: {recommendation_reason}
+
+  init.stage1.already_initialized: |
+    This directory is already initialized with immutable (.immutable-prd/config.yml exists).
+
+    Options:
+    - v2 → v3 upgrade: `/immutable:migrate` (S4 deliverable; edit by hand until released)
+    - Re-bootstrap: delete `.immutable-prd/config.yml` first, then rerun `/immutable:init`
+    - Apply an additional starter (e.g., single → two-repo split): run init in a separate directory and merge manually
+
+    Aborting.
+
+  init.stage2.mode_question: |
+    Which starter would you like?
+
+    (1) two-repo-spec — spec-only repo (pitches/ only; paired with a sibling app repo)
+    (2) two-repo-app — app-only repo (adr/ only; references sibling spec repo)
+    (3) single-repo — pitches + adr combined (small teams / single-repo layout)
+
+    [Recommendation: ({recommended_number}) — {recommendation_reason}]
+
+    Pick by number or option name.
+
+  init.stage2.mode_conflict_warning: |
+    The selected mode ({chosen_mode}) does not fit the detected code directories ({detected_dirs}). Usually {suggested_alternatives} is more appropriate. Proceed anyway?
+
+  init.stage3.language_question: |
+    Pick the team's working language:
+
+    (1) Korean (ko)
+    (2) English (en) — default for this starter
+
+    [Recommendation: (2)]
+
+    Pick by number. (Additional locales coming in v0.6+.)
+
+  init.stage4.profile_question: |
+    Profile (section headings, adversarial review personas, 90% gate criteria, …) handling:
+
+    (1) Use the bundled default — do not set `profile:` in config.yml. The plugin auto-loads default-<lang>. **Recommended (simplest; change later anytime)**
+    (2) Copy into this repo — copy the default to `.immutable-prd/profile.yml` and point config at it. Team can edit immediately.
+    (3) Skip for now — leave the commented pointer in config. (Same effective behavior as (1).)
+
+    [Recommendation: (1)]
+
+  init.stage4.repo_local_hint: "You can edit the profile file directly to customize sections / personas / gate threshold."
+
+  init.stage4.skip_hint: "To switch to (2) later: run `cp ${CLAUDE_PLUGIN_ROOT}/examples/_profiles/default-{lang}.yml .immutable-prd/profile.yml`, then uncomment the `profile:` line in config.yml."
+
+  init.stage5.copy_report: |
+    Copied ({copied_count}):
+    {copied_list}
+
+    Skipped (already present, {skipped_count}):
+    {skipped_list}
+
+  init.stage5.profile_copy_note: |
+    - .immutable-prd/profile.yml (editable)
+    - `profile:` line activated in .immutable-prd/config.yml
+
+  init.stage6.git_init_suggestion: |
+    This directory is not a git repo. You can initialize it with:
+
+    ```bash
+    git init
+    git add .
+    git commit -m "feat: bootstrap immutable SDD"
+    ```
+
+    (The skill does not run git commands. Please run them yourself.)
+
+  init.stage6.git_commit_suggestion: |
+    Existing git repo detected. You can commit the changes with:
+
+    ```bash
+    git add .
+    git commit -m "feat: bootstrap immutable SDD"
+    ```
+
+  init.stage7.handoff_two_repo_spec: |
+    Bootstrap complete (mode: two-repo-spec, lang: {lang}).
+
+    Next steps:
+    1. Run the git commands from Stage 6
+    2. Edit `pitches/README.md` allowlist — replace the sample row with your team's actual domains
+    3. Write the first pitch: `/immutable:prd`
+
+    Reference:
+    - Pitch conventions: `CONTRIBUTING.md`
+    - ADRs are authored separately in the sibling app repo (`/immutable:init` for the app starter)
+
+  init.stage7.handoff_two_repo_app: |
+    Bootstrap complete (mode: two-repo-app, lang: {lang}).
+
+    Next steps:
+    1. Run the git commands from Stage 6
+    2. Edit `spec_repo_path: ../<your-spec-repo>` in `.immutable-prd/config.yml` — replace the placeholder with your sibling spec repo path
+    3. Write the first ADR: `/immutable:adr`
+
+    Reference:
+    - ADR conventions: `adr/README.md`
+    - Pitches are authored separately in the sibling spec repo
+
+  init.stage7.handoff_single_repo: |
+    Bootstrap complete (mode: single-repo, lang: {lang}).
+
+    Next steps:
+    1. Run the git commands from Stage 6
+    2. Edit the allowlist in `spec/pitches/README.md`
+    3. Write the first pitch: `/immutable:prd` (or the first ADR: `/immutable:adr`)
+
+    Reference:
+    - Pitch conventions: `spec/CONTRIBUTING.md`
+    - ADR conventions: `adr/README.md`
+
+  init.probe.status_present: "present"
+  init.probe.status_absent: "absent"
+  init.probe.immutable_with_config: "present (config.yml detected)"
+
+  # ==========================================================================
+  # prd skill
+  # ==========================================================================
+
+  prd.stage1.intent_question: "What are you about to write? Describe it in one or two sentences."
+
+  prd.stage1.no_pitches_dir: "No `pitches/` directory found in the current directory. Please rerun from the spec repo root."
+
+  prd.stage1.confirmation: |
+    [{domain}] {intent_desc}
+    Base file: {base_file}
+    Start the interview?
+
+    (1) Confirm — start the interview
+    (2) Different domain — specify manually
+    (3) New domain — walk through the allowlist addition flow
+    (4) Deprecate only — flip `deprecated` without interviewing
+
+  prd.intent_desc.new: "interpreted as a new pitch"
+  prd.intent_desc.new_domain: "interpreted as a new domain + new pitch"
+  prd.intent_desc.update: "interpreted as a domain update"
+  prd.intent_desc.deprecate_only: "interpreted as a deprecate-only flip"
+
+  prd.stage1_5.intake_prompt_verbatim: |
+    Attach supporting material if you have any (reply 'none' if not). Only the following are accepted:
+
+    (a) Figma — single frame/node URLs, 1–3 only
+        Example: figma.com/design/.../?node-id=123-456
+        ※ Full-file URLs are rejected.
+
+    (b) Notion/Docs — one feature summary page
+        ※ Workspace root URLs are not allowed.
+
+    (c) Local files — .md/.txt, up to 5 pages
+
+    (d) Pasted text — distilled notes, 30 lines max
+        Full chat logs are not accepted; focus on decisions/requirements.
+
+  prd.stage1_5.summary_confirmation: "Here is what I read from this material. Is my interpretation correct? Flag anything wrong or out of this pitch's scope."
+
+  prd.stage1_5.scope_alignment: "From these materials, what must go into this pitch, and what behavior must the pitch add that is NOT in the source materials?"
+
+  prd.stage3.identifier_warning: "The body contains a code identifier '`{identifier}`'. Replace with a domain term. (Detected pattern: {hint})"
+
+  prd.stage6.handoff: |
+    Generated file:
+    - `{new_file_path}`
+    {deprecated_line}
+
+    How to register (pick one)
+
+    {github_web_steps}
+
+    {cli_steps}
+
+  prd.stage6.deprecated_line: "- (on update) `{old_file_path}` — flipped to deprecated: true"
+
+  # ==========================================================================
+  # adr skill
+  # ==========================================================================
+
+  adr.stage1.intent_question: "What decision are you about to make? Describe it in one or two sentences."
+
+  adr.stage1.scope_question: |
+    What is the scope of this decision?
+    (1) Bound to a specific domain's pitch (name the domain)
+    (2) Global decision spanning multiple domains/features (`_global`)
+
+  adr.consequences.positive_heading: "Positive"
+  adr.consequences.negative_heading: "Negative / Trade-offs"
+  adr.consequences.cost_of_adoption_heading: "Cost of adoption / Neutral"
+
+  # ==========================================================================
+  # common (shared across skills)
+  # ==========================================================================
+
+  common.anti_dumping.file_too_large: "Attached file is too long (over 5,000 words). Please specify only 1–3 relevant sections."
+  common.anti_dumping.figma_root_url: "Figma full-file URLs are rejected. Resubmit a single frame/node URL that includes a `node-id` query."
+  common.anti_dumping.figma_too_many: "Too many Figma node URLs. Keep to 1–3 core screens."
+  common.anti_dumping.notion_root_url: "Notion workspace root or DB view URLs are rejected. Resubmit a single feature-related page URL."
+  common.anti_dumping.too_many_pages: "Attachments exceed 10 pages total. Distill to essentials first."
+  common.anti_dumping.pasted_too_long: "Pasted text exceeds 30 lines. Distill to key decisions/requirements."
+  common.anti_dumping.auth_url: "Authenticated URLs cannot be fetched. Paste the summary as text instead."
+
+  common.gate.refusal_template: |
+    Generation criteria not yet met:
+
+    {criteria_rows}
+
+    {next_action}
+
+  common.gate.row_template: "□ [{n}] {label} — {status}"
+  common.gate.status_pass: "pass"
+  common.gate.status_fail: "fail"
+
+  common.adv_review.accept: "Accept"
+  common.adv_review.move_to_no_go: "Move to No-go"
+  common.adv_review.reject: "Reject"
+
+  common.handoff.github_web_steps: |
+    [A] GitHub web — recommended
+      1. Open the spec repo on GitHub
+      2. Upload or create the file at the path above
+      3. Commit message convention (see CONTRIBUTING.md):
+         - new: `feat(pitch): add <domain> - <slug>`
+         - update: `feat(pitch): update <domain> - <gist>`
+         - deprecate: `chore(pitch): deprecate <domain> - <reason>`
+      4. Select "Commit directly to main"
+
+  common.handoff.cli_steps: |
+    [B] CLI
+      git add pitches/<path>
+      git commit -m "<message>"
+      git push origin main
+
+  common.placeholder.none: "none"
+  common.placeholder.n_a: "N/A"
+  common.separator.or: " or "
+  common.separator.list_comma: ", "
+
+  common.fallback_warning: "⚠️ strings fallback: `{key}` missing in strings.{requested_locale}.yml — using strings.en.yml"

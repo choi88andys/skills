@@ -8,9 +8,17 @@ allowed-tools: Read, Write, Edit, Bash, Glob, Grep, WebFetch
 
 Interactively author an append-only pitch-style PRD file. Enforces format, structure, scope, and domain language. Generates the file only when the answer set passes a 90% completeness gate.
 
-## Language Directive
+## Strings catalog & locale (v0.5 / S3)
 
-**All user-facing prompts, questions, and messages MUST be in the team's working language (default: Korean, set by `team_language` in `.immutable-prd/config.yml`).** The skill instructions below are in English for maintainability; every message shown to the user is in the team's language. If the team works in a different language, translate all user-facing strings consistently.
+All user-facing prompts are sourced from `${CLAUDE_PLUGIN_ROOT}/strings/strings.<team_language>.yml` — not embedded inline. SKILL.md refers to catalog keys via the pattern ``render `<key>` `` with single-brace `{placeholder}` substitution performed by the skill.
+
+**Locale resolution**: `team_language` comes from `.immutable-prd/config.yml` (default: `ko`). Every render follows this fallback:
+
+1. `strings.<team_language>.yml` (primary)
+2. `strings.en.yml` (fallback — emit one-line warning via `common.fallback_warning`, never silent)
+3. Hardcoded last-resort English in this SKILL.md (plugin file corruption; emit warning and abort the stage)
+
+See `../SCHEMA.md#strings-catalog-v05-s3` for the schema, responsibility split (catalog vs. profile), and key naming convention.
 
 ## Profile Resolution (v0.5+)
 
@@ -38,10 +46,10 @@ The skill is **profile-aware** in v0.5: section headings, the gate threshold, pe
 | `feature_flag.*` | Stage 2 Branch F (key prefix, states, fallback) |
 | `domain_allowlist.source` / `reserved_domains` | Stage 1 / Stage 3 domain checks |
 | `gate.total` / `pass_threshold` / `criteria` | Stage 5 90% completeness gate |
-| `gate.unresolved_tag` | Stage 2/5 unresolved-answer tag (e.g., `[미확정]` for ko, `[TBD]` for en) |
+| `gate.unresolved_tag` | Stage 2/5 unresolved-answer tag — literal value sourced from the active profile per locale |
 | `gate.reject_on_unresolved` | Stage 5 hard-block flag |
 
-The Korean inline strings below remain as the v0.5 default rendering — they match `default-ko.yml`. When `team_language: en`, render the equivalent strings from `default-en.yml`. v0.6+ moves all inline strings to a `strings/strings.<locale>.yml` catalog (S3 deliverable).
+Inline profile strings (e.g., `sections[i].heading`, `personas[i].name`) remain rendered from the active profile. Stage prompts (intent questions, refusal messages, handoff blocks) are sourced from the strings catalog per the "Strings catalog & locale" section above.
 
 ## Preconditions
 
@@ -50,7 +58,7 @@ The skill assumes the working directory is the root of a pitch spec repo with th
 ```
 <repo-root>/
 ├── pitches/
-│   ├── README.md        # contains a "## 도메인 허용 목록" (or "## Allowed Domains") table with rows `| `<domain>` | <description> |`
+│   ├── README.md        # contains an allowed-domains table under a locale-specific "Allowed Domains" heading with rows `| `<domain>` | <description> |`
 │   ├── TEMPLATE.md      # pitch body template
 │   └── <domain>/
 │       └── YYYY-MM-DD-<kebab-slug>.md
@@ -77,9 +85,9 @@ The skill only **writes** the file. It never commits or pushes. The user reviews
 /immutable:prd
 ```
 
-Optional free-text argument for initial context:
+Optional free-text argument for initial context (the user may type in any language):
 ```
-/immutable:prd 공지에 자동 모달 기능 추가
+/immutable:prd add auto-modal to notifications
 ```
 
 ---
@@ -104,9 +112,7 @@ Stage 6: File Generation & Handoff
 
 ### 1.1 Gather initial context
 
-If the user did not pass an argument, ask exactly once:
-
-> "무엇을 작성하려고 하세요? 한두 문장으로 간단히 설명해주세요."
+If the user did not pass an argument, ask exactly once using `prd.stage1.intent_question` (no substitutions).
 
 ### 1.2 Environment scan (parallel)
 
@@ -117,8 +123,7 @@ Use Bash + Glob + Read to collect:
    - If config absent: prompt the user to run `/immutable:init` first, or fall back to the inferred-defaults path documented in `../SCHEMA.md`.
    - Read `team_language`, `profile:` (if v3), and other config fields.
    - Load profile per the resolution order in **Profile Resolution** above. Cache the parsed profile for the rest of the session.
-2. Confirm `pitches/` exists in CWD (or at the configured `pitches_path`). If not, stop:
-   > "현재 디렉토리에 pitches/가 없습니다. 스펙 레포 루트에서 다시 실행해주세요."
+2. Confirm `pitches/` exists in CWD (or at the configured `pitches_path`). If not, stop by rendering `prd.stage1.no_pitches_dir` (no substitutions).
 3. Read `pitches/README.md` — extract domain allowlist from the allowed-domains table (rows matching `` | `<name>` | ``). Use `profile.domain_allowlist.source` if it differs from the default `pitches/README.md`.
 4. For each allowlisted domain directory, scan `*.md` frontmatter to find the active pitch (`deprecated: false`, not `README.md`, not `TEMPLATE.md`).
 
@@ -133,16 +138,11 @@ Use Bash + Glob + Read to collect:
 
 ### 1.4 Confirmation (mandatory)
 
-Always confirm intent and target before proceeding. Example (Korean):
+Always confirm intent and target before proceeding. Render `prd.stage1.confirmation` with:
 
-> "[notice] 도메인 업데이트로 이해했습니다.
-> 기준 파일: pitches/notice/2026-04-16-initial.md
-> 인터뷰를 시작할까요?
->
-> (1) 맞음 — 인터뷰 시작
-> (2) 다른 도메인 — 직접 지정
-> (3) 신규 도메인 — 허용 목록 추가 절차 안내
-> (4) 폐기만 — 인터뷰 없이 deprecated 플립"
+- `{domain}` — the confirmed domain name (e.g., `notice`)
+- `{intent_desc}` — lookup of the matching `prd.intent_desc.<intent>` key (`new` / `new_domain` / `update` / `deprecate_only`)
+- `{base_file}` — relative path to the active pitch being superseded, or `common.placeholder.none` for a new pitch
 
 If classification is ambiguous, ask rather than guess.
 
@@ -168,39 +168,21 @@ After intent is confirmed, ask whether the user has supporting materials. This s
 
 ### Prompt (verbatim required)
 
-The block between `>>> BEGIN VERBATIM` and `<<< END VERBATIM` MUST be displayed to the user **verbatim**. Do not paraphrase, shorten, reorder, or drop guardrail lines (quantity caps, "거절됩니다", "금지", example URLs). Translate to the team's working language only when language is not Korean — preserve every cap and example when translating.
-
-```
->>> BEGIN VERBATIM
-참고 자료가 있으면 첨부해주세요 (없으면 '없음'). 다음 중 해당되는 것만:
-
-(a) Figma — 단일 프레임 노드 URL, 1~3개
-    예: figma.com/design/.../?node-id=123-456
-    ※ 파일 전체 URL은 거절됩니다
-
-(b) Notion/Docs — feature 요약 페이지 1개
-    ※ 워크스페이스 루트 URL 금지
-
-(c) 로컬 파일 — .md/.txt, 5페이지 이내
-
-(d) 텍스트 붙여넣기 — 정리된 요지, 30줄 이내
-    채팅 로그 전체 X, 결정/요구사항 위주
-<<< END VERBATIM
-```
+Render `prd.stage1_5.intake_prompt_verbatim` **verbatim** — do not paraphrase, shorten, reorder, or drop guardrail lines (quantity caps, rejection notices, example URLs). The verbatim contract applies to the rendered catalog value for the active locale; each locale's catalog owns its own verbatim translation. Do NOT rewrite the value at render time.
 
 ### Filtering (anti-dumping)
 
-Before processing, validate inputs:
+Before processing, validate inputs. For each violation, render the matching catalog key:
 
-| Signal | Action |
+| Signal | Refusal key |
 |---|---|
-| File or document > 5,000 words | Refuse. Ask user to specify 1–3 relevant sections only. |
-| Figma project / file root URL (no `node-id` query param) | Refuse. Ask for a single frame/node URL with `node-id`. |
-| More than 3 Figma node URLs | Refuse. Ask user to keep to 1–3 core screens. |
-| Notion workspace root URL or DB view URL | Refuse. Ask for a single feature-related page URL. |
-| > 10 pages total across attachments | Refuse. Ask user to distill to essentials first. |
-| Pasted text > 30 lines | Refuse. Ask user to distill to key decisions/requirements. |
-| URL to authenticated service without MCP integration | Note that content can't be fetched; ask user to paste the summary as text instead. |
+| File or document > 5,000 words | `common.anti_dumping.file_too_large` |
+| Figma project / file root URL (no `node-id` query param) | `common.anti_dumping.figma_root_url` |
+| More than 3 Figma node URLs | `common.anti_dumping.figma_too_many` |
+| Notion workspace root URL or DB view URL | `common.anti_dumping.notion_root_url` |
+| > 10 pages total across attachments | `common.anti_dumping.too_many_pages` |
+| Pasted text > 30 lines | `common.anti_dumping.pasted_too_long` |
+| URL to authenticated service without MCP integration | `common.anti_dumping.auth_url` |
 
 Do not proceed with raw dumps. Distillation is the user's responsibility; interpretation is the skill's.
 
@@ -210,22 +192,17 @@ For each accepted attachment:
 
 1. Fetch/read the content (WebFetch for public URLs, Read for local files).
 2. Extract 5–7 bullet points of facts relevant to the pitch under authorship.
-3. Show the bullet summary to the user and ask:
-   > "이 자료에서 다음을 읽었습니다. 해석이 맞습니까? 틀린 부분이나 이 pitch 범위 밖 내용이 있으면 지적해주세요."
+3. Show the bullet summary to the user, then ask using `prd.stage1_5.summary_confirmation` (no substitutions).
 4. Apply user corrections to the summary.
 5. Store the **corrected summary only** as interview context. Discard the raw dump.
 
 ### Scope alignment
 
-After all attachments are summarized, ask:
-
-> "이 자료들 중 이번 pitch에 담겨야 할 내용은 무엇이고, 자료에 없지만 pitch에 추가되어야 할 동작은 무엇입니까?"
-
-This prevents Figma-driven or Notion-driven spec where the source dominates instead of serving.
+After all attachments are summarized, ask using `prd.stage1_5.scope_alignment` (no substitutions). This prevents Figma-driven or Notion-driven spec where the source dominates instead of serving.
 
 ### Skip path
 
-If the user says "없음" or equivalent, skip to Stage 2. Do not pressure for attachments.
+If the user replies with a negative/empty response (e.g., `없음`, `none`, `no`, `skip`, empty line), proceed directly to Stage 2. Do not pressure for attachments.
 
 ---
 
@@ -235,7 +212,7 @@ If the user says "없음" or equivalent, skip to Stage 2. Do not pressure for at
 
 - **One question at a time.** Wait for the answer before the next.
 - **Always provide a recommended answer** with each question, derived from the active pitch, analogous patterns in other domains, industry defaults, or the confirmed Stage 1.5 summary. The user can accept, edit, or reject.
-- **Forbid speculation.** When the user cannot answer or the answer is vague, record a `[미확정 — {question}]` tag. Never fill gaps with plausible-sounding content.
+- **Forbid speculation.** When the user cannot answer or the answer is vague, record a tag in the format `<profile.gate.unresolved_tag> — <question summary>`. The tag literal comes from the active profile (one per locale). Never fill gaps with plausible-sounding content.
 - **Prefer codebase exploration over asking** when an answer is already present.
 
 ### Question Branches (fixed order)
@@ -324,8 +301,7 @@ Apply the **Goldilocks test**: "Can this entire feature be toggled on/off by a s
 
    Teams override via a custom profile (e.g., add Kotlin object literals, Swift enum cases). Use the `hint` field from `profile.identifier_patterns[]` for the warning message.
 
-   On hit:
-   > "본문에 코드 식별자 '`XYZ`'가 있습니다. 도메인 용어로 바꿔주세요. (감지 패턴: <hint>)"
+   On hit, render `prd.stage3.identifier_warning` with `{identifier}` = the matched token and `{hint}` = the profile's `identifier_patterns[].hint` for the matching pattern.
 
 2. **Terminology consistency** against existing active pitches. If a new word is introduced for an already-named concept, call it out.
 
@@ -345,19 +321,13 @@ Each persona MUST surface at least one gap. "Looks good" is prohibited. Gaps rai
 
 Question: "Could I implement this pitch with only this document?"
 
-Check for:
-- Vague directives ("적절히", "보기 좋게", "자연스럽게")
-- GWT blocks that are not concrete enough to implement
-- Unstated dependencies on other domains
+Apply the checks from `profile.personas[id=new_engineer].checks[]` against the drafted body. The profile lists the specific anti-patterns (e.g., vague directives, under-specified GWT blocks, hidden cross-domain dependencies) in the active locale.
 
 ### Persona 2 — Customer Support
 
 Question: "What does the user see in every edge case?"
 
-Check for:
-- Coverage of network/permission/external-dependency failure modes
-- Defined error messaging or explicit no-go placement
-- Hand-wave phrases ("라이브러리 기본 동작에 위임") used excessively
+Apply the checks from `profile.personas[id=customer_support].checks[]`. The profile lists coverage areas (network / permission / external-dependency failure modes, error messaging, excessive hand-wave language) in the active locale.
 
 ### Persona 3 — Product Lead
 
@@ -371,16 +341,12 @@ Check for:
 
 ### Output
 
-Present findings as a numbered list labeled by persona. Example:
+Present findings as a numbered list labeled by persona name (from `profile.personas[i].name`). Format per row: `[<persona.name>] <n>. <finding text>`.
 
-> [신입 개발자] 1. Branch B의 "적절히 조정"이 모호합니다. 수치 또는 판정 조건 필요.
-> [고객지원] 1. 네트워크 오류 처리는 있으나 서버 5xx 처리 누락.
-> [제품 책임자] 1. "주문하기 탭 초기화"가 플래그 범위 밖으로 보임. 분리 검토 필요.
-
-For each finding, offer three options:
-- **반영** → return to Stage 2 for revision
-- **No-go로 이동** → add to Branch E explicitly
-- **반려** → record counter-reasoning; proceed
+For each finding, offer three options (rendered in the active locale via profile values or skill-level logic — no inline Korean/English prose in this SKILL.md):
+- Accept → return to Stage 2 for revision
+- Move to No-go → add to Branch E explicitly
+- Reject → record counter-reasoning; proceed
 
 ---
 
@@ -390,7 +356,7 @@ For each finding, offer three options:
 
 | # | Criterion | Pass Condition |
 |---|---|---|
-| 1 | Background is clear | Third party can summarize intent in ≤3 lines; no `[미확정]` tags remain |
+| 1 | Background is clear | Third party can summarize intent in ≤3 lines; no `<profile.gate.unresolved_tag>` tags remain |
 | 2 | User stories in GWT | At least 2 GWT blocks, all structurally complete |
 | 3 | Normative keywords | At least 3 bracketed statements across the body |
 | 4 | Edge cases table | At least 2 rows with explicit handling |
@@ -402,21 +368,14 @@ For each finding, offer three options:
 
 - **6 or 7 of 7 pass** → proceed to Stage 6
 - **Fewer than 6 pass** → refuse generation; loop to the relevant branch
-- **Any `[미확정]` tag remains anywhere** → refuse generation regardless of count
+- **Any `<profile.gate.unresolved_tag>` tag remains anywhere** → refuse generation regardless of count
 
-### Refusal message (example)
+### Refusal message
 
-> "아직 생성 기준에 미달합니다:
->
-> □ [1] 배경 — 통과
-> □ [2] GWT 2개 — 통과
-> □ [3] Normative 3개 — 통과
-> □ [4] 엣지 2행 — 1행만 작성됨 (미통과)
-> □ [5] No-go 1개 — 통과
-> □ [6] 코드 식별자 0개 — 통과
-> □ [7] Feature 크기 — 범위 초과 판정 (미통과)
->
-> Branch D에서 엣지 케이스를 1개 더 추가하고, Branch E에서 범위 축소 결정을 내려주세요."
+Render `common.gate.refusal_template` with:
+
+- `{criteria_rows}` — newline-joined per-criterion rows built from `common.gate.row_template` with `{n}` = 1..7, `{label}` = `profile.gate.criteria[i].label`, `{status}` = `common.gate.status_pass` or `common.gate.status_fail` (optionally appended with a short reason for failures in the active locale)
+- `{next_action}` — one-line actionable next step in the active locale, derived from which criteria failed (identify the failing branches by `profile.gate.criteria[i].id` and ask the user to address them)
 
 ---
 
@@ -443,51 +402,38 @@ deprecated: false
 
 ### Body assembly
 
-Start from `pitches/TEMPLATE.md`. Populate sections from interview answers, using **section headings from `profile.sections[].heading`** (looked up by `id`, not hardcoded):
+Start from `pitches/TEMPLATE.md`. Populate sections from interview answers, using **section headings from `profile.sections[].heading`** (looked up by `id`, rendered from the active profile — never hardcoded):
 
 - `# <title>` — user-confirmed title
-- `## <profile.sections[id=background].heading>` — Branch A (default-ko: `배경과 문제`; default-en: `Background and Problem`)
-- `## <profile.sections[id=user_stories].heading>` — Branch B + Branch C (default-ko: `사용자 스토리 및 수용 조건`; default-en: `User Stories and Acceptance Criteria`)
-- `## <profile.sections[id=edge_cases].heading>` — Branch D (default-ko: `엣지 케이스`; default-en: `Edge Cases`)
-- `## <profile.sections[id=no_gos].heading>` — Branch E (default-ko: `범위 제외 (No-gos)`; default-en: `Out of Scope`)
-- `## <profile.sections[id=feature_flag].heading>` — Branch F (only when used; default-ko/en: `Feature Flag`)
+- `## <profile.sections[id=background].heading>` — Branch A content
+- `## <profile.sections[id=user_stories].heading>` — Branch B + Branch C content
+- `## <profile.sections[id=edge_cases].heading>` — Branch D content
+- `## <profile.sections[id=no_gos].heading>` — Branch E content
+- `## <profile.sections[id=feature_flag].heading>` — Branch F (only when used)
 
 Section order MUST follow the order of entries in `profile.sections`. Skill consults `profile.sections[i].id` to know which interview branch's content fills each section.
 
 ### Handoff output
 
-After writing, emit a handoff message. Do NOT commit or push. Example:
+After writing, emit a handoff message by rendering `prd.stage6.handoff` with:
 
-> 생성된 파일:
-> - `pitches/notice/2026-04-18-auto-modal.md`
-> - (update인 경우) `pitches/notice/2026-04-16-initial.md` — deprecated: true로 플립됨
->
-> 등록 방법 (두 가지 중 택 1)
->
-> [A] GitHub 웹 — 권장
->   1. 스펙 레포의 GitHub 페이지 접속
->   2. 위 경로에 파일 업로드 또는 직접 생성
->   3. 커밋 메시지 컨벤션 (CONTRIBUTING.md 참조):
->      - 신규: `feat(pitch): add <domain> - <slug>`
->      - 업데이트: `feat(pitch): update <domain> - <요지>`
->      - 폐기: `chore(pitch): deprecate <domain> - <사유>`
->   4. "Commit directly to main" 선택
->
-> [B] CLI
->   git add pitches/<경로>
->   git commit -m "<메시지>"
->   git push origin main
+- `{new_file_path}` — relative path of the newly generated pitch
+- `{deprecated_line}` — for `update` intent, render `prd.stage6.deprecated_line` with `{old_file_path}` = the previous active file; for `new` / `new_domain`, substitute with an empty string
+- `{github_web_steps}` — render `common.handoff.github_web_steps`
+- `{cli_steps}` — render `common.handoff.cli_steps`
+
+Do NOT commit or push — the user owns the commit decision.
 
 ---
 
 ## Hard Prohibitions
 
 1. **Never write a file that fails the 90% gate.** Do not round up.
-2. **Never advance past Stage 5 with any `[미확정]` tag remaining.**
+2. **Never advance past Stage 5 with any `<profile.gate.unresolved_tag>` tag remaining.**
 3. **Never edit an existing pitch's body.** Append-only. The only allowed in-place change is flipping `deprecated: false` → `true`.
 4. **Never commit or push.** File writes only. The user owns the commit decision.
 5. **Never include code identifiers in the body.** Domain language only.
-6. **Never speculate in interview answers.** Unknown → `[미확정]` tag.
+6. **Never speculate in interview answers.** Unknown → `<profile.gate.unresolved_tag>` tag.
 7. **Never skip any stage.** Each stage has an explicit completion criterion.
 8. **Never ingest raw dumps from context intake.** Summarize, confirm, then use the summary.
 
