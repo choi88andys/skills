@@ -1,22 +1,29 @@
 # immutable — Append-only SDD toolkit
 
-Single plugin hosting two skills for Spec-Driven Development with append-only guarantees.
+Single plugin hosting four skills for Spec-Driven Development with append-only guarantees: bootstrap a starter, author pitches and ADRs through guided interviews, and migrate v0.4 repos to the v0.5 profile system.
 
-**Status**: v0.4.0. Merges the v0.3 two-plugin layout (`immutable-prd` + `immutable`) into one plugin with a unified `immutable:` namespace.
+**Status**: v0.5.0. Adds `/immutable:init`, `/immutable:migrate`, profile system, strings catalog, and six bundled starters on top of the v0.4 single-plugin layout. v0.4 repos continue to work unchanged — see `../CHANGELOG.md` for the migration paths.
 
 ## Skills
 
 | Skill | Command | Purpose | Mutability |
 |---|---|---|---|
-| [`prd/`](prd/) | `/immutable:prd` | WHAT — product pitches | Append-only + supersede |
-| [`adr/`](adr/) | `/immutable:adr` | WHY — Architecture Decision Records | Append-only + supersede |
+| [`init/`](init/) | `/immutable:init` | Bootstrap a starter (six modes: spec / app / single × ko / en) | Writes only into the user's CWD; never overwrites |
+| [`prd/`](prd/) | `/immutable:prd` | WHAT — product pitches (6-stage interview, 3 personas, 7-criterion gate) | Append-only + supersede |
+| [`adr/`](adr/) | `/immutable:adr` | WHY — Architecture Decision Records (Nygard template, 3 personas, 6-criterion gate) | Append-only + supersede |
+| [`migrate/`](migrate/) | `/immutable:migrate` | v0.4 → v0.5 config migration (idempotent, zero-data-loss) | Edits `.immutable-prd/` only; never touches pitches / ADRs |
 
-Together they form the v0.4 SDD output surface:
+Authoring order for a typical feature:
 
 ```
- pitch (/immutable:prd)      ADR (/immutable:adr)
-       WHAT                         WHY — load-bearing technical direction
+/immutable:init               — bootstrap (once per repo)
+        ↓
+/immutable:prd                — author the pitch (spec repo)
+        ↓
+/immutable:adr (when load-bearing technical direction is needed) — app repo
 ```
+
+`/immutable:migrate` is a one-shot upgrade for existing v0.4 repos; new repos created via `/immutable:init` are already v3.
 
 ## Installation
 
@@ -25,59 +32,55 @@ claude plugin marketplace add choi88andys/skills
 claude plugin install immutable
 ```
 
-One plugin install covers both `/immutable:prd` and `/immutable:adr`.
+One install enables all four skills.
 
 ## Repository layouts
 
-Both skills consume `.immutable-prd/config.yml` at the target repo root. Three example configs in [`examples/`](examples/):
+Both authoring skills consume `.immutable-prd/config.yml` at the target repo root, resolved via walk-up from CWD. Three layouts are supported:
 
-- [`config.yml`](examples/config.yml) — two-repo mode, spec repo side (pitches)
-- [`config-two-repo-app.yml`](examples/config-two-repo-app.yml) — two-repo mode, app repo side (ADRs)
-- [`config-single-repo.yml`](examples/config-single-repo.yml) — single-repo mode (both in one repo)
+| `repo_mode` | Pitches | ADRs | Starter |
+|---|---|---|---|
+| `two-repo-spec` | this repo | sibling app repo | `spec-{ko,en}` |
+| `two-repo-app` | sibling spec repo (`spec_repo_path`) | this repo | `app-{ko,en}` |
+| `single-repo` | this repo (`spec/pitches/`) | this repo (`adr/`) | `single-{ko,en}` |
 
-The config directory name `.immutable-prd/` is retained for back-compat with the SDD_MODE_DETECT bash snippet — it's the system-level path marker, distinct from the plugin name.
+Standalone reference configs in [`examples/`](examples/):
 
-## Authoring order
+- [`config.yml`](examples/config.yml) — two-repo-spec
+- [`config-two-repo-app.yml`](examples/config-two-repo-app.yml) — two-repo-app
+- [`config-single-repo.yml`](examples/config-single-repo.yml) — single-repo
 
-Typical feature lifecycle:
+The directory name `.immutable-prd/` is retained for back-compat with the SDD_MODE_DETECT bash snippet — it's the system-level path marker, distinct from the plugin name.
 
-```
-pitch                                        — /immutable:prd (spec repo)
-  ↓
-ADR (if tech direction is load-bearing)      — /immutable:adr (app repo)
-```
+## Schema, profile, strings catalog, validator
 
-See [`SCHEMA.md`](SCHEMA.md) for shared schema — frontmatter, reference policy, repo layouts, mutability rules, migration guide.
+Full reference lives in [`SCHEMA.md`](SCHEMA.md):
 
-## Design principles (shared by both skills)
+- Document types, frontmatter fields, naming conventions
+- Reference policy (pitch → ADR direction; `_global` reserved scope)
+- Mutability rules + supersede chain semantics
+- `config.yml` schema (v2 + v3, repo-mode-specific fields)
+- Profile system — full schema, resolution order, fork vs. override
+- Strings catalog — schema, key naming, responsibility split with profiles
+- Validation invariants 1–8 (validator coverage)
+- Migration guide v0.2 → v0.3/v0.4 → v0.5
 
-1. **Speculation is forbidden.** Unknown answers become `[미확정]` tags that block file generation.
-2. **Append-only is cultural, not arbitrary.** History is the audit trail; mutation is the exception.
-3. **The author owns the commit.** Skills generate files; humans review and commit.
-4. **Quality gates are strict.** Every skill enforces a 90% completeness gate before writing.
+## Design principles (shared by all four skills)
 
-## What v0.4 changed
+1. **Speculation is forbidden.** Unknown answers become `[미확정]` / `[TBD]` tags (locale-specific via profile) that block file generation.
+2. **Append-only is cultural, not arbitrary.** History is the audit trail; mutation is the exception (single allowed in-place change: flipping `deprecated: false → true`).
+3. **The author owns the commit.** Skills generate files; humans review and commit. No skill runs `git add` / `git commit` / `git push`.
+4. **Quality gates are strict.** Authoring skills enforce a 90% completeness gate before writing. The 90% gate refuses generation outright — no "almost good enough" path.
+5. **Configuration is data, not code.** Section headings, personas, gate criteria, and workflow prose live in profile YAML and the strings catalog. Teams override without forking the plugin.
 
-| v0.3 | v0.4 |
-|---|---|
-| 2 plugins (`immutable-prd` + `immutable`) | 1 plugin (`immutable`) |
-| `/immutable-prd:immutable-prd` + `/immutable:adr` | `/immutable:prd` + `/immutable:adr` |
-| 2 install + 2 enable steps | 1 install + 1 enable step |
+## What v0.5 changed (vs. v0.4)
 
-Behavior, schema, and config format are unchanged. v0.4 is a structural rename release.
+- Two new skills: `/immutable:init` (bootstrap) and `/immutable:migrate` (config upgrade).
+- Profile system + strings catalog externalize what v0.4 hardcoded in SKILL.md.
+- `validate_docs.py` is profile-aware and gains an opt-in `--strict-body` flag.
+- v0.4 repos keep working unchanged via the zero-action path.
 
-## What v0.3 dropped (retained rationale)
-
-v0.2 shipped 5 companion types (`adr`, `design`, `tech-spec`, `status`, `supersede`). v0.3 dropped 4:
-
-| Dropped | Replacement |
-|---|---|
-| `tech-spec` | ADR absorbs the 4 ADR-worthy areas (rollout, observability, migration, external-deps) |
-| `design` | Pitch TEMPLATE optional sections absorb genuine gaps (accessibility intent, motion intent) |
-| `status` | Derive from PR state, feature flags, git tags — not prose |
-| `supersede` | `/immutable:prd` handles pitch supersession; cross-doc cascades are rare with 2 doc types |
-
-Guiding rule: **if the source of truth lives in code or tooling, don't create a parallel prose file.**
+Full v0.4 → v0.5 release notes in [`../CHANGELOG.md`](../CHANGELOG.md).
 
 ## License
 
