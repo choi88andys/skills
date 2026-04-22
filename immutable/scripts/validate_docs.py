@@ -23,10 +23,11 @@ Coverage (matches SCHEMA.md "Validation invariants"):
   6. Filename format — matches the profile's `naming.filename_pattern`
      (falls back to `YYYY-MM-DD-<kebab-slug>.md` when no profile is set).
   7. Single-active-per-chain invariant per (domain, type).
-  8. ADR body-level check — **optional, enabled via `--strict-body`.** Every
-     `profile.adr.sections[i].required == true` entry must appear as an `##`
-     heading. Off by default to preserve backward compatibility with v0.4 ADRs
-     authored before the profile system existed.
+  8. pitch / ADR body-level check — **optional, enabled via `--strict-body`.**
+     Every `profile.sections[i].required == true` entry (pitch) and
+     `profile.adr.sections[i].required == true` entry (ADR) must appear as an
+     `##` heading. Off by default to preserve backward compatibility with v0.4
+     repos authored before the profile system existed.
 
 Not covered (deferred): cycle detection on supersede chains.
 
@@ -205,8 +206,7 @@ def profile_reserved_domains(profile: dict[str, Any]) -> dict[str, dict[str, Any
     return result or dict(DEFAULT_RESERVED_DOMAINS)
 
 
-def profile_required_adr_headings(profile: dict[str, Any]) -> list[str]:
-    sections = profile.get("adr", {}).get("sections") if profile else None
+def _extract_required_headings(sections: Any) -> list[str]:
     if not sections:
         return []
     out: list[str] = []
@@ -219,6 +219,16 @@ def profile_required_adr_headings(profile: dict[str, Any]) -> list[str]:
         if heading:
             out.append(str(heading).strip())
     return out
+
+
+def profile_required_adr_headings(profile: dict[str, Any]) -> list[str]:
+    sections = profile.get("adr", {}).get("sections") if profile else None
+    return _extract_required_headings(sections)
+
+
+def profile_required_pitch_headings(profile: dict[str, Any]) -> list[str]:
+    sections = profile.get("sections") if profile else None
+    return _extract_required_headings(sections)
 
 
 def load_frontmatter(md_path: Path) -> dict[str, Any] | None:
@@ -402,16 +412,18 @@ def check_references(
             )
 
 
-def validate_adr_body(
+def validate_body_headings(
     path: Path,
+    doc_type: str,
     required_headings: list[str],
     violations: list[str],
 ) -> None:
-    """Check that every profile-required ADR section appears as an H2 heading.
+    """Check that every profile-required section appears as an H2 heading.
 
-    Fenced code blocks are stripped before heading detection so literal `##` in
-    example code does not false-match. Heading comparison is exact after strip()
-    — users who customize headings update the profile, so the profile's
+    Shared by pitch and ADR body checks. Fenced code blocks are stripped
+    before heading detection so literal `##` in example code does not
+    false-match. Heading comparison is exact after strip() — users who
+    customize headings update the profile, so the profile's
     `sections[i].heading` is the authoritative string.
     """
     if not required_headings:
@@ -427,11 +439,12 @@ def validate_adr_body(
         if level == 2:
             found_h2.add(match.group(2).strip())
 
+    label = "ADR" if doc_type == "adr" else "pitch"
     for heading in required_headings:
         if heading not in found_h2:
             warn(
                 violations,
-                f"{path}: missing required ADR section `## {heading}` "
+                f"{path}: missing required {label} section `## {heading}` "
                 f"(profile-driven body check)",
             )
 
@@ -478,9 +491,10 @@ def main() -> int:
         "--strict-body",
         action="store_true",
         help=(
-            "Also check that each ADR body contains every profile-required "
-            "section heading as H2. Default: off (backward-compatible with "
-            "v0.4 repos authored before the profile system existed)."
+            "Also check that each pitch and ADR body contains every "
+            "profile-required section heading as H2. Default: off "
+            "(backward-compatible with v0.4 repos authored before the "
+            "profile system existed)."
         ),
     )
     args = parser.parse_args()
@@ -498,9 +512,10 @@ def main() -> int:
     profile = load_profile(config, repo_root)
     filename_pattern = profile_filename_pattern(profile)
     reserved = profile_reserved_domains(profile)
-    required_adr_headings = (
-        profile_required_adr_headings(profile) if args.strict_body else []
-    )
+    required_headings_by_type: dict[str, list[str]] = {
+        "adr": profile_required_adr_headings(profile) if args.strict_body else [],
+        "pitch": profile_required_pitch_headings(profile) if args.strict_body else [],
+    }
 
     dirs = resolve_dirs(config, repo_root)
     pitches_ref_root = resolve_pitches_for_reference(config, repo_root)
@@ -533,8 +548,13 @@ def main() -> int:
                     reserved,
                     violations,
                 )
-                if doc_type == "adr" and args.strict_body:
-                    validate_adr_body(md_path, required_adr_headings, violations)
+                if args.strict_body:
+                    validate_body_headings(
+                        md_path,
+                        doc_type,
+                        required_headings_by_type[doc_type],
+                        violations,
+                    )
                 collected.append((md_path, fm_checked))
         check_single_active_invariant(doc_type, collected, violations)
 

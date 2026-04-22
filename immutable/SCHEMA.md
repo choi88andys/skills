@@ -303,7 +303,7 @@ Checked at generation time by the `/immutable:adr` skill, and by CI via `scripts
 8. **Body constraints**: type-specific.
    - *pitch*: forbids code identifiers (enforced by `/immutable:prd` at authoring time, not by the CI validator).
    - *pitch / ADR (skill-level guard, always on)*: at Stage 6 generation, `/immutable:prd` and `/immutable:adr` verify every `required: true` entry in `profile.(adr.)sections[]` appears as an `## <heading>` in the assembled body. Missing sections abort file generation via `(prd|adr).stage6.missing_required_section` and loop back to the interview. The guard runs only on in-flight generation — previously written files are append-only and untouched. Covers custom profile forks that add required sections beyond the default branches.
-   - *ADR (CI validator, opt-in)*: `scripts/validate_docs.py --strict-body` scans all ADR files and flags the same missing-heading violations post-hoc. Off by default for backward compatibility with v0.4 ADRs authored before the profile system existed.
+   - *pitch / ADR (CI validator, opt-in)*: `scripts/validate_docs.py --strict-body` scans all pitch and ADR files and flags the same missing-heading violations post-hoc. Off by default for backward compatibility with v0.4 repos authored before the profile system existed.
 
 **Profile awareness** (v0.5+): the CI validator loads the profile via the same resolution order as the skills — config.yml `profile:` → bundled `default-<team_language>.yml` → hardcoded last-resort defaults. v2 configs get the bundled default automatically; no config bump required.
 
