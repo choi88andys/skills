@@ -194,6 +194,14 @@ strings:
 
   prd.stage6.deprecated_line: "- (on update) `{old_file_path}` — flipped to deprecated: true"
 
+  prd.stage6.missing_required_section: |
+    Stopping file generation. The profile requires sections that are missing from the assembled body.
+
+    Missing:
+    {missing_headings}
+
+    Return to the Stage 2 interview, fill the missing content, then re-enter Stage 6.
+
   # ==========================================================================
   # adr skill
   # ==========================================================================
@@ -208,6 +216,14 @@ strings:
   adr.consequences.positive_heading: "Positive"
   adr.consequences.negative_heading: "Negative / Trade-offs"
   adr.consequences.cost_of_adoption_heading: "Cost of adoption / Neutral"
+
+  adr.stage6.missing_required_section: |
+    Stopping file generation. The profile requires sections that are missing from the assembled body.
+
+    Missing:
+    {missing_headings}
+
+    Return to the Stage 3 interview, fill the missing content, then re-enter Stage 6.
 
   # ==========================================================================
   # migrate skill  (v0.5 / S4)

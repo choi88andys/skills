@@ -42,7 +42,7 @@ The skill is **profile-aware** in v0.5. ADR-specific tunables — body sections,
 | Profile field | Where used |
 |---|---|
 | `adr.sections[].heading` | Stage 6 body assembly (rendered in ADR file) |
-| `adr.sections[].id` / `min_items` / `description` | Stage 3 interview branches (completion criteria) |
+| `adr.sections[].id` / `required` / `min_items` / `description` | Stage 3 interview branches + Stage 6 required-sections guard |
 | `adr.gate.total` / `pass_threshold` / `criteria` | Stage 5 90% completeness gate |
 | `adr.gate.unresolved_tag` | Stage 3/5 unresolved-answer tag — literal value sourced from the active profile per locale |
 | `adr.personas[].name` / `question` / `checks` | Stage 4 adversarial review (data SSoT; v0.5 prose stays inline) |
@@ -329,6 +329,16 @@ Section headings are sourced from `profile.adr.sections[].heading` (looked up by
 ```
 
 The Consequences sub-headings (positive / negative / cost-of-adoption) are owned by the strings catalog (`adr.consequences.*`). Section headings remain owned by the profile.
+
+### Required-sections guard
+
+Before writing the file, iterate `profile.adr.sections[]`. For every entry with `required: true`, verify the assembled body contains an exact `## <heading>` line (whitespace stripped, profile string matched verbatim). If any required heading is missing:
+
+- Abort file generation — do not write, do not flip `deprecated`.
+- Render `adr.stage6.missing_required_section` with `{missing_headings}` set to the ordered list of absent `## <heading>` lines (one per line, in profile order).
+- Loop back to Stage 3 for the branch that owns the missing content.
+
+The guard covers custom profile forks that introduce additional `required: true` sections beyond the default Nygard branches (A–E). Previously written ADRs are append-only and out of scope — the guard runs only on the in-flight generation.
 
 ### Handoff
 

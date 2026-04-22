@@ -220,6 +220,14 @@ strings:
 
   prd.stage6.deprecated_line: "- (update인 경우) `{old_file_path}` — deprecated: true로 플립됨"
 
+  prd.stage6.missing_required_section: |
+    파일 생성을 중단합니다. 프로파일이 요구하는 필수 섹션이 본문에 누락되었습니다.
+
+    누락:
+    {missing_headings}
+
+    Stage 2 인터뷰로 돌아가 해당 섹션을 채운 뒤 Stage 6를 재진행해주세요.
+
   # ==========================================================================
   # adr skill
   # ==========================================================================
@@ -234,6 +242,14 @@ strings:
   adr.consequences.positive_heading: "긍정적 영향"
   adr.consequences.negative_heading: "부정적 영향 / 트레이드오프"
   adr.consequences.cost_of_adoption_heading: "채택 비용 / 중립"
+
+  adr.stage6.missing_required_section: |
+    파일 생성을 중단합니다. 프로파일이 요구하는 필수 섹션이 본문에 누락되었습니다.
+
+    누락:
+    {missing_headings}
+
+    Stage 3 인터뷰로 돌아가 해당 섹션을 채운 뒤 Stage 6를 재진행해주세요.
 
   # ==========================================================================
   # migrate skill  (v0.5 / S4)

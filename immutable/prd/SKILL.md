@@ -39,7 +39,7 @@ The skill is **profile-aware** in v0.5: section headings, the gate threshold, pe
 | Profile field | Where used |
 |---|---|
 | `sections[].heading` | Stage 6 body assembly (rendered in pitch file) |
-| `sections[].id` / `min_items` / `description` | Stage 2 interview branches (completion criteria) |
+| `sections[].id` / `required` / `min_items` / `description` | Stage 2 interview branches + Stage 6 required-sections guard |
 | `normative_keywords[].token` / `meaning` | Stage 2 Branch C bracket vocabulary |
 | `identifier_patterns[].regex` / `hint` | Stage 3 code-identifier detection |
 | `naming.filename_pattern` / `slug_case` / `forbidden_slug_patterns` | Stage 6 filename validation |
@@ -412,6 +412,16 @@ Start from `pitches/TEMPLATE.md`. Populate sections from interview answers, usin
 - `## <profile.sections[id=feature_flag].heading>` — Branch F (only when used)
 
 Section order MUST follow the order of entries in `profile.sections`. Skill consults `profile.sections[i].id` to know which interview branch's content fills each section.
+
+### Required-sections guard
+
+Before writing the file, iterate `profile.sections[]`. For every entry with `required: true`, verify the assembled body contains an exact `## <heading>` line (whitespace stripped, profile string matched verbatim). If any required heading is missing:
+
+- Abort file generation — do not write, do not flip `deprecated`.
+- Render `prd.stage6.missing_required_section` with `{missing_headings}` set to the ordered list of absent `## <heading>` lines (one per line, in profile order).
+- Loop back to Stage 2 for the branch that owns the missing content.
+
+The guard covers custom profile forks that introduce additional `required: true` sections beyond the default branches (A–E, plus optional F). Previously written pitches are append-only and out of scope — the guard runs only on the in-flight generation.
 
 ### Handoff output
 
