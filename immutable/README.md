@@ -2,7 +2,7 @@
 
 Single plugin hosting four skills for Spec-Driven Development with append-only guarantees: bootstrap a starter, author pitches and ADRs through guided interviews, and migrate v0.4 repos to the v0.5 profile system.
 
-**Status**: v0.5.1. Adds a Stage 6 skill-side guard that verifies required section headings are present in the assembled body before `/immutable:prd` and `/immutable:adr` write the file (complements the v0.5.0 opt-in `--strict-body` CI check). v0.5.0 established the four-skill bootstrap-able plugin on top of the v0.4 single-plugin layout. v0.4 repos continue to work unchanged — see `../CHANGELOG.md` for the migration paths.
+**Status**: v0.5.2. `validate_docs.py --strict-body` now validates pitch bodies in addition to ADR bodies, achieving CI/hook parity with the v0.5.1 Stage 6 skill-side guard (still opt-in, off by default). v0.5.1 added the always-on skill-side guard; v0.5.0 established the four-skill bootstrap-able plugin on top of the v0.4 single-plugin layout. v0.4 repos continue to work unchanged — see `../CHANGELOG.md` for the migration paths.
 
 ## Skills
 

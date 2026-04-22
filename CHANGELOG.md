@@ -2,6 +2,28 @@
 
 All notable changes to the `skills` repository (and the bundled `immutable` plugin) are documented in this file. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) for the marketplace plugin version.
 
+## [0.5.2] — 2026-04-22
+
+Patch release: extends `validate_docs.py --strict-body` from ADR-only to pitch + ADR. Achieves CI/hook parity with the v0.5.1 skill-side guard for teams that wire the validator into pre-commit hooks or pipelines. Still opt-in (off by default). No config changes; no migration needed.
+
+### Changed
+
+- **`validate_docs.py --strict-body`** now validates pitch bodies in addition to ADR bodies. Every `profile.sections[i].required == true` entry (pitch) and `profile.adr.sections[i].required == true` entry (ADR) must appear as an `##` heading. Violation message labels the doctype (`missing required pitch section` / `missing required ADR section`). Off by default — behavior unchanged for teams that don't use the flag.
+- **`SCHEMA.md` invariant 8 (CI validator clause)** — scope widened from ADR to pitch + ADR; backward-compat note widened from "v0.4 ADRs" to "v0.4 repos".
+- **`validate_docs.py` internal refactor** — `validate_adr_body` renamed to `validate_body_headings` (doctype-agnostic). Shared `_extract_required_headings` helper backs both `profile_required_adr_headings` and the new `profile_required_pitch_headings`.
+
+### Deprecated
+
+None.
+
+### Removed
+
+None.
+
+### Fixed
+
+None.
+
 ## [0.5.1] — 2026-04-22
 
 Patch release: adds a Stage 6 skill-side guard that verifies required section headings are present in the assembled body before `/immutable:prd` and `/immutable:adr` write the file. Complements the v0.5.0 opt-in `--strict-body` CI check by catching missing sections at generation time. No config changes; no migration needed.
@@ -79,6 +101,7 @@ Append-only foundation: dropped four of the v0.2 companion doc types (`design`, 
 
 Pre-public iterations — see `git log` for history.
 
+[0.5.2]: https://github.com/choi88andys/skills/releases/tag/v0.5.2
 [0.5.1]: https://github.com/choi88andys/skills/releases/tag/v0.5.1
 [0.5.0]: https://github.com/choi88andys/skills/releases/tag/v0.5.0
 [0.4.0]: https://github.com/choi88andys/skills/releases/tag/v0.4.0
