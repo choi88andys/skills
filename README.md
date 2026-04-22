@@ -184,6 +184,7 @@ Clone the repo and reference the plugin directory directly, or copy `immutable/`
 
 | Release | Highlights |
 |---|---|
+| v0.5.1 | Stage 6 required-sections guard: `/immutable:prd` and `/immutable:adr` verify every `required: true` profile section appears as an `##` heading before writing. Skill-side, always on, covers pitch + ADR. Complements v0.5.0's opt-in `--strict-body` CI check. |
 | v0.5.0 | `/immutable:init` + `/immutable:migrate` skills, profile system, strings catalog (ko/en/ja), 6 bundled starters, profile-aware validator with `--strict-body`. v2 configs continue to work unchanged. |
 | v0.4.0 | Two-plugin layout (`immutable-prd` + `immutable`) merged into single `immutable` plugin. |
 | v0.3.0 | Dropped `design`, `tech-spec`, `status`, `supersede` companion types; ADRs relocated to app repo. |

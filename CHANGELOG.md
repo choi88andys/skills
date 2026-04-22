@@ -2,6 +2,32 @@
 
 All notable changes to the `skills` repository (and the bundled `immutable` plugin) are documented in this file. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) for the marketplace plugin version.
 
+## [0.5.1] — 2026-04-22
+
+Patch release: adds a Stage 6 skill-side guard that verifies required section headings are present in the assembled body before `/immutable:prd` and `/immutable:adr` write the file. Complements the v0.5.0 opt-in `--strict-body` CI check by catching missing sections at generation time. No config changes; no migration needed.
+
+### Added
+
+- **Stage 6 required-sections guard (pitch + ADR)** — always-on, skill-side. Iterates `profile.(adr.)sections[]` and fails generation if any `required: true` entry is missing as an `## <heading>` in the body. Aborts without writing the file or flipping `deprecated`, and loops back to the interview (Stage 2 for pitch, Stage 3 for ADR). Covers custom profile forks that add required sections beyond the default branches. Skill-side complement to v0.5.0's ADR-only `--strict-body` CI check.
+- **New strings** — `prd.stage6.missing_required_section` and `adr.stage6.missing_required_section` in `strings.en.yml` and `strings.ko.yml`, with `{missing_headings}` placeholder rendering the ordered list of absent `##` lines.
+
+### Changed
+
+- **`SCHEMA.md` invariant 8** — split into two clauses: skill-side guard (always on, both doctypes) and CI-side `--strict-body` (opt-in, ADR only).
+- **`prd/SKILL.md` and `adr/SKILL.md` profile-field tables** — the `sections[].id / required / min_items / description` row now reflects that `required` is consumed at Stage 6 by the guard (in addition to the Stage 2/3 interview branches).
+
+### Deprecated
+
+None.
+
+### Removed
+
+None.
+
+### Fixed
+
+None.
+
 ## [0.5.0] — 2026-04-20
 
 The "foundation" release: extends the v0.4 two-skill toolkit into a four-skill bootstrap-able plugin with externalized configuration. v0.4 repos keep working without any change — every new surface is opt-in.
@@ -53,6 +79,7 @@ Append-only foundation: dropped four of the v0.2 companion doc types (`design`, 
 
 Pre-public iterations — see `git log` for history.
 
+[0.5.1]: https://github.com/choi88andys/skills/releases/tag/v0.5.1
 [0.5.0]: https://github.com/choi88andys/skills/releases/tag/v0.5.0
 [0.4.0]: https://github.com/choi88andys/skills/releases/tag/v0.4.0
 [0.3.0]: https://github.com/choi88andys/skills/releases/tag/v0.3.0
