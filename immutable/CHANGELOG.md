@@ -1,6 +1,29 @@
-# Changelog
+# Changelog — immutable plugin
 
-All notable changes to the `skills` repository (and the bundled `immutable` plugin) are documented in this file. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) for the marketplace plugin version.
+All notable changes to the `immutable` plugin are documented in this file. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Version is canonically declared in `.claude-plugin/plugin.json`.
+
+## [0.5.4] — 2026-04-23
+
+Hygiene release for multi-plugin marketplace readiness. No user-facing feature changes — this release restructures manifests and documentation so the `skills` marketplace repo can host additional plugins alongside `immutable` without ambiguity around versioning or changelogs. Existing `/immutable:*` skills, profiles, starters, and validator behavior are unchanged from v0.5.3.
+
+### Added
+
+- **`immutable/.claude-plugin/plugin.json`** — canonical per-plugin manifest declaring `name`, `version`, `description`, `author`, `license`, `homepage`, `repository`, `keywords`. Claude Code's version resolution uses this file first ("plugin.json takes priority" per `plugins-reference` docs), giving each plugin a single source of truth for version independent from the marketplace manifest.
+
+### Changed
+
+- **`.claude-plugin/marketplace.json`** — removed `metadata.version` root field. It was effectively `immutable`'s version under a non-standard location (Anthropic's own multi-plugin marketplace does not use it). Version now lives in `immutable/.claude-plugin/plugin.json` exclusively.
+- **`CHANGELOG.md` relocated** — top-level `CHANGELOG.md` moved to `immutable/CHANGELOG.md` so each future plugin can own its own changelog. The marketplace repo may keep a slim top-level CHANGELOG for marketplace-level events (plugin added / removed / renamed) going forward.
+- **`README.md`** — Versioning table row updated to v0.5.4 with multi-plugin hygiene note.
+
+### Removed
+
+- **`marketplace.json: metadata.version`** — see Changed.
+
+### Migration
+
+- **End users of `immutable`**: no action required. `claude plugin list` will display `Version: 0.5.4` (previously showed the install-time commit SHA fallback, e.g., `34dae9d34574`) after the next marketplace sync. Users with auto-update disabled run `/plugin marketplace update skills` (or the Marketplaces tab's "Update marketplace" button) and then `Update now` on the Installed tab.
+- **Marketplace maintainers adding a 2nd plugin later**: each new plugin owns its version via its own `<plugin>/.claude-plugin/plugin.json`. Git tags follow the official `{name}--v{version}` convention produced by `claude plugin tag`.
 
 ## [0.5.3] — 2026-04-23
 
@@ -145,6 +168,7 @@ Append-only foundation: dropped four of the v0.2 companion doc types (`design`, 
 
 Pre-public iterations — see `git log` for history.
 
+[0.5.4]: https://github.com/choi88andys/skills/releases/tag/immutable--v0.5.4
 [0.5.3]: https://github.com/choi88andys/skills/releases/tag/v0.5.3
 [0.5.2]: https://github.com/choi88andys/skills/releases/tag/v0.5.2
 [0.5.1]: https://github.com/choi88andys/skills/releases/tag/v0.5.1
