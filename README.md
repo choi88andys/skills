@@ -120,11 +120,13 @@ Coverage: frontmatter schema, supersede chain integrity, single-active-per-chain
 ```
 skills/
 ├── LICENSE                                 # MIT
-├── README.md                               # this file
-├── CHANGELOG.md                            # release history (Keep a Changelog format)
+├── README.md                               # this file — marketplace overview + plugin index
 ├── .claude-plugin/
-│   └── marketplace.json                    # plugin marketplace manifest (v0.5 — 1 plugin, 4 skills)
+│   └── marketplace.json                    # plugin marketplace manifest (v0.5.4 — 1 plugin, 4 skills)
 └── immutable/                              # the immutable plugin
+    ├── .claude-plugin/
+    │   └── plugin.json                     # per-plugin manifest (name, version, author, keywords) — v0.5.4+
+    ├── CHANGELOG.md                        # plugin release history (Keep a Changelog)
     ├── README.md                           # plugin overview
     ├── SCHEMA.md                           # shared schema (config v2/v3, frontmatter, references, invariants, profile, strings catalog, migration)
     ├── init/SKILL.md                       # /immutable:init  — 7-stage bootstrap
@@ -184,6 +186,7 @@ Clone the repo and reference the plugin directory directly, or copy `immutable/`
 
 | Release | Highlights |
 |---|---|
+| v0.5.4 | Multi-plugin marketplace hygiene — per-plugin manifest at `immutable/.claude-plugin/plugin.json` owns version; `marketplace.json: metadata.version` removed; CHANGELOG relocated to `immutable/CHANGELOG.md`. No user-facing feature changes. |
 | v0.5.3 | Pitch authoring tightened on two axes — **shape** (`sections[user_stories].structure: per_story_grouped` default; each `### ` sub-section carries its own bullet-list normative line; ≥2 sub-sections required; enforced at Stage 6 + `--strict-body` CI) and **depth** (Stage 3 vague-word regex + inline-normative scan; 4th adversarial-review persona `quality_auditor` focused on measurable/testable criteria). Bundled profiles ship the new fields; forked v0.5.2 profiles fall back to defaults. `consolidated` preserves the v0.5.2 shape. |
 | v0.5.2 | `validate_docs.py --strict-body` extended from ADR-only to pitch + ADR. CI/hook parity with the v0.5.1 skill-side guard for teams that wire the validator into pre-commit or pipelines. Still opt-in, off by default. |
 | v0.5.1 | Stage 6 required-sections guard: `/immutable:prd` and `/immutable:adr` verify every `required: true` profile section appears as an `##` heading before writing. Skill-side, always on, covers pitch + ADR. Complements v0.5.0's opt-in `--strict-body` CI check. |
@@ -191,7 +194,7 @@ Clone the repo and reference the plugin directory directly, or copy `immutable/`
 | v0.4.0 | Two-plugin layout (`immutable-prd` + `immutable`) merged into single `immutable` plugin. |
 | v0.3.0 | Dropped `design`, `tech-spec`, `status`, `supersede` companion types; ADRs relocated to app repo. |
 
-Full release history in [`CHANGELOG.md`](CHANGELOG.md).
+Full release history per plugin: [`immutable/CHANGELOG.md`](immutable/CHANGELOG.md).
 
 ## License
 
