@@ -202,6 +202,39 @@ strings:
 
     Return to the Stage 2 interview, fill the missing content, then re-enter Stage 6.
 
+  prd.stage6.missing_story_structure: |
+    Stopping file generation. Under `sections[user_stories].structure = per_story_grouped`, the user-stories section does not meet the required shape.
+
+    Issues:
+    {offending_sections}
+
+    Rules:
+      1. The user-stories section (`## <heading>`) MUST contain **≥2** `### ` sub-sections.
+      2. Each `### ` sub-section MUST contain at least one normative keyword at the **head** of a bullet item (e.g. `- **[MUST]** …`, `- [MUST NOT] …`). Nested bullets (`  - **[MUST]** …`) are valid.
+      3. Inline-position normative is NOT accepted — this covers both paragraph prose (`the system **[MUST]** show the card first`) AND bullet items where the bracket is mid-sentence (`- the system **[MUST]** show the card first`). The bracket must be at the head of the bullet (optionally preceded only by `**`/`_` emphasis).
+      4. A Given/When/Then triple is recommended but may be omitted for cross-cutting groups (e.g., shared result-code handling across channels).
+      5. Normative lines must live INSIDE a sub-section. Leaking them between the H2 and the first `### ` breaks the story↔criterion link.
+
+    Return to Stage 2 Branch B to re-elicit the missing per-story content, then re-enter Stage 6.
+
+  prd.stage3.inline_normative_warning: |
+    The body contains a normative keyword not at the head of a bullet: "{line}"
+
+    Rule: bracketed tokens (`[MUST]` / `[MUST NOT]` / `[SHOULD]` / …) MUST sit at the **head** of a bullet item (optionally preceded only by `**`/`_` emphasis markers).
+      - OK: `- **[MUST]** the system does …`, `  - [SHOULD] the system …`
+      - Rejected (paragraph prose): `the system **[MUST]** do X`
+      - Rejected (mid-bullet prose): `- the system **[MUST]** do X`
+
+    Both rejected forms defeat grep/CI extraction. Return to Stage 2 Branch B/C and rewrite in bullet-head form.
+
+  prd.stage3.vague_word_warning: |
+    The body contains vague language: "{word}"
+    Location: {line}
+
+    Hedge words ("appropriate", "reasonable", "naturally", "sufficient", "as needed", "smoothly") let implementers fill the gap arbitrarily and create drift. Replace with concrete values (numbers, timeouts, thresholds, UI specs), or confirm with the user that the ambiguity is intentional in context.
+
+    Return to Stage 2 Branch B/C to rewrite the sentence.
+
   # ==========================================================================
   # adr skill
   # ==========================================================================

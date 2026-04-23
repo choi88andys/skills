@@ -40,8 +40,10 @@ The skill is **profile-aware** in v0.5: section headings, the gate threshold, pe
 |---|---|
 | `sections[].heading` | Stage 6 body assembly (rendered in pitch file) |
 | `sections[].id` / `required` / `min_items` / `description` | Stage 2 interview branches + Stage 6 required-sections guard |
+| `sections[id=user_stories].structure` (v0.5.3+) | Stage 2 Branch B completion criterion + Stage 6 pre-write structure guard. `per_story_grouped` (default) requires each story in a `### ` sub-section carrying a GWT triple + ≥1 bracketed normative line; `consolidated` accepts a single GWT list + single normative list under the H2 (v0.5.2 shape). |
 | `normative_keywords[].token` / `meaning` | Stage 2 Branch C bracket vocabulary |
 | `identifier_patterns[].regex` / `hint` | Stage 3 code-identifier detection |
+| `vague_words[].regex` / `hint` (v0.5.3+) | Stage 3 vague-word detection (skill-side only; not enforced by the CI validator) |
 | `naming.filename_pattern` / `slug_case` / `forbidden_slug_patterns` | Stage 6 filename validation |
 | `feature_flag.*` | Stage 2 Branch F (key prefix, states, fallback) |
 | `domain_allowlist.source` / `reserved_domains` | Stage 1 / Stage 3 domain checks |
@@ -99,7 +101,7 @@ Stage 1: Intent Routing           — classify new / update / deprecate + confir
 Stage 1.5: Context Intake (opt.)  — accept curated external context (Figma/Notion/local/Slack)
 Stage 2: Interview                 — one question at a time, with a recommended answer
 Stage 3: Domain Language Check    — code identifier detection, terminology drift
-Stage 4: Adversarial Review       — three personas each surface at least one gap
+Stage 4: Adversarial Review       — four personas each surface at least one gap
 Stage 5: 90% Completeness Gate    — 7-criterion checklist; generate file only if passed
 Stage 6: File Generation & Handoff
 ```
@@ -235,7 +237,14 @@ Walk the user flow from start to end. For each branch point elicit:
 
 At least one happy path + at least one alternate/error branch. Minimum 2 GWT blocks, ideally 3.
 
-**Completion criterion**: every branch point expressed as a GWT triple.
+**Structure (v0.5.3+)**: consult `profile.sections[id=user_stories].structure` (default `per_story_grouped`):
+
+- `per_story_grouped` — each story/flow carries a short imperative title that becomes its `### ` sub-section. During authoring, collect for every sub-section: the title, a GWT triple (when the sub-section is a user flow), AND ≥1 bracketed normative keyword line from Branch C (`[MUST]` / `[MUST NOT]` / `[SHOULD]` / …) that binds requirements to that sub-section. A sub-section MAY be a cross-cutting group (e.g., "result-code handling across all registration channels") in which case the GWT triple can be omitted — but the bound normative line is still required. Do NOT defer normative elicitation to a post-hoc consolidated list; the binding must happen inside each sub-section.
+- `consolidated` — collect GWT blocks and normative lines independently; Stage 6 renders them as two separate lists under the H2. Choose this mode only when the profile explicitly sets `structure: consolidated`.
+
+**Completion criteria**:
+- Every branch point expressed as a GWT triple.
+- Under `per_story_grouped`: every sub-section has ≥1 bound normative line. GWT triples live inside their owning sub-section (or are omitted for cross-cutting normative-only groups). If any sub-section lacks a bound normative line, loop back and elicit before advancing.
 
 #### Branch C — Normative Keywords
 
@@ -303,19 +312,29 @@ Apply the **Goldilocks test**: "Can this entire feature be toggled on/off by a s
 
    On hit, render `prd.stage3.identifier_warning` with `{identifier}` = the matched token and `{hint}` = the profile's `identifier_patterns[].hint` for the matching pattern.
 
-2. **Terminology consistency** against existing active pitches. If a new word is introduced for an already-named concept, call it out.
+2. **Vague-word detection (v0.5.3+)** via the regex list in `profile.vague_words` (bundled default covers Korean hedge terms `적절히`, `자연스럽게`, `충분히`, `가능한`, `합리적`, `일반적`, `최대한`, `필요에 따라`, `상황에 맞게`, `안전하게`, `부드럽게`, and English `appropriate(ly)`, `reasonabl(e|y)`, `natural(ly)`, `sufficient(ly)`, `as needed`, `etc.`/`and so on`, `smooth(ly)`, `safe(ly)`, `general(ly)`).
 
-3. **Frontmatter `domain` consistency** with parent directory and allowlist.
+   On hit, render `prd.stage3.vague_word_warning` with `{word}` = the matched phrase and `{line}` = the surrounding sentence (≤120 chars). The warning asks the author to replace with a concrete value or confirm the ambiguity is intentional. Loop back to the relevant Branch (B for story text, C for normative) per hit.
+
+   This check is skill-side only — not enforced by `validate_docs.py` (semantic noise is tolerable at authoring time but would break CI predictability).
+
+3. **Inline-paragraph normative detection (v0.5.3+, `per_story_grouped` only)** — scan the user-stories section slice. For any bracketed token from `profile.normative_keywords[].token` (`[MUST]`, `[MUST NOT]`, …) that appears on a line which is neither a bullet (`^\s*[-*]\s+`) nor a heading, render `prd.stage3.inline_normative_warning` with `{line}` = the offending line. This catches the Korean-drift pattern where some models embed `**[MUST]**` mid-sentence.
+
+   On hit, loop back to Branch B/C with instruction to re-write as a bullet list item.
+
+4. **Terminology consistency** against existing active pitches. If a new word is introduced for an already-named concept, call it out.
+
+5. **Frontmatter `domain` consistency** with parent directory and allowlist.
 
 ### Failure handling
 
-On violation, return to Stage 2 for the specific branch. Do not advance to Stage 4 until all identifiers are removed.
+On violation, return to Stage 2 for the specific branch. Do not advance to Stage 4 until all code identifiers are removed, all vague words are resolved (replaced or user-confirmed), and the inline-normative pattern is cleaned.
 
 ---
 
-## Stage 4 — Adversarial Review (3 Personas)
+## Stage 4 — Adversarial Review (4 Personas)
 
-Each persona MUST surface at least one gap. "Looks good" is prohibited. Gaps raised by 2+ personas are promoted one severity level.
+Each persona MUST surface at least one gap. "Looks good" is prohibited. Beyond the minimum of one, continue surfacing every non-trivial gap the persona identifies; do NOT artificially cap per-persona output at one finding. Gaps raised by 2+ personas are promoted one severity level.
 
 ### Persona 1 — New Engineer
 
@@ -338,6 +357,19 @@ Check for:
 - Completion within 2–6 weeks
 - Epic-level content that should be split
 - Overlap or conflict with existing active pitches
+
+### Persona 4 — Quality Auditor (v0.5.3+)
+
+Question rendered from `profile.personas[id=quality_auditor].question` (default: "Can this pitch be implemented and verified against measurable criteria, with no clauses requiring subjective judgment?").
+
+Apply the checks from `profile.personas[id=quality_auditor].checks[]`. The bundled default covers:
+- Concrete-value density — each normative carries numbers/timeouts/thresholds/UI specs rather than qualitative adjectives.
+- Context-vague hedge phrases that passed the Stage 3 regex but remain ambiguous in the surrounding sentence.
+- Pass/fail decidability of every GWT Then (can a test or reviewer give a binary verdict without subjective judgment?).
+- Missing-subject or passive-voice sentences that hide the responsible actor.
+- Depth-to-complexity balance — thin MUST/edge-case counts in a pitch that drew on substantial Stage 1.5 intake is a drift signal.
+
+This persona complements the Stage 3 regex-based vague-word scan (which is deterministic and shallow) with semantic judgment. The two layers are expected to overlap; overlap is a feature, not redundancy.
 
 ### Output
 
@@ -406,12 +438,50 @@ Start from `pitches/TEMPLATE.md`. Populate sections from interview answers, usin
 
 - `# <title>` — user-confirmed title
 - `## <profile.sections[id=background].heading>` — Branch A content
-- `## <profile.sections[id=user_stories].heading>` — Branch B + Branch C content
+- `## <profile.sections[id=user_stories].heading>` — Branch B + Branch C content (internal shape controlled by `structure`, see below)
 - `## <profile.sections[id=edge_cases].heading>` — Branch D content
 - `## <profile.sections[id=no_gos].heading>` — Branch E content
 - `## <profile.sections[id=feature_flag].heading>` — Branch F (only when used)
 
 Section order MUST follow the order of entries in `profile.sections`. Skill consults `profile.sections[i].id` to know which interview branch's content fills each section.
+
+#### User-stories section internal shape (v0.5.3+)
+
+`profile.sections[id=user_stories].structure` selects the internal layout:
+
+- **`per_story_grouped` (default)** — for each story/flow collected in Branch B, emit:
+
+  ```
+  ### <story title>
+
+  - **Given** <state>
+  - **When** <action>
+  - **Then** <response>
+
+  - **[MUST]** <binding statement 1>
+  - **[MUST NOT]** <binding statement 2>
+  ```
+
+  A cross-cutting sub-section may carry only bracketed normative lines (no GWT triple) when the sub-section header itself names the shared context:
+
+  ```
+  ### <cross-cutting group title, e.g., shared result-code handling>
+
+  - **[MUST]** <binding statement 1>
+  - **[MUST]** <binding statement 2>
+  ```
+
+  Each `### ` sub-section MUST contain ≥1 bracketed normative keyword line where the token is at the **head of a bullet list item** — `- **[MUST]** …`, `- **[MUST NOT]** …`, or `- [SHOULD]  …` (optional markdown emphasis, then the bracket, then the claim text). Nested bullets are valid (`  - **[MUST]** …`). Both of the following are drift signals that the guard rejects:
+    - Inline prose normative in a paragraph: `시스템은 카드를 **[MUST]** 먼저 표시한다`
+    - Inline-position normative inside a bullet: `- 진행 중 주문이 있으면 카드를 **[MUST]** 먼저 표시한다` — bullet shape but the bracket is mid-sentence; breaks grep extraction and tends to surface in Korean output from some models.
+
+  Separate sub-sections with a blank line. Do NOT add a consolidated trailing normative list under the H2 — in this mode normative lines live only inside their owning sub-section.
+
+  The user-stories section MUST contain ≥2 `### ` sub-sections (matches `profile.sections[id=user_stories].min_items = 2`). A single-story pitch is too thin to claim "user stories" coverage.
+
+- **`consolidated`** — emit a single GWT list followed by a single bracketed-keyword list under the H2 (v0.5.2 shape). Do NOT add `### ` sub-sections in this mode.
+
+If the `structure` field is missing (profile predates v0.5.3), treat it as `per_story_grouped`.
 
 ### Required-sections guard
 
@@ -422,6 +492,31 @@ Before writing the file, iterate `profile.sections[]`. For every entry with `req
 - Loop back to Stage 2 for the branch that owns the missing content.
 
 The guard covers custom profile forks that introduce additional `required: true` sections beyond the default branches (A–E, plus optional F). Previously written pitches are append-only and out of scope — the guard runs only on the in-flight generation.
+
+### Structure guard (v0.5.3+, `user_stories` per_story_grouped only)
+
+Runs after the required-sections guard passes, and only when `profile.sections[id=user_stories].structure == per_story_grouped` (treat missing field as `per_story_grouped`). For `structure: consolidated` profiles, skip this guard.
+
+**What the guard enforces (and what it doesn't):**
+
+The guard binds *normative lines to sub-sections* — the core traceability property of `per_story_grouped`. It intentionally does NOT require a GWT triple in every `### ` sub-section, because a valid pitch can legitimately carry a cross-cutting group (e.g., shared result-code handling across several channels) whose sub-section header already names the shared context. Section-level "≥2 GWT blocks total" remains enforced by the Stage 5 gate criterion `gwt_minimum`, which counts across all sub-sections.
+
+Algorithm:
+
+1. Locate the user-stories H2 in the assembled body (`## <profile.sections[id=user_stories].heading>`). Capture the slice from that H2 up to (but not including) the next `## ` line or EOF. Strip fenced code blocks from the slice before inspection so example `### ` inside code doesn't false-match.
+2. Extract every `### ` sub-section within that slice.
+3. If the slice has fewer than 2 `### ` sub-sections: violation — either the section is empty of stories (0 sub-sections), or only carries one story (matches `min_items = 2` gate).
+4. For each sub-section body (content between its `### ` and the next `### ` / H2):
+   - Require ≥1 **bullet-head** bracketed normative — a line matching `^\s*[-*]\s+[\*_]{0,3}\[<token>\]` where `<token>` comes from `profile.normative_keywords[].token`. The bracket must be at the *head* of the bullet (optionally wrapped in `**` / `_` emphasis) — not mid-sentence inside the bullet. Nested bullets (`  - **[MUST]**`) are valid.
+   - A sub-section missing this is flagged as "missing normative line (bullet-head format required)".
+   - Additionally, flag any **inline-position bracketed normative** — a bracketed token on a line that is a paragraph, or a bullet line where the bracket is not at the head. Both read as prose ("시스템은 카드를 **[MUST]** 먼저 표시한다" or "- 시스템은 카드를 **[MUST]** 먼저 표시한다") and defeat grep/CI extraction. Documented in `prd.stage3.inline_normative_warning`.
+5. Leakage check: any bracketed normative keyword line appearing *between* the user-stories H2 and the first `### ` sub-section is flagged as "normative line leaked outside sub-section". In `per_story_grouped` mode, normative statements must live inside their owning sub-section so the story↔criterion link is preserved.
+6. If any of steps 3–5 report violations:
+   - Abort file generation — do not write, do not flip `deprecated`.
+   - Render `prd.stage6.missing_story_structure` with `{offending_sections}` set to the ordered list of issues (one per line). Zero-sub-sections emits `<heading> — no story sub-sections found`. Single-sub-section emits `<heading> — only 1 sub-section (need ≥2)`. Missing bullet-head emits `### <title> — missing normative line (must be bullet item beginning with the bracket, like \`- **[MUST]** …\`)`. Inline-position emits `### <title> — inline-position normative (bracket must be at the head of its bullet): <line excerpt>`. Leakage emits `(between ## <heading> and first ###) — leaked normative: <line>`.
+   - Loop back to Stage 2 Branch B for re-elicitation of the missing per-story content.
+
+Previously written pitches are append-only and out of scope — the guard runs only on the in-flight generation.
 
 ### Handoff output
 

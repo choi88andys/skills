@@ -26,8 +26,13 @@ Coverage (matches SCHEMA.md "Validation invariants"):
   8. pitch / ADR body-level check — **optional, enabled via `--strict-body`.**
      Every `profile.sections[i].required == true` entry (pitch) and
      `profile.adr.sections[i].required == true` entry (ADR) must appear as an
-     `##` heading. Off by default to preserve backward compatibility with v0.4
-     repos authored before the profile system existed.
+     `##` heading. Additionally, when the active profile sets
+     `sections[id=user_stories].structure == per_story_grouped` (v0.5.3+
+     default), each pitch's user-stories H2 slice must contain ≥1 `### `
+     sub-section, every sub-section must carry ≥1 bracketed normative line,
+     and no bracketed normative line may leak between the H2 and the first
+     `### `. Off by default to preserve backward compatibility with v0.4 repos
+     authored before the profile system existed.
 
 Not covered (deferred): cycle detection on supersede chains.
 
@@ -73,10 +78,24 @@ DEFAULT_RESERVED_DOMAINS: dict[str, dict[str, Any]] = {
     "_global": {"adr_only": True},
     "_shared": {"adr_only": False},
 }
+DEFAULT_NORMATIVE_TOKENS: list[str] = [
+    "MUST NOT",
+    "MUST",
+    "SHOULD NOT",
+    "SHOULD",
+    "MAY",
+]
+# Longest token first for regex alternation (prevents "MUST" matching before "MUST NOT").
 
 FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---\n", re.DOTALL)
 HEADING_RE = re.compile(r"^(#+) +(.+?)\s*$", re.MULTILINE)
 FENCED_CODE_RE = re.compile(r"```.*?```", re.DOTALL)
+BULLET_LINE_RE = re.compile(r"^\s*[-*]\s+")
+GIVEN_WHEN_THEN_RE = {
+    "Given": re.compile(r"\*\*Given\*\*", re.IGNORECASE),
+    "When": re.compile(r"\*\*When\*\*", re.IGNORECASE),
+    "Then": re.compile(r"\*\*Then\*\*", re.IGNORECASE),
+}
 
 DOC_TYPES = ("pitch", "adr")
 REPO_MODES = ("two-repo-spec", "two-repo-app", "single-repo")
@@ -229,6 +248,73 @@ def profile_required_adr_headings(profile: dict[str, Any]) -> list[str]:
 def profile_required_pitch_headings(profile: dict[str, Any]) -> list[str]:
     sections = profile.get("sections") if profile else None
     return _extract_required_headings(sections)
+
+
+def profile_user_stories_section(profile: dict[str, Any]) -> dict[str, Any] | None:
+    """Return the `sections[id=user_stories]` entry, or None if absent.
+
+    Used by the v0.5.3+ pitch structure guard. Callers read `heading` and
+    `structure` (default `per_story_grouped`) from the returned entry.
+    """
+    sections = profile.get("sections") if profile else None
+    if not sections:
+        return None
+    for entry in sections:
+        if isinstance(entry, dict) and entry.get("id") == "user_stories":
+            return entry
+    return None
+
+
+def profile_normative_tokens(profile: dict[str, Any]) -> list[str]:
+    """Return normative keyword tokens from the profile, longest-first.
+
+    Longest-first ordering ensures regex alternation prefers "MUST NOT"
+    over "MUST" when both appear as prefixes.
+    """
+    keywords = profile.get("normative_keywords") if profile else None
+    if not keywords:
+        return list(DEFAULT_NORMATIVE_TOKENS)
+    tokens: list[str] = []
+    for entry in keywords:
+        if not isinstance(entry, dict):
+            continue
+        token = entry.get("token")
+        if token:
+            tokens.append(str(token))
+    if not tokens:
+        return list(DEFAULT_NORMATIVE_TOKENS)
+    # Sort by length descending for regex alternation correctness.
+    return sorted(tokens, key=len, reverse=True)
+
+
+def _bracketed_normative_re(tokens: list[str]) -> re.Pattern[str]:
+    """Compile `[<token>]` pattern for the given tokens.
+
+    Matches bare `[MUST]` and markdown-emphasized `**[MUST]**` alike.
+    Token match is case-sensitive; `[must]` is not a normative marker.
+    """
+    alternation = "|".join(re.escape(t) for t in tokens)
+    return re.compile(rf"\[(?:{alternation})\]")
+
+
+def _bullet_head_normative_re(tokens: list[str]) -> re.Pattern[str]:
+    """Match lines where a bracketed normative token is the HEAD of a bullet.
+
+    Accepted forms (the bracket is the first non-whitespace-non-marker content):
+      - `- [MUST] …`
+      - `- **[MUST]** …`
+      - `  - **[MUST NOT]** …` (nested bullet)
+      - `* _[SHOULD]_ …` (alternate emphasis / marker)
+
+    Rejected forms (bracket mid-bullet = prose with inline bracket, a drift
+    signal despite the line starting with a bullet marker):
+      - `- 시스템은 카드를 **[MUST]** 먼저 표시한다`
+      - `- The system **[MUST]** return 200 on success`
+    """
+    alternation = "|".join(re.escape(t) for t in tokens)
+    # Leading whitespace → bullet marker (- or *) → whitespace →
+    # up to 3 emphasis characters (* or _) → `[TOKEN]`.
+    return re.compile(rf"^\s*[-*]\s+[\*_]{{0,3}}\[(?:{alternation})\]")
 
 
 def load_frontmatter(md_path: Path) -> dict[str, Any] | None:
@@ -412,6 +498,137 @@ def check_references(
             )
 
 
+def validate_pitch_user_stories_structure(
+    path: Path,
+    user_stories_heading: str,
+    normative_tokens: list[str],
+    violations: list[str],
+) -> None:
+    """Enforce `per_story_grouped` internal layout in a pitch body (v0.5.3+).
+
+    Runs only for pitch doctype, under `--strict-body`, and only when the
+    active profile sets `sections[id=user_stories].structure == per_story_grouped`.
+
+    Checks:
+      * User-stories H2 slice contains ≥2 `### ` sub-sections (matches
+        `profile.sections[user_stories].min_items = 2`).
+      * Every `### ` sub-section contains ≥1 bracketed normative keyword line
+        on a **bullet-list line** (`^\s*[-*]\s+`). Inline paragraph
+        normative is flagged separately as a drift signal.
+      * No bracketed normative line leaks between the H2 and the first `### `.
+
+    Not enforced here (by design, to allow legitimate cross-cutting groups):
+    presence of a GWT triple inside every sub-section. Section-level
+    "≥2 GWT blocks total" is enforced by the Stage 5 gate, not this guard.
+    """
+    text = path.read_text(encoding="utf-8")
+    fm_match = FRONTMATTER_RE.match(text)
+    body = text[fm_match.end():] if fm_match else text
+    body = FENCED_CODE_RE.sub("", body)
+    lines = body.splitlines()
+
+    target = user_stories_heading.strip()
+    slice_start: int | None = None
+    slice_end: int = len(lines)
+    for idx, line in enumerate(lines):
+        m = HEADING_RE.match(line)
+        if not m:
+            continue
+        level = len(m.group(1))
+        title = m.group(2).strip()
+        if slice_start is None:
+            if level == 2 and title == target:
+                slice_start = idx
+        else:
+            if level == 2:
+                slice_end = idx
+                break
+
+    if slice_start is None:
+        # Required-sections guard already reports the missing H2.
+        return
+
+    slice_lines = lines[slice_start + 1 : slice_end]
+
+    # Collect `### ` sub-section positions (index within slice_lines).
+    sub_positions: list[tuple[int, str]] = []
+    for idx, line in enumerate(slice_lines):
+        m = HEADING_RE.match(line)
+        if m and len(m.group(1)) == 3:
+            sub_positions.append((idx, m.group(2).strip()))
+
+    bracket_re = _bracketed_normative_re(normative_tokens)
+    bullet_head_re = _bullet_head_normative_re(normative_tokens)
+    issues: list[str] = []
+
+    if not sub_positions:
+        issues.append(f"`## {target}` — no `### ` sub-sections found")
+    elif len(sub_positions) < 2:
+        issues.append(
+            f"`## {target}` — only {len(sub_positions)} `### ` sub-section "
+            f"(need ≥2; profile.sections[user_stories].min_items)"
+        )
+    else:
+        # Leakage: any bracketed normative between H2 and first `### `.
+        # Leakage check includes both bullet and inline paragraph lines.
+        first_sub_idx = sub_positions[0][0]
+        for idx in range(first_sub_idx):
+            if bracket_re.search(slice_lines[idx]):
+                leaked = slice_lines[idx].strip()
+                issues.append(
+                    f"(between `## {target}` and first `### `) — "
+                    f"normative line leaked outside sub-section: {leaked}"
+                )
+                break  # one example is enough to trigger the violation
+
+        # Each sub-section must carry ≥1 bullet-HEAD bracketed normative.
+        # Lines where the bracket appears mid-bullet ("- 시스템은 카드를 **[MUST]**
+        # 먼저 표시한다") or in a plain paragraph are flagged as inline drift.
+        for sub_i, (sub_start, sub_title) in enumerate(sub_positions):
+            sub_end = (
+                sub_positions[sub_i + 1][0]
+                if sub_i + 1 < len(sub_positions)
+                else len(slice_lines)
+            )
+            block_lines = slice_lines[sub_start + 1 : sub_end]
+            has_bullet_head_normative = False
+            inline_normative_examples: list[str] = []
+            for line in block_lines:
+                if not bracket_re.search(line):
+                    continue
+                stripped = line.strip()
+                if stripped.startswith("#"):
+                    # heading line — skip (headers with tokens are a different anti-pattern)
+                    continue
+                if bullet_head_re.match(line):
+                    has_bullet_head_normative = True
+                else:
+                    inline_normative_examples.append(stripped)
+
+            if not has_bullet_head_normative:
+                issues.append(
+                    f"### {sub_title} — missing normative line "
+                    f"(must be a bullet item beginning with the bracket, "
+                    f"like `- **[MUST]** …`)"
+                )
+            # Report at most the first 2 inline offenders per sub-section for
+            # message brevity; one or two examples are enough to localize.
+            for inline in inline_normative_examples[:2]:
+                excerpt = inline if len(inline) <= 80 else inline[:77] + "..."
+                issues.append(
+                    f"### {sub_title} — inline-position normative "
+                    f"(bracket must be at the head of its bullet): {excerpt}"
+                )
+
+    if issues:
+        bullet = "\n  - " + "\n  - ".join(issues)
+        warn(
+            violations,
+            f"{path}: user-stories structure violation "
+            f"(profile structure=per_story_grouped):{bullet}",
+        )
+
+
 def validate_body_headings(
     path: Path,
     doc_type: str,
@@ -517,6 +734,27 @@ def main() -> int:
         "pitch": profile_required_pitch_headings(profile) if args.strict_body else [],
     }
 
+    # v0.5.3+: when the profile marks user_stories as per_story_grouped, the
+    # strict-body check enforces the sub-section layout for pitches.
+    user_stories_section = profile_user_stories_section(profile)
+    user_stories_structure = (
+        str(user_stories_section.get("structure", "per_story_grouped"))
+        if user_stories_section
+        else ""
+    )
+    user_stories_heading = (
+        str(user_stories_section.get("heading", "")).strip()
+        if user_stories_section
+        else ""
+    )
+    normative_tokens = profile_normative_tokens(profile)
+    strict_structure_enabled = bool(
+        args.strict_body
+        and user_stories_section
+        and user_stories_structure == "per_story_grouped"
+        and user_stories_heading
+    )
+
     dirs = resolve_dirs(config, repo_root)
     pitches_ref_root = resolve_pitches_for_reference(config, repo_root)
 
@@ -555,6 +793,13 @@ def main() -> int:
                         required_headings_by_type[doc_type],
                         violations,
                     )
+                    if strict_structure_enabled and doc_type == "pitch":
+                        validate_pitch_user_stories_structure(
+                            md_path,
+                            user_stories_heading,
+                            normative_tokens,
+                            violations,
+                        )
                 collected.append((md_path, fm_checked))
         check_single_active_invariant(doc_type, collected, violations)
 

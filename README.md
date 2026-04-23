@@ -110,7 +110,7 @@ Stand-alone validator for pre-commit hooks and CI. Profile-aware: reads `naming.
 python3 immutable/scripts/validate_docs.py                    # auto-detect config via walk-up
 python3 immutable/scripts/validate_docs.py --config <path>    # explicit config path
 python3 immutable/scripts/validate_docs.py --json             # machine-readable output
-python3 immutable/scripts/validate_docs.py --strict-body      # also check pitch + ADR H2 sections vs. profile (off by default)
+python3 immutable/scripts/validate_docs.py --strict-body      # also check pitch + ADR H2 sections vs. profile, plus pitch user-stories per-story structure (off by default)
 ```
 
 Coverage: frontmatter schema, supersede chain integrity, single-active-per-chain, reference existence, reference policy, domain allowlist, filename format, and (opt-in) pitch + ADR body section presence. See [`immutable/SCHEMA.md`](immutable/SCHEMA.md) for the full invariant list.
@@ -184,6 +184,7 @@ Clone the repo and reference the plugin directory directly, or copy `immutable/`
 
 | Release | Highlights |
 |---|---|
+| v0.5.3 | Pitch authoring tightened on two axes — **shape** (`sections[user_stories].structure: per_story_grouped` default; each `### ` sub-section carries its own bullet-list normative line; ≥2 sub-sections required; enforced at Stage 6 + `--strict-body` CI) and **depth** (Stage 3 vague-word regex + inline-normative scan; 4th adversarial-review persona `quality_auditor` focused on measurable/testable criteria). Bundled profiles ship the new fields; forked v0.5.2 profiles fall back to defaults. `consolidated` preserves the v0.5.2 shape. |
 | v0.5.2 | `validate_docs.py --strict-body` extended from ADR-only to pitch + ADR. CI/hook parity with the v0.5.1 skill-side guard for teams that wire the validator into pre-commit or pipelines. Still opt-in, off by default. |
 | v0.5.1 | Stage 6 required-sections guard: `/immutable:prd` and `/immutable:adr` verify every `required: true` profile section appears as an `##` heading before writing. Skill-side, always on, covers pitch + ADR. Complements v0.5.0's opt-in `--strict-body` CI check. |
 | v0.5.0 | `/immutable:init` + `/immutable:migrate` skills, profile system, strings catalog (ko/en/ja), 6 bundled starters, profile-aware validator with `--strict-body`. v2 configs continue to work unchanged. |

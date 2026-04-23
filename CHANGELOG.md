@@ -2,6 +2,50 @@
 
 All notable changes to the `skills` repository (and the bundled `immutable` plugin) are documented in this file. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) for the marketplace plugin version.
 
+## [0.5.3] — 2026-04-23
+
+Patch release: tightens pitch authoring along two independent axes — **shape** (the per-story structure of the user-stories section) and **depth** (detail level proportional to complexity). Motivated by observed drift patterns across real pitches: bottom-consolidated normative bundles divorced from their stories, inline prose-style `[MUST]` that breaks grep/CI extraction (especially in Korean output from some models), vague hedge words that push interpretation onto implementers, and shallow normative counts in complex domains.
+
+### Added
+
+- **`profile.sections[id=user_stories].structure` field** (`per_story_grouped` | `consolidated`; default `per_story_grouped`). Declared in `immutable/examples/_profiles/default-ko.yml` and `default-en.yml` with inline documentation of both values and the enforcement sites (Stage 2, Stage 6 guard, validator).
+- **Stage 6 pre-write structure guard** in `/immutable:prd`. Runs after the required-sections guard, only when `structure == per_story_grouped`. Enforces:
+  - ≥2 `### ` sub-sections under the user-stories H2 (matches `min_items = 2`);
+  - each `### ` sub-section carries ≥1 **bullet-list** bracketed normative line (`- **[MUST]** …`); inline paragraph normative is flagged separately as a drift signal;
+  - no bracketed normative leakage between the H2 and the first `### `.
+  Aborts file generation on violation and loops back to Stage 2 Branch B. Cross-cutting normative-only sub-sections are accepted (e.g., "shared result-code handling") — the guard does not require GWT inside every sub-section.
+- **Stage 3 vague-word detection** — `profile.vague_words[]` carries locale-specific hedge-word regex lists (ko: `적절히`, `자연스럽게`, `충분히`, `가능한`, `합리적`, `일반적`, `최대한`, `필요에 따라`, `상황에 맞게`, `안전하게`, `부드럽게`; en: `appropriate(ly)`, `reasonabl(e|y)`, `natural(ly)`, `sufficient(ly)`, `as needed`, `etc.`/`and so on`, `smooth(ly)`, `safe(ly)`, `general(ly)`). On hit, Stage 3 renders `prd.stage3.vague_word_warning` and loops back to the relevant Branch. Skill-side only — not enforced by `validate_docs.py` (semantic noise would break CI predictability).
+- **Stage 3 inline-paragraph normative scan** — catches `[MUST]` embedded in prose (the Korean-drift pattern) during authoring, renders `prd.stage3.inline_normative_warning`, and requires re-writing in bullet form before Stage 4.
+- **4th adversarial-review persona `quality_auditor`** — appended to `profile.personas[]` in both bundled profiles. Question: "Can this pitch be implemented and verified against measurable criteria, with no clauses requiring subjective judgment?" Checks cover concrete-value density, context-vague hedge phrases (semantic complement to the Stage 3 regex), Then pass/fail decidability, hidden passive-voice actors, and depth-to-complexity balance. Stage 4 header updated from "(3 Personas)" to "(4 Personas)".
+- **Stage 2 Branch B authoring guidance** — elicits per-sub-section normative lines alongside the GWT triple so Stage 6 assembly has the material the guard expects.
+- **Stage 4 minimum-only explicit** — existing "each persona MUST surface ≥1 gap" clarified as a minimum (not a cap); LLM continues surfacing every non-trivial gap for complex pitches.
+- **`validate_docs.py --strict-body` structure check (pitch only)** — mirrors the skill-side Stage 6 guard so teams wiring the validator into pre-commit hooks or CI pipelines catch the same violations post-hoc. Still gated on `--strict-body` (opt-in); activates only when the profile sets `structure == per_story_grouped`.
+- **New strings** in `strings.en.yml` and `strings.ko.yml`: `prd.stage6.missing_story_structure` (expanded to cover bullet-only + min-2 rules), `prd.stage3.vague_word_warning`, `prd.stage3.inline_normative_warning`.
+
+### Changed
+
+- **Starter TEMPLATE.md files** — `spec-{ko,en}/pitches/TEMPLATE.md` and `single-{ko,en}/spec/pitches/TEMPLATE.md` rewrite the user-stories section to demonstrate `per_story_grouped` layout (two `### ` sub-sections, each carrying a GWT triple + bracketed MUST list on bullet lines). Inline HTML comment documents the `consolidated` alternative.
+- **`prd/SKILL.md` profile-field table** — adds rows for `sections[id=user_stories].structure` and `vague_words[].regex / hint`.
+- **`SCHEMA.md` invariant 8** — widened body-constraint description to cover the v0.5.3 per-story structure check alongside the existing required-sections check.
+
+### Migration
+
+- **Zero-action path (recommended)** — install v0.5.3 and keep your existing config. The bundled default profiles ship `structure: per_story_grouped` and the new `vague_words[]` + `quality_auditor` persona automatically. New pitches generated through `/immutable:prd` adopt the per-story, bullet-only layout by default. Existing pitches are append-only and untouched.
+- **Teams with repo-local forked profiles from v0.5.2** — the new fields (`sections[id=user_stories].structure`, `vague_words[]`, `personas[id=quality_auditor]`) are missing from your fork. Missing fields fall back to bundled defaults — no config change required. To opt out of the structure guard explicitly, add `structure: consolidated` to the `user_stories` section in your profile.
+- **Teams running `--strict-body` in CI** — the new pitch structure check activates under the same `--strict-body` flag. Existing pitches authored in v0.5.2 shape (consolidated, bold-label, or inline-normative) will fail the check. Options: flip the profile to `structure: consolidated`, supersede the affected pitches with per-story-grouped versions, or stop passing `--strict-body` in CI until migration completes.
+
+### Deprecated
+
+None.
+
+### Removed
+
+None.
+
+### Fixed
+
+None.
+
 ## [0.5.2] — 2026-04-22
 
 Patch release: extends `validate_docs.py --strict-body` from ADR-only to pitch + ADR. Achieves CI/hook parity with the v0.5.1 skill-side guard for teams that wire the validator into pre-commit hooks or pipelines. Still opt-in (off by default). No config changes; no migration needed.
@@ -101,6 +145,7 @@ Append-only foundation: dropped four of the v0.2 companion doc types (`design`, 
 
 Pre-public iterations — see `git log` for history.
 
+[0.5.3]: https://github.com/choi88andys/skills/releases/tag/v0.5.3
 [0.5.2]: https://github.com/choi88andys/skills/releases/tag/v0.5.2
 [0.5.1]: https://github.com/choi88andys/skills/releases/tag/v0.5.1
 [0.5.0]: https://github.com/choi88andys/skills/releases/tag/v0.5.0

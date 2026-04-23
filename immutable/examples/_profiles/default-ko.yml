@@ -30,6 +30,18 @@ display_name: "한국어 기본 프로필"
 #   heading    — user-facing section heading rendered into the pitch file.
 #   required   — whether the section is mandatory. `false` = conditional.
 #   min_items  — minimum blocks/rows for the 90% gate to consider this section complete.
+#   structure  — (v0.5.3+, `user_stories` only) how acceptance criteria attach to stories.
+#                `per_story_grouped` (default): each story sits in its own `### `
+#                  sub-section with a Given/When/Then triple + ≥1 bracketed normative
+#                  keyword line bound to that story. Preserves story↔criterion
+#                  traceability and makes the body grep-friendly.
+#                `consolidated`: a single GWT list + a single bracketed-keyword list
+#                  under the H2. Compatible with v0.5.2 output. Story↔criterion binding
+#                  is lost — use only if the domain has few stories and the binding
+#                  cost outweighs traceability.
+#                Enforced at Stage 2 Branch B completion, Stage 6 pre-write guard,
+#                and `validate_docs.py --strict-body` (all three activate only when
+#                the value is `per_story_grouped`).
 #   description — hint shown during interview; also used as gate pass condition.
 # Order of entries = order of Stage 2 branches + final file layout.
 # -----------------------------------------------------------------------------
@@ -43,7 +55,8 @@ sections:
     heading: "사용자 스토리 및 수용 조건"
     required: true
     min_items: 2
-    description: "Given/When/Then 블록 ≥2개. happy path + alternate/error 최소 1개씩."
+    structure: per_story_grouped
+    description: "Given/When/Then 블록 ≥2개. happy path + alternate/error 최소 1개씩. 기본 구조(per_story_grouped)에선 각 스토리를 `### ` 서브섹션으로 묶고 서브섹션 내부에 GWT + 결합 normative 줄을 함께 둔다."
   - id: edge_cases
     heading: "엣지 케이스"
     required: true
@@ -88,6 +101,15 @@ personas:
       - "2~6주 내 완결 가능한가"
       - "Epic 규모 콘텐츠가 섞여있지 않은가"
       - "기존 active pitch와 겹침/충돌 여부"
+  - id: quality_auditor
+    name: "품질 감수자"
+    question: "이 pitch가 정량 기준으로 구현·검증 가능한가? 주관적 판단을 요구하는 문장은 없는가?"
+    checks:
+      - "각 normative 줄에 정량 기준(숫자·타임아웃·threshold·UI spec) 포함 여부"
+      - "'적절히', '자연스럽게', '충분히', '합리적' 같은 모호어 잔존 여부 (Stage 3 regex를 통과했더라도 맥락상 모호한 경우 포함)"
+      - "각 GWT의 Then이 pass/fail 판정 가능한가, 아니면 주관적 판단 요구"
+      - "주어 생략·passive voice로 책임 주체가 불분명한 문장 유무 (예: '처리된다', '보여진다')"
+      - "복잡한 도메인임에도 MUST/엣지 케이스가 지나치게 간결하지는 않은가 (Stage 1.5 intake 분량 대비 output 볼륨 체크)"
 
 # -----------------------------------------------------------------------------
 # RFC 2119 normative keywords used inside pitch body.
@@ -162,6 +184,47 @@ identifier_patterns:
   - id: file_path
     regex: '\b[a-z]+/[a-z_/]+\.(dart|swift|ts|js|py|kt)\b'
     hint: "코드 파일 경로"
+
+# -----------------------------------------------------------------------------
+# Vague-word detection (Stage 3, v0.5.3+).
+# Hedge words that let implementers fill the gap arbitrarily and cause drift.
+# On hit: Stage 3 warns via prd.stage3.vague_word_warning and loops back to
+# Branch B/C. Teams override this list by forking the profile.
+# -----------------------------------------------------------------------------
+vague_words:
+  - id: jeokjeolhi
+    regex: '적절(히|하게|한)'
+    hint: "'적절히/적절한' — 기준을 구체 값으로 대체하거나 맥락 확인"
+  - id: jayeonseureopge
+    regex: '자연스(럽게|러운|러움)'
+    hint: "'자연스럽게' — 기대 동작을 구체 transition/timing으로 대체"
+  - id: chungbunhi
+    regex: '충분(히|한)'
+    hint: "'충분히/충분한' — 수량·시간 기준을 구체 숫자로 대체"
+  - id: ganeunghan
+    regex: '가능(한 한|한)\s*(빠르게|적극|신속)?'
+    hint: "'가능한 한 ~' — 정량 기준(예: 2초 내) 또는 baseline 설정"
+  - id: haprijeok
+    regex: '합리(적|적으로)'
+    hint: "'합리적으로' — 판단 기준을 명시해 주관 판단 제거"
+  - id: ilbanjeok
+    regex: '일반(적으로|적인)'
+    hint: "'일반적으로' — 표준/default를 구체 값으로 명시"
+  - id: choidaehan
+    regex: '최대한'
+    hint: "'최대한' — 상한/cap을 수치로 정의"
+  - id: pilyoeddara
+    regex: '필요에\s*따라'
+    hint: "'필요에 따라' — 트리거 조건을 구체적으로 기술"
+  - id: sanghwangmatgye
+    regex: '상황에\s*맞게'
+    hint: "'상황에 맞게' — 분기 조건을 나열"
+  - id: anjeonhage
+    regex: '안전하(게|도록)'
+    hint: "'안전하게' — 위협 모델과 보장 조건을 구체적으로 기술"
+  - id: budeureopge
+    regex: '부드럽게'
+    hint: "'부드럽게' — 애니메이션 duration·easing 등 정량 기준 명시"
 
 # -----------------------------------------------------------------------------
 # Naming conventions (pitch files).

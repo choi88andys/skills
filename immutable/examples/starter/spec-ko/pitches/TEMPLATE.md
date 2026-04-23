@@ -12,14 +12,30 @@ deprecated: false
 
 ## 사용자 스토리 및 수용 조건
 
+<!--
+profile.sections[user_stories].structure 기본값(per_story_grouped)에선
+각 스토리를 아래처럼 `### <스토리 제목>` 서브섹션으로 묶고 서브섹션 안에
+GWT 블록 + 결합된 RFC 2119 normative 줄을 함께 둔다 (스토리 ↔ 수용조건
+traceability 보존). `consolidated` 모드를 쓰려면 이 섹션을 TEMPLATE에서
+삭제하고 GWT 목록 + normative 목록 두 개를 H2 바로 아래에 둔다.
+-->
+
+### <스토리 1 — 짧은 imperative 제목>
+
 - **Given** <전제 상태>
 - **When** <사용자 행위>
 - **Then** <시스템 반응>
 
-수용 조건 중 normative한 항목은 RFC 2119 키워드 사용:
-
 - **[MUST]** 시스템은 …한다.
 - **[MUST NOT]** 시스템은 …하지 않는다.
+
+### <스토리 2 — happy path 외 경로>
+
+- **Given** <전제 상태>
+- **When** <사용자 행위>
+- **Then** <시스템 반응>
+
+- **[MUST]** 시스템은 …한다.
 
 ## 엣지 케이스
 

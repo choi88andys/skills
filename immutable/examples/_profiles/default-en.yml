@@ -13,6 +13,15 @@ locale: en
 
 display_name: "English default profile"
 
+# user_stories `structure` (v0.5.3+):
+#   per_story_grouped (default) — each story lives in its own `### ` sub-section
+#     with a Given/When/Then triple + ≥1 bracketed normative keyword line bound
+#     to that story. Preserves story↔criterion traceability, keeps the body
+#     grep-friendly. Enforced by Stage 2 Branch B completion, Stage 6 pre-write
+#     guard, and `validate_docs.py --strict-body`.
+#   consolidated — single GWT list + single normative list under the H2
+#     (v0.5.2 shape). Traceability is lost; use only if the domain has few
+#     stories and the binding cost outweighs traceability.
 sections:
   - id: background
     heading: "Background and Problem"
@@ -23,7 +32,8 @@ sections:
     heading: "User Stories and Acceptance Criteria"
     required: true
     min_items: 2
-    description: "≥2 Given/When/Then blocks covering happy path + alternate/error."
+    structure: per_story_grouped
+    description: "≥2 Given/When/Then blocks covering happy path + alternate/error. Under the default per_story_grouped structure, each story gets its own `### ` sub-section carrying the GWT triple + bound normative keyword lines."
   - id: edge_cases
     heading: "Edge Cases"
     required: true
@@ -63,6 +73,15 @@ personas:
       - "Completion within 2–6 weeks"
       - "Epic-level content that should be split"
       - "Overlap or conflict with existing active pitches"
+  - id: quality_auditor
+    name: "Quality Auditor"
+    question: "Can this pitch be implemented and verified against measurable criteria, with no clauses requiring subjective judgment?"
+    checks:
+      - "Each normative line carries a concrete criterion (numbers, timeouts, thresholds, UI specs)"
+      - "Vague hedge words (\"appropriate\", \"reasonable\", \"naturally\", \"sufficient\") — catches context-vague cases even if the Stage 3 regex was satisfied"
+      - "Every Then is pass/fail decidable rather than demanding subjective judgment"
+      - "Passive voice / missing subject that hides the responsible actor (e.g., \"is processed\", \"is shown\")"
+      - "Depth appropriate to domain complexity — thin MUST/edge-case counts despite substantial Stage 1.5 intake is a drift signal"
 
 normative_keywords:
   - key: MUST
@@ -122,6 +141,39 @@ identifier_patterns:
   - id: file_path
     regex: '\b[a-z]+/[a-z_/]+\.(dart|swift|ts|js|py|kt)\b'
     hint: "Source file path"
+
+# Vague-word detection (Stage 3, v0.5.3+).
+# Hedge words that let implementers fill the gap arbitrarily and cause drift.
+# On hit: Stage 3 warns via prd.stage3.vague_word_warning and loops back to
+# Branch B/C. Teams override this list by forking the profile.
+vague_words:
+  - id: appropriate
+    regex: '\bappropriate(ly)?\b'
+    hint: "'appropriate/appropriately' — replace with concrete criteria or confirm context"
+  - id: reasonable
+    regex: '\breasonabl[ey]\b'
+    hint: "'reasonable/reasonably' — state the explicit judgment criterion"
+  - id: naturally
+    regex: '\bnatural(ly)?\b'
+    hint: "'naturally' — replace with concrete transition/timing spec"
+  - id: sufficient
+    regex: '\bsufficient(ly)?\b'
+    hint: "'sufficient/sufficiently' — replace with a numeric threshold"
+  - id: as_needed
+    regex: '\bas needed\b'
+    hint: "'as needed' — enumerate the triggering conditions"
+  - id: etcetera
+    regex: '\betc\.?\b|\band so on\b'
+    hint: "'etc.' / 'and so on' — enumerate the items or cap the set"
+  - id: smoothly
+    regex: '\bsmooth(ly)?\b'
+    hint: "'smoothly' — specify duration/easing/frame budget"
+  - id: safely
+    regex: '\bsafe(ly)?\b'
+    hint: "'safely' — state the threat model and the guaranteed invariant"
+  - id: generally
+    regex: '\bgeneral(ly)?\b'
+    hint: "'generally' — specify the default and the exceptions"
 
 naming:
   filename_pattern: '^\d{4}-\d{2}-\d{2}-[a-z0-9][a-z0-9-]*\.md$'

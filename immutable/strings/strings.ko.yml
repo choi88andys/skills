@@ -228,6 +228,40 @@ strings:
 
     Stage 2 인터뷰로 돌아가 해당 섹션을 채운 뒤 Stage 6를 재진행해주세요.
 
+  prd.stage6.missing_story_structure: |
+    파일 생성을 중단합니다. 프로파일의 `sections[user_stories].structure = per_story_grouped` 조건에서 사용자 스토리 섹션 구조가 요구 조건을 만족하지 않습니다.
+
+    문제:
+    {offending_sections}
+
+    규칙:
+      1. 사용자 스토리 섹션(`## <heading>`) 아래에 `### ` 서브섹션이 **2개 이상** 있어야 합니다.
+      2. 각 `### ` 서브섹션은 **bullet 시작(head)에 bracket**이 오는 normative 줄 1개 이상을 포함해야 합니다 (예: `- **[MUST]** …`, `- [MUST NOT] …`). nested bullet (`  - **[MUST]** …`)도 유효합니다.
+      3. bullet 안 **문장 중간**에 bracket을 박으면 안 됩니다 (예: "- 시스템은 카드를 **[MUST]** 먼저 표시한다"). bullet 형태를 띠어도 bracket이 head 위치가 아니면 grep·CI 추출이 깨지고, 한국어 생성에서 특히 자주 나타나는 drift 패턴입니다.
+      4. 문단 속 inline bracket도 동일하게 거부됩니다 (예: "시스템은 카드를 **[MUST]** 먼저 표시한다").
+      5. GWT 블록은 권장이되 cross-cutting 그룹(예: 채널 전체 공통 결과 처리)에선 생략 가능합니다.
+      6. normative 줄은 서브섹션 **안쪽**에만 두세요. H2와 첫 `### ` 사이로 새면 스토리 ↔ 수용조건 연결이 끊깁니다.
+
+    Stage 2 Branch B로 돌아가 해당 내용을 보강한 뒤 Stage 6를 재진행해주세요.
+
+  prd.stage3.inline_normative_warning: |
+    본문에 bullet head 위치가 아닌 곳에 박힌 normative 키워드가 있습니다: "{line}"
+
+    규칙: `[MUST]` / `[MUST NOT]` / `[SHOULD]` 같은 대괄호 키워드는 **bullet list 항목의 맨 앞**(옵션: `**`/`_` emphasis)에 두어야 합니다.
+      - 허용: `- **[MUST]** 시스템은 …한다`, `  - [SHOULD] 시스템은 …한다`
+      - 거부 (문단 inline): `시스템은 카드를 **[MUST]** 먼저 표시한다`
+      - 거부 (bullet 중간 inline): `- 시스템은 카드를 **[MUST]** 먼저 표시한다`
+
+    grep·CI 추출이 깨지는 drift 패턴입니다. Stage 2 Branch B/C로 돌아가 해당 줄을 bullet head 형태로 재작성해주세요.
+
+  prd.stage3.vague_word_warning: |
+    본문에 모호한 표현이 감지되었습니다: "{word}"
+    위치: {line}
+
+    이런 표현(예: "적절히", "자연스럽게", "충분히", "가능한", "합리적")은 구현자가 임의 해석하게 만들어 drift를 유발합니다. 구체 값(숫자·타임아웃·threshold·UI spec)으로 대체하거나, 의도가 맥락상 분명하다면 사용자에게 확인 후 남길 수 있습니다.
+
+    Stage 2 Branch B/C로 돌아가 해당 문장을 재작성해주세요.
+
   # ==========================================================================
   # adr skill
   # ==========================================================================
