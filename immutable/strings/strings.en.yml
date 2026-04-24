@@ -217,6 +217,27 @@ strings:
     (b) split-from     — decompose then apply your new change (Stage 1 + Stage 2)
     (c) new            — add a separate small PRD; leave the existing one alone
 
+  # Profile schema mismatch detection (v0.5.7+) — surfaces silent-skip when
+  # team profile predates plugin update (e.g., v0.5.0-era v1 profile + v0.5.6 plugin).
+  prd.stage1.profile_schema_mismatch: |
+    ⚠ Profile schema mismatch — team profile v{team_schema}, bundled default v{bundled_schema}.
+
+    Missing fields: {missing_fields}
+
+    For this run, bundled default values are used as fallback (no disk write).
+    To make permanent:
+
+    ```
+    /immutable:migrate
+    ```
+
+    (Overrides preserved — only missing fields are added.)
+
+  prd.stage1.profile_fallback_annotation: " (from bundled default-{team_language} v{bundled_schema} — your team profile is v{team_schema})"
+
+  prd.stage1.anti_monolith_skipped_no_threshold: |
+    ⚠ anti-monolith pre-check skipped — profile lacks both `anti_monolith` block and `sections[user_stories].max_items` field. Run `/immutable:migrate` to enable.
+
   # Stage 5 anti-monolith warnings (v0.5.6+)
   prd.stage5.l1_hint: "anti-monolith L1 hint — {sub_count} sub-sections, {norm_count} normatives. Allowed to proceed, but consider smaller PRDs for subsequent work."
   prd.stage5.l2_warning: "anti-monolith L2 — {sub_count} sub-sections, {norm_count} normatives. The in-flight PRD is likely a multi-feature bundle. Proceed anyway?"
@@ -343,6 +364,18 @@ strings:
     (1) Bound to a specific domain's pitch (name the domain)
     (2) Global decision spanning multiple domains/features (`_global`)
 
+  # Profile schema mismatch detection (v0.5.7+) — mirrors prd version.
+  adr.stage1.profile_schema_mismatch: |
+    ⚠ Profile schema mismatch — team profile v{team_schema}, bundled default v{bundled_schema}.
+
+    Missing fields: {missing_fields}
+
+    For this run, bundled default values are used as fallback (no disk write).
+    Run `/immutable:migrate` to make permanent (overrides preserved).
+
+  adr.stage1.anti_monolith_skipped_no_threshold: |
+    ⚠ ADR anti-monolith pre-check skipped — `adr.anti_monolith` block missing in both team and bundled profile. Run `/immutable:migrate` to enable.
+
   adr.consequences.positive_heading: "Positive"
   adr.consequences.negative_heading: "Negative / Trade-offs"
   adr.consequences.cost_of_adoption_heading: "Cost of adoption / Neutral"
@@ -366,17 +399,48 @@ strings:
 
     Aborting.
 
+  # v0.5.6 alias — backward-compat for callers wired to old key.
   migrate.stage1.already_v3: |
-    This repo is already at config schema v{current_version} ({config_path}).
+    This repo is at config schema v{current_version} ({config_path}).
 
-    `/immutable:migrate` handles only the `version: 2` → `version: 3` transition. No further action required.
+    Note: as of v0.5.7, `/immutable:migrate` also handles profile field migration. This message is a v0.5.6 backward-compat alias — check profile_schema state separately.
 
-    Notes:
-    - To edit a repo-local profile, open `.immutable-prd/profile.yml` directly.
-    - To introduce a profile now, run `cp ${CLAUDE_PLUGIN_ROOT}/examples/_profiles/default-<lang>.yml .immutable-prd/profile.yml`, then uncomment the `profile:` line in config.yml.
+  migrate.stage1.fully_current: |
+    Already up to date:
+    - config: v{current_version} ({config_path})
+    - profile: schema v{profile_schema} ({profile_path})
+
+    No further action required. `/immutable:migrate` is idempotent — re-running is safe.
+
+    To edit profile fields, open `.immutable-prd/profile.yml` directly. Fields you do not edit fall back to the bundled default.
 
     Aborting.
 
+  migrate.stage1.profile_missing: |
+    Config is at v3 but the team profile file is missing ({profile_dest_path}).
+
+    Either someone deleted profile.yml or the `profile:` line in config.yml points elsewhere. Recover by either:
+
+    ```bash
+    cp ${CLAUDE_PLUGIN_ROOT}/examples/_profiles/default-{team_language}.yml {profile_dest_path}
+    ```
+
+    Or re-run `/immutable:init` (existing files are preserved).
+
+    Aborting.
+
+  migrate.stage1.profile_ahead_of_plugin: |
+    Team profile schema (v{team_profile_schema}) is ahead of the bundled default schema (v{bundled_profile_schema}).
+
+    The plugin may have been downgraded, or you imported a profile migrated by a newer plugin version elsewhere. Update the plugin to the latest and re-run:
+
+    ```bash
+    claude plugin install immutable@latest
+    ```
+
+    Aborting.
+
+  # v0.5.6 alias — kept for backward-compat. New routing-aware templates below.
   migrate.stage2.plan_preview: |
     The following changes will be made:
 
@@ -387,6 +451,45 @@ strings:
     Preconditions:
     - The operation is idempotent (skips safely if already v3 or profile.yml exists).
     - No git commands are executed — review the changes and commit yourself.
+
+    Proceed? (yes / no)
+
+  migrate.stage2.plan_preview_full: |
+    The following changes will be made (config v{current_version}→v{target_version} + profile schema migration):
+
+    [Config migration]
+    1. Config schema version bump: v{current_version} → v{target_version}
+    2. Copy bundled profile (when missing): {profile_source_path} → {profile_dest_path}
+    3. Uncomment `# profile: ...` in config.yml → `profile: .immutable-prd/profile.yml`
+
+    [Profile field migration — team profile schema v{team_profile_schema} → v{bundled_profile_schema}]
+    {profile_field_diff}
+
+    Preconditions:
+    - The operation is idempotent — already-applied changes are skipped safely.
+    - Existing profile values are preserved (overrides intact). Only missing fields are added.
+    - No git commands are executed — review the changes and commit yourself.
+
+    Proceed? (yes / no)
+
+  migrate.stage2.plan_preview_profile_only: |
+    Config is already at v3. Migrating profile schema only.
+
+    [Profile field migration — team profile schema v{team_profile_schema} → v{bundled_profile_schema}]
+    {profile_field_diff}
+
+    Preconditions:
+    - Existing profile values are preserved (overrides intact). Only missing fields are added.
+    - The operation is idempotent — already-applied changes are skipped safely.
+
+    Proceed? (yes / no)
+
+  migrate.stage2.plan_preview_config_only: |
+    Config schema v{current_version} → v{target_version} migration (profile is fresh-copied so schema check passes automatically).
+
+    1. Copy bundled profile: {profile_source_path} → {profile_dest_path}
+    2. Config schema version bump: v{current_version} → v{target_version}
+    3. Uncomment `# profile: ...` in config.yml
 
     Proceed? (yes / no)
 
@@ -414,6 +517,71 @@ strings:
     - Edit any of the sections / personas / gate / naming fields in profile.yml freely.
     - Fields you do not edit fall back to the bundled default.
     - To roll back on trouble: `git restore .immutable-prd/config.yml` + `rm .immutable-prd/profile.yml`.
+
+  # v0.5.7 — Stage 5 (profile field migration) and Stage 6 (final handoff)
+
+  migrate.stage5.already_current: |
+    Team profile schema (v{team_profile_schema}) already matches bundled default (v{bundled_profile_schema}). Profile field migration skipped.
+
+  migrate.stage5.field_added: "  + {field_path}: {description}"
+  migrate.stage5.field_skipped_present: "  · {field_path}: already present — skip (override preserved)"
+
+  migrate.stage5.execute_progress: |
+    Profile field migration in progress:
+    {field_results}
+
+    profile_schema bump: v{team_profile_schema} → v{bundled_profile_schema}
+
+  migrate.stage5.edit_failure: |
+    Failed to edit profile.yml: {field_path}
+
+    Skill could not find expected text or it was not unique. The user may have reformatted or hand-edited the profile. Resolve by either:
+
+    1. Manual merge: copy the `{field_path}` block from `${CLAUDE_PLUGIN_ROOT}/examples/_profiles/default-{team_language}.yml` directly into the team profile.
+    2. Full profile replacement (loses overrides): `cp ${CLAUDE_PLUGIN_ROOT}/examples/_profiles/default-{team_language}.yml {profile_dest_path}` — existing customizations are gone.
+
+    Aborting Stage 5. Other stage changes are commit-safe (Stage 5 is not atomic).
+
+  migrate.stage5.verify_failure: |
+    profile.yml verification failed: {assertion}
+
+    The file is not in the expected state. Recommended rollback:
+
+    ```bash
+    git restore .immutable-prd/profile.yml
+    ```
+
+    Then inspect manually and re-run `/immutable:migrate`.
+
+  migrate.stage6.handoff: |
+    Migration complete:
+    {stages_run}
+
+    Files:
+    - {config_path}
+    - {profile_path}
+    {post_migration_notes}
+
+    Next steps:
+
+    ```bash
+    {commit_suggestion}
+    ```
+
+    Notes:
+    - Edit any of the sections / personas / gate / naming / anti_monolith fields in profile.yml freely.
+    - Fields you do not edit fall back to the bundled default.
+    - To roll back on trouble, `git restore` the changes shown above.
+
+  migrate.stage6.note_concern_scope_threshold: |
+    NOTE: `concern_scope` gate criterion was added but `gate.total` / `gate.pass_threshold` were NOT changed (override-preservation policy).
+    To include this criterion in the gate pass condition, edit manually:
+
+    ```yaml
+    gate:
+      total: 8           # was 7
+      pass_threshold: 7  # was 6
+    ```
 
   # ==========================================================================
   # common (shared across skills)

@@ -1,13 +1,18 @@
 ---
 name: migrate
-description: Migrate .immutable-prd/config.yml from config schema v2 to v3 — bumps version, copies the bundled default profile into .immutable-prd/profile.yml, and uncomments the `profile:` pointer. Idempotent and zero-data-loss. Use when graduating a v0.4 repo to the v0.5 profile system. Triggers - "/immutable:migrate", "v3 업그레이드", "profile 전환", "config migrate".
-allowed-tools: Read, Write, Edit, Bash, Glob
+description: Migrate .immutable-prd/config.yml from config schema v2 to v3 AND migrate team profile.yml field schema (v1 to v2 in v0.5.7+). Bumps versions, copies the bundled default profile when missing, uncomments the profile pointer, and merges new schema fields into existing team profiles preserving overrides. Idempotent and zero-data-loss. Use when graduating a v0.4 repo to the v0.5 profile system or when picking up a plugin update that bumped profile_schema. Triggers - "/immutable:migrate", "v3 업그레이드", "profile 전환", "config migrate", "profile schema migration".
+allowed-tools: Read, Write, Edit, Bash, Glob, Grep
 license: MIT
 ---
 
-# /immutable:migrate — v2 → v3 Config Migration
+# /immutable:migrate — Config + Profile Schema Migration
 
-Upgrades an existing `.immutable-prd/config.yml` from schema v2 to v3, seeds a repo-local profile by copying the bundled default, and activates the `profile:` pointer. The operation is idempotent and zero-data-loss: already-migrated repos abort cleanly, and an existing `profile.yml` is preserved.
+Two responsibilities (added in v0.5.7):
+
+1. **Config migration** (`.immutable-prd/config.yml` v2 → v3) — bumps `version`, seeds `.immutable-prd/profile.yml` from bundled default, uncomments `profile:` pointer.
+2. **Profile field migration** (`profile.yml` `profile_schema: 1` → `2` and beyond) — adds new schema fields introduced by plugin updates while **preserving all team overrides**. Never modifies values that already exist in the team profile.
+
+The operation is idempotent and zero-data-loss across both responsibilities. Re-running on a fully-migrated repo aborts cleanly. Existing `profile.yml` content is never overwritten — only missing fields are inserted.
 
 Never runs git. Never writes outside the repo. Never modifies pitches, ADRs, READMEs, or templates.
 
@@ -42,16 +47,28 @@ No arguments. The skill auto-detects repo state.
 
 ---
 
-## Overall Process (4 stages)
+## Overall Process (5 stages, v0.5.7+)
 
 ```
-Stage 1: Probe              — walk-up config.yml, read version + team_language
-Stage 2: Plan preview        — render plan, confirm with user
-Stage 3: Execute             — copy profile + edit config.yml
-Stage 4: Verify + handoff    — show result, suggest commit
+Stage 1: Probe              — walk-up config.yml, read version + team_language; probe profile schema if profile.yml exists
+Stage 2: Plan preview        — render config + profile migration plan, confirm with user
+Stage 3: Execute config      — copy profile (if needed) + edit config.yml (skipped when config already v3)
+Stage 4: Verify config       — confirm config + profile.yml exist
+Stage 5: Profile field migration — merge missing schema fields into team profile.yml, bump profile_schema (skipped when team profile is current)
+Stage 6: Final verify + handoff — show result, suggest commit
 ```
 
-**Stop on user refusal at any stage.** Partial execution is forbidden — either the whole migration lands or nothing does.
+**Stop on user refusal at any stage.** Partial execution is forbidden — either the planned operations land or the skill aborts before touching anything.
+
+### Stage routing matrix
+
+| Initial state | Stages run |
+|---|---|
+| config v2 + no team profile.yml | 1 → 2 → 3 → 4 → 5 (profile is fresh from bundled, schema check passes — Stage 5 no-ops) → 6 |
+| config v2 + team profile.yml exists (edge — manually created) | 1 → 2 → 3 (3.1 skip-warn) → 4 → 5 (merge missing fields if schema stale) → 6 |
+| config v3 + team profile_schema < bundled | 1 → 2 (Stage 2 plan shows profile migration only) → 5 → 6. Stages 3+4 skipped. |
+| config v3 + team profile_schema == bundled | 1 refuses with `migrate.stage1.fully_current` |
+| config v3 + no team profile.yml | 1 refuses with `migrate.stage1.profile_missing` (suggests one-liner copy or `/immutable:init` rerun) |
 
 ---
 
@@ -88,37 +105,84 @@ If the file fails to parse (malformed YAML) or `version:` / `team_language:` is 
 error: could not read `version:` or `team_language:` from {config_path}. Fix the YAML manually and rerun `/immutable:migrate`.
 ```
 
-### 1.3 Already-migrated refusal
+### 1.3 Probe profile schema (v0.5.7+)
 
-If `version: 3` (or any value other than `2`), STOP by rendering `migrate.stage1.already_v3` with:
+After parsing config.yml, determine the team profile state:
 
-- `{config_path}` — the absolute path discovered in 1.1
-- `{current_version}` — the parsed version value
+1. Resolve team profile path:
+   - If config has `profile: <path>` (uncommented) → that path resolved relative to repo root
+   - Else default `<repo_root>/.immutable-prd/profile.yml`
+2. If team profile file does NOT exist:
+   - When config version is 2 → profile will be created in Stage 3.1 (no profile schema work needed in Stage 5; bundled default ships current schema).
+   - When config version is 3 → STOP by rendering `migrate.stage1.profile_missing` with `{profile_dest_path}` and the suggested one-liner. The repo is in an inconsistent state (config was migrated but profile was deleted).
+3. If team profile file exists:
+   - Read it. Extract `profile_schema:` (integer; default to `1` if missing).
+   - Read bundled default profile (`${CLAUDE_PLUGIN_ROOT}/examples/_profiles/default-<team_language>.yml`). Extract its `profile_schema:` (integer).
+   - Cache both values for Stages 2 and 5: `team_profile_schema`, `bundled_profile_schema`.
 
-Do not proceed past Stage 1 in this case.
+### 1.4 Already-migrated routing
 
-### 1.4 Switch locale
+Combine config version + profile schema state into the routing decision:
 
-Once `team_language` is known, all subsequent catalog lookups (Stages 2–4) use `strings.<team_language>.yml` as the primary source.
+| Config version | Team profile schema | Action |
+|---|---|---|
+| 2 | (any or absent) | Run Stage 2-3-4 (config migration), then Stage 5 (profile migration if needed) |
+| 3 | < bundled | SKIP Stage 3-4. Run Stage 2 (plan) → Stage 5 (profile migration only) → Stage 6 |
+| 3 | == bundled | STOP — render `migrate.stage1.fully_current` with `{config_path}`, `{profile_path}`, `{profile_schema}` |
+| 3 | > bundled | STOP — render `migrate.stage1.profile_ahead_of_plugin` with `{team_profile_schema}`, `{bundled_profile_schema}`. Likely the user installed an older plugin version after a newer one. Suggest plugin update. |
+| Other (parse failure or unsupported value) | — | Hardcoded English error and abort. |
+
+`migrate.stage1.already_v3` from v0.5.6 is REPLACED by the matrix above. v0.5.6 callers wired only to that key get a fallback rendering of `migrate.stage1.fully_current`.
+
+### 1.5 Switch locale
+
+Once `team_language` is known, all subsequent catalog lookups (Stages 2–6) use `strings.<team_language>.yml` as the primary source.
 
 ---
 
 ## Stage 2 — Plan preview
 
-Compute the four path/value placeholders and present the plan. Always confirm before executing.
+Render a combined plan covering both config migration (when needed) and profile field migration (when needed). Always confirm before executing.
 
 ### 2.1 Compute substitutions
 
-- `{current_version}` — parsed in Stage 1.2 (always `2` when we reach Stage 2).
-- `{target_version}` — literal `3`.
+- `{current_version}` — config version parsed in Stage 1.2.
+- `{target_version}` — literal `3` (always, when config migration is in scope).
 - `{profile_source_path}` — `${CLAUDE_PLUGIN_ROOT}/examples/_profiles/default-<team_language>.yml`. Render with the expanded absolute path when available; otherwise render the `${CLAUDE_PLUGIN_ROOT}/…` form verbatim.
-- `{profile_dest_path}` — `<repo_root>/.immutable-prd/profile.yml` where `<repo_root>` is the parent of the `.immutable-prd/` directory holding config.yml.
+- `{profile_dest_path}` — `<repo_root>/.immutable-prd/profile.yml`.
+- `{team_profile_schema}` / `{bundled_profile_schema}` — from Stage 1.3 (when team profile.yml exists).
+- `{profile_field_diff}` — populated by 2.2 below when Stage 5 will run.
 
-### 2.2 Render preview
+### 2.2 Compute profile field diff (when Stage 5 will run)
 
-Render `migrate.stage2.plan_preview` with the substitutions above. Ask the user to reply `yes` / `no` (or equivalents — free-text acceptance is OK: `진행`, `proceed`, `go`).
+Apply the per-version migration recipes (see Stage 5.2 below) against the team profile to enumerate **specific fields that will be added**. Each entry in `{profile_field_diff}` names the field path and a one-line description. Example:
 
-### 2.3 Handle decline
+```
++ sections[user_stories].max_items: 3 (anti-monolith hard cap)
++ anti_monolith block (3-tier escalation L1/L2/L3)
++ vague_words list (Stage 3 vague-word detection)
++ personas[quality_auditor] (4th adversarial persona)
++ gate.criteria[concern_scope] + gate.total/threshold bump
++ adr.anti_monolith block
+```
+
+Fields already present in the team profile are NOT listed (they are preserved; never modified).
+
+### 2.3 Render preview
+
+Render the appropriate template based on the routing matrix from Stage 1.4:
+
+| Stages running | Catalog key |
+|---|---|
+| Config + Profile (full) | `migrate.stage2.plan_preview_full` |
+| Profile only (config already v3) | `migrate.stage2.plan_preview_profile_only` |
+| Config only (no profile field migration needed — fresh profile copy) | `migrate.stage2.plan_preview_config_only` |
+
+All three templates accept `{profile_field_diff}` (rendered as empty when not applicable).
+
+Ask the user to reply `yes` / `no` (or equivalents: `진행`, `proceed`, `go`).
+
+### 2.4 Handle decline
 
 If the user declines, STOP by rendering `migrate.stage2.user_declined` (no substitutions). Do not touch any files.
 
@@ -179,7 +243,7 @@ If the commented line is missing (custom-edited config — user already uncommen
 
 ---
 
-## Stage 4 — Verify + handoff
+## Stage 4 — Verify config (when Stage 3 ran)
 
 ### 4.1 Verify
 
@@ -189,38 +253,128 @@ Read the updated config.yml and confirm:
 - `profile: .immutable-prd/profile.yml` (uncommented) is present.
 - `<repo_root>/.immutable-prd/profile.yml` exists and is non-empty.
 
-If any assertion fails, surface the failure to the user with a hardcoded English message and suggest `git restore .immutable-prd/config.yml && rm .immutable-prd/profile.yml` as rollback.
+If any assertion fails, surface the failure to the user with a hardcoded English message and suggest `git restore .immutable-prd/config.yml && rm .immutable-prd/profile.yml` as rollback. Do NOT proceed to Stage 5.
 
-### 4.2 Handoff
+### 4.2 Decision
 
-Render `migrate.stage4.handoff` with:
+- If Stage 5 will run (per Stage 1.4 routing) → continue to Stage 5.
+- Else → skip directly to Stage 6 handoff.
 
-- `{config_path}` — absolute path of the edited config.yml.
-- `{profile_path}` — absolute path of the copied (or pre-existing) profile.yml.
+---
+
+## Stage 5 — Profile field migration (v0.5.7+, conditional)
+
+Add fields introduced by newer plugin versions into the team profile.yml. **Existing values are never modified.** Only missing fields are inserted. Idempotent.
+
+### 5.1 Pre-conditions
+
+- Team profile.yml exists (Stage 1.3 verified this).
+- `team_profile_schema < bundled_profile_schema` (Stage 1.4 routed here).
+
+### 5.2 Per-version migration recipes
+
+Each recipe describes what was added between two consecutive `profile_schema` versions. Apply recipes in order from `team_profile_schema + 1` up to `bundled_profile_schema`. For each recipe step, check whether the field already exists in the team profile (preserve override) before inserting.
+
+#### Recipe v1 → v2 (added in plugin v0.5.6)
+
+A. **Top-level additions** — append at end of file with a blank line separator.
+
+  - `vague_words:` list — only if missing. Source from bundled default. Includes header comment block from bundled.
+  - `anti_monolith:` block — only if missing. Source from bundled default. Includes header comment block.
+
+B. **Top-level value preservation (do NOT change)**:
+
+  - `gate.total: 7` and `gate.pass_threshold: 6` are NOT modified by Stage 5. The team's existing gate semantics are preserved. The new `concern_scope` criterion (added in C below) requires a manual opt-in: after Stage 5 completes, the user is shown a one-line note recommending they bump `gate.total: 8` and `gate.pass_threshold: 7` if they want concern_scope to count toward the gate. Without this manual bump, concern_scope is registered but not evaluated against the threshold.
+
+C. **Nested additions**:
+
+  - `sections[user_stories].max_items: 3` — only if the entry is missing within `sections[user_stories]`. Insert immediately after `min_items:` line within the user_stories block. Include the explanatory comment from bundled default.
+  - `personas[]` append `quality_auditor` block — only if no entry with `id: quality_auditor` exists. Append at end of `personas:` list with full structure from bundled.
+  - `gate.criteria[]` append `concern_scope` block — only if no entry with `id: concern_scope` exists. Append at end of `gate.criteria:` list with full structure from bundled.
+
+D. **ADR side**:
+
+  - `adr.anti_monolith:` block — only if missing within `adr:`. Append at end of `adr:` block with header comment from bundled.
+
+E. **Schema bump**:
+
+  - Replace exactly `profile_schema: <team_value>` with `profile_schema: 2`. If the comment immediately above (`# Schema revision...` lines) is the v1 stock text, also update the comment to mention the v1→v2 bump. Skip the comment update if the user has customized those comment lines.
+
+### 5.3 Plan preview (when Stage 5 is the only stage running)
+
+Already shown in Stage 2. Skip re-rendering — proceed to 5.4.
+
+### 5.4 Execute additions
+
+For each addition planned in 5.2:
+
+1. Run a Grep against the team profile to confirm the field is still missing (defensive — handles the rare case where the user edited the file between Stage 2 and Stage 5).
+2. If missing: use Edit to insert the new content at the precise position.
+3. If present (race condition / already-merged): SKIP and note in handoff. Do NOT abort.
+
+For TOP-LEVEL appends (A, D), insert just before the next top-level block boundary or at end-of-file. Preserve trailing newline.
+
+For NESTED additions (C), use Edit with enough surrounding context to make the match unique within the team profile.
+
+If any Edit fails (old_string not found or not unique), abort the stage with a hardcoded English error pointing at the specific addition and suggesting manual merge from `${CLAUDE_PLUGIN_ROOT}/examples/_profiles/default-<lang>.yml`.
+
+### 5.5 Bump schema and verify
+
+After all additions land:
+
+1. Edit `profile_schema:` line per recipe E.
+2. Read the updated profile.yml fully.
+3. Confirm the bumped `profile_schema` value matches `bundled_profile_schema`.
+4. Confirm each planned addition is now present (Grep checks).
+
+If verification fails, surface the failure with the specific failing assertion and suggest rollback (`git restore .immutable-prd/profile.yml`).
+
+---
+
+## Stage 6 — Final verify + handoff
+
+### 6.1 Combined verify
+
+Re-run all assertions from Stage 4.1 (when Stage 3 ran) and Stage 5.5 (when Stage 5 ran). All must pass.
+
+### 6.2 Handoff
+
+Render `migrate.stage6.handoff` with:
+
+- `{config_path}` — absolute path of config.yml.
+- `{profile_path}` — absolute path of profile.yml.
+- `{stages_run}` — list of stages that actually executed (e.g., "config v2→v3; profile_schema 1→2 with 6 additions").
+- `{post_migration_notes}` — when Stage 5 added `concern_scope`, include the one-line note about manually bumping `gate.total` / `gate.pass_threshold` if the team wants the criterion to count.
+- `{commit_suggestion}` — `git add .immutable-prd/ && git commit -m "chore: migrate immutable plugin to <vN>"`.
 
 ---
 
 ## Hard Prohibitions
 
 1. **Never run git operations.** `git add`, `git commit`, `git restore` are user-only. Only suggest commands.
-2. **Never overwrite an existing profile.yml.** If it exists, warn + skip copy (Stage 3.1).
+2. **Never overwrite an existing profile.yml content.** Stage 3.1 skips file creation if it exists. Stage 5 only INSERTS missing fields — never modifies existing values, even when the bundled default differs.
 3. **Never edit files outside `.immutable-prd/`.** Pitches, ADRs, READMEs, templates are untouched.
-4. **Never proceed past Stage 1 when `version: 3`.** The skill handles only the v2 → v3 transition.
+4. **Never proceed past Stage 1 when fully current.** The skill aborts cleanly when both config and profile schema are at the bundled defaults.
 5. **Never proceed past Stage 2 without explicit user confirmation.** No auto-execute.
-6. **Never leave the repo in a partially-migrated state.** Either all three changes land (with documented skips for 3.1 / 3.3) or the skill aborts before touching anything.
+6. **Never leave the repo in a partially-migrated state.** Either the planned operations all land (with documented skips for 3.1 / 3.3 / 5.4-individual-addition idempotency) or the skill aborts before touching anything.
 7. **Never modify the bundled starter / profile files.** They live in the plugin (read-only).
+8. **Never change existing profile.yml values in Stage 5.** The migration adds missing fields only. Default value changes (e.g., `min_items: 2 → 1` in v0.5.6 defaults) are NOT propagated — teams who set explicit values likely want them.
 
 ---
 
 ## Idempotency contract
 
-Re-running `/immutable:migrate` on a repo that already completed migration:
+Re-running `/immutable:migrate` on a repo at various states (per the Stage 1.4 routing matrix):
 
 | Prior state | Behavior |
 |---|---|
-| `version: 3` + profile.yml exists | Stage 1 refusal (`migrate.stage1.already_v3`) |
-| `version: 3` + profile.yml missing | Stage 1 refusal — user runs the one-liner from the refusal message to copy profile.yml if they want one |
-| `version: 2` + profile.yml exists (edge case) | Stage 3.1 skip + warn, Stage 3.2 bumps version, Stage 3.3 uncomments pointer. Final state matches a normal migration. |
+| `version: 3` + profile_schema == bundled | Stage 1 refusal (`migrate.stage1.fully_current`) |
+| `version: 3` + profile_schema < bundled | Stage 5 only — adds missing fields, bumps schema |
+| `version: 3` + profile.yml missing | Stage 1 refusal (`migrate.stage1.profile_missing`) — user runs one-liner copy if desired |
+| `version: 3` + profile_schema > bundled | Stage 1 refusal (`migrate.stage1.profile_ahead_of_plugin`) — suggests plugin update |
+| `version: 2` + no profile.yml | Full Stage 2-3-4-5-6 — config bump + profile copy from bundled (which is current schema) + Stage 5 no-op |
+| `version: 2` + profile.yml exists (edge — manually created) | Full Stage 2-3-4-5-6 — config bump + Stage 3.1 skip-warn + Stage 5 merge if schema stale |
+| Stage 5 partially run before (some fields added but schema not yet bumped) | Defensive Grep checks in Stage 5.4 detect already-present additions and SKIP them. Schema bump in 5.5 lands. |
 
 This contract means `/immutable:migrate` is safe to re-run in CI / automation without guard conditions.
 
@@ -231,11 +385,15 @@ This contract means `/immutable:migrate` is safe to re-run in CI / automation wi
 If the user decides to undo a completed migration:
 
 ```bash
+# Undo a config v2 → v3 migration (full):
 git restore .immutable-prd/config.yml
 rm .immutable-prd/profile.yml
+
+# Undo a Stage 5 profile field migration only (config v3 was already in place):
+git restore .immutable-prd/profile.yml
 ```
 
-This restores config.yml to its v2 form and removes the seeded profile. Safe because migrate never touches files outside `.immutable-prd/`.
+Both rollback variants are safe because `/migrate` never touches files outside `.immutable-prd/`.
 
 ---
 
