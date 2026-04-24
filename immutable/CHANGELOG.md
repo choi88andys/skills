@@ -2,6 +2,46 @@
 
 All notable changes to the `immutable` plugin are documented in this file. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Version is canonically declared in `.claude-plugin/plugin.json`.
 
+## [0.5.6] — 2026-04-24
+
+The single largest design change since v0.3. Drops the global "single active per (domain, type)" cap and reframes a PRD as **1 feature/policy** instead of **1 domain charter**. Multiple active PRDs may coexist in the same domain, each on its own supersede chain. A new 3-tier `anti_monolith` guard (hint / strong-recommend / block) replaces the implicit cap with a measurable one tied to feature-scoped sub-section and normative counts.
+
+Motivated by dogfood evidence: the lounge-x-spec repo had a 197-line `order-history` PRD covering 8 sub-sections, a `settings` chain superseded 4× in a single day, and 8 cross-cutting ADRs that could not all live in `_global` because of the (domain, type) cap — driving a workaround that proposed adding 7 fake `_arch_*` reserved domains. v0.5.6 removes the underlying constraint that produced these patterns and adds explicit guards so the new flexibility doesn't degrade into multi-feature dumping.
+
+### Added
+
+- **`anti_monolith` profile block** (top-level for pitches, `adr.anti_monolith` for ADRs). 3 tiers — `L1: hint`, `L2: strong_recommend`, `L3: block` — each carrying threshold pairs (`sub_sections` + `normative_lines` for pitches; `alternatives_count` + `consequences_count` for ADRs). When the block is omitted, thresholds derive from `sections[user_stories].max_items` (L1 = max+1, L2 = max+2, L3 = max×3; normative_lines = sub_sections × 5).
+- **`sections[user_stories].max_items`** field. Default: 3. Caps `### ` sub-section count under the user_stories H2 — exceeding triggers anti_monolith escalation. Bump to 4 in your team profile if 4-step linear flows (checkout, onboarding, etc.) are common.
+- **New gate criterion `concern_scope`** (8th in default profile, raises `gate.total: 7→8` and `gate.pass_threshold: 6→7`). Fails when the in-flight draft exceeds L3 thresholds. L1/L2 violations pass with hint/warning rather than fail.
+- **5-way intent classification** in `/immutable:prd` Stage 1.3 — adds `refactor-split` (Stage 1 only — decomposes oversized PRD into N small PRDs without semantic change) and `split-from` (refactor + new semantic change applied to one of the resulting small PRDs, in two reviewable phases).
+- **Anti-monolith pre-check** in Stage 1.2 — every active PRD in the target domain is tier-classified and surfaced in the Stage 1.4 confirmation block. Tier of the user's intended target drives Stage 1.3 menu adjustment (L2 promotes split, L3 removes `update`).
+- **Stage 2 derivation policy** — the recommended-answer source priority now demotes oversized active PRDs to "fact-source only, never structural template", preventing the new authoring session from inheriting the anti-pattern.
+- **Quality auditor persona** gains 2 new checks — intake-decomposition awareness (intake 1:1 mapping assumption dropped) and per-sub-section normative imbalance detection.
+- **SCHEMA.md** new sections: "Anti-monolith escalation" (mechanism + tier semantics + fallback formula), "Anti-patterns" (domain-charter, fake reserved domains, dumping intake — with symptom/why/fix triples).
+
+### Changed
+
+- **Validator `check_single_active_invariant` → `check_supersede_chain_integrity`** (`scripts/validate_docs.py`). The global per-(domain, type) cap is removed. New invariant: for each file F with non-null `F.supersedes`, the target T must exist in the same doc-type set AND have `deprecated: true`. Multiple active leaves in the same domain are valid, each on its own chain. Fan-out (1 predecessor superseded by N successors — the canonical refactor-split shape) is permitted.
+- **SCHEMA.md "Mutability policy" rewritten** to reflect per-edge integrity and add a new "Granularity (1 PRD = 1 feature/policy, not 1 PRD = 1 domain)" subsection. Validation invariant #3 reworded.
+- **Profile depth knobs recalibrated** for the per-feature model:
+  - `sections[user_stories].min_items: 2 → 1` (single-feature PRDs with one happy path + one error path are normal)
+  - `sections[edge_cases].min_items: 2 → 1` (a small toggle-style PRD legitimately has one edge row)
+  - `gate.criteria[gwt_minimum]` — semantics shift from "≥2 GWT blocks" to "happy ≥1 AND alternate/error ≥1" (kind check rather than count)
+  - `gate.criteria[edge_cases_minimum]` — pass threshold lowered from "≥2 rows" to "≥1 row"
+  - `gate.criteria[normative_minimum]` — kept at ≥3 (the depth signal of a feature spec; preserved even for small PRDs)
+- **`profile_schema: 1 → 2`** bump on default-ko.yml and default-en.yml. v1 profiles continue to load (the new fields fall back to derived defaults).
+- **`product_lead` persona check** strengthened — "Epic-level content" now references the anti_monolith tier triggers rather than a soft heuristic.
+
+### Removed
+
+- **`(domain, type)` single-active cap** as a global invariant. Behavior preserved for repos that genuinely host one PRD per domain (the per-edge integrity check is satisfied trivially when there's only one chain).
+
+### Backward compatibility
+
+- **Existing pitches and ADRs are valid as-is.** No body changes required. The validator's new check is strictly weaker for repos that previously satisfied the global cap — anything that passed v0.5.5 passes v0.5.6.
+- **v1 profiles** (`profile_schema: 1`, no `anti_monolith` block, no `max_items` field) load with derived fallbacks. Default-ko / default-en explicitly bump to v2 to ship the new defaults.
+- **Repos with oversized PRDs** (e.g., dogfood lounge-x-spec) will see L3 classification on their large active PRDs starting from the next `/immutable:prd` invocation in those domains. Existing files are untouched; the next authoring session receives a recommendation to use `refactor-split` rather than continuing the monolith. Choosing `new` (a separate small PRD in the same domain) is fully supported and recommended.
+
 ## [0.5.5] — 2026-04-24
 
 Removes the last hand-edit step from the `two-repo-app` bootstrap flow. Previously, `/immutable:init` copied an app starter with a `spec_repo_path: ../<your-spec-repo>` placeholder that the user had to open in an editor afterward — a silent friction point for users whose spec repo did not follow the `-spec` suffix convention (backend / api / server repo pairs) and a correctness hazard when users forgot to replace it before running `/immutable:adr`. The skill now conducts the path interview interactively and writes the real path directly into config.yml.

@@ -211,6 +211,7 @@ strings:
   prd.stage1.confirmation: |
     [{domain}] {intent_desc}
     기준 파일: {base_file}
+    {anti_monolith_summary}
     인터뷰를 시작할까요?
 
     (1) 맞음 — 인터뷰 시작
@@ -218,10 +219,71 @@ strings:
     (3) 신규 도메인 — 허용 목록 추가 절차 안내
     (4) 폐기만 — 인터뷰 없이 deprecated 플립
 
-  prd.intent_desc.new: "새 pitch 생성으로 이해했습니다"
-  prd.intent_desc.new_domain: "새 도메인 + 새 pitch 생성으로 이해했습니다"
-  prd.intent_desc.update: "도메인 업데이트로 이해했습니다"
+  prd.intent_desc.new: "기존 도메인에 신규 PRD 추가로 이해했습니다 (별도 supersede 체인 — 도메인 내 multiple actives 정상)"
+  prd.intent_desc.new_domain: "새 도메인 + 새 PRD 생성으로 이해했습니다"
+  prd.intent_desc.update: "특정 PRD의 정의 자체를 재선언하는 것으로 이해했습니다 (드문 의도 — 같은 chain의 supersede)"
+  prd.intent_desc.refactor_split: "기존 oversized PRD를 N개 small PRD로 분해 (의미 변화 없음, 구조 refactor만)"
+  prd.intent_desc.split_from: "기존 oversized PRD를 분해한 뒤, 분해된 것 중 하나에 신규 변경 적용 (Stage 1 + Stage 2)"
   prd.intent_desc.deprecate_only: "폐기 처리로 이해했습니다"
+
+  # Anti-monolith pre-check (v0.5.6+) — rendered into {anti_monolith_summary}
+  # placeholder of prd.stage1.confirmation. Empty when the domain has no
+  # active PRDs; otherwise lists each active with its tier classification.
+  prd.stage1.anti_monolith_summary_template: |
+    도메인 active PRD 현황 (anti-monolith tier):
+    {per_pitch_rows}
+  prd.stage1.anti_monolith_row_pass: "  - {filename} [통과 — sub-section {sub_count}, normative {norm_count}]"
+  prd.stage1.anti_monolith_row_l1: "  - {filename} [L1 hint — sub-section {sub_count}, normative {norm_count}]"
+  prd.stage1.anti_monolith_row_l2: "  - {filename} [L2 — split 권장. update 시 사유 필요]"
+  prd.stage1.anti_monolith_row_l3: "  - {filename} [L3 — update 차단. refactor-split / split-from / new 만 허용]"
+  prd.stage1.anti_monolith_l3_block_message: |
+    선택한 작업이 L3 PRD `{filename}` 를 update 하려고 합니다.
+    이 PRD는 sub-section {sub_count}개, normative {norm_count}개로 anti-monolith
+    L3 임계를 초과합니다. update 는 차단되며, 다음 중 하나만 가능합니다:
+
+    (a) refactor-split — 의미 변화 없이 N개 small PRD 로 분해 (Stage 1만)
+    (b) split-from     — 분해 후 신규 변경 적용 (Stage 1 + Stage 2)
+    (c) new            — 별도 작은 PRD 추가, 기존은 그대로 둠
+
+  # Stage 5 anti-monolith warnings (v0.5.6+)
+  prd.stage5.l1_hint: "anti-monolith L1 hint — sub-section {sub_count}, normative {norm_count}. 진행 가능하지만 다음 작업부터는 더 작은 단위 PRD 권장."
+  prd.stage5.l2_warning: "anti-monolith L2 — sub-section {sub_count}, normative {norm_count}. 작성 중 PRD 가 multi-feature 묶음일 가능성 높음. 그래도 진행하시겠습니까?"
+  prd.stage5.concern_scope_violation: "concern_scope criterion 실패 (L3) — sub-section {sub_count}/normative {norm_count}. 작성 중 PRD 가 너무 큽니다. refactor-split 으로 분해 후 다시 작성하세요."
+
+  # Refactor-split (v0.5.6+) — §1.7
+  prd.refactor_split.boundary_proposal: |
+    기존 PRD: {original_filename} ({sub_count} sub-sections, {norm_count} normatives)
+
+    분할 후보 (N = {n}):
+    {candidates}
+
+    Cross-cutting (특정 sub-section 에 귀속되지 않음):
+    {cross_cutting}
+
+    진행: (a) 제안대로 분할 (b) 경계 조정 (c) 합칠 후보 지정 (d) 취소
+  prd.refactor_split.cross_cutting_question: "이 항목은 어느 sub-section 의 책임입니까? (a) {section_a} (b) {section_b} ... (z) cross-section — 별도 작은 PRD 로 추출"
+  prd.refactor_split.sanity_failure: |
+    Sanity check 실패 — 다음 항목이 분할 결과에 누락되었거나 중복됩니다:
+
+    {issues}
+
+    파일을 작성하지 않습니다. 경계 조정으로 돌아갑니다.
+  prd.refactor_split.handoff: |
+    refactor-split 완료. 작성된 파일:
+
+    신규 (active):
+    {new_files}
+
+    deprecated 처리: {original_filename}
+
+    권장 commit 메시지:
+      refactor({domain}): split {original_filename} into {n} sub-pitches
+
+    이는 의미 변화 없는 구조 refactor 입니다. 단일 commit 으로 묶기를 권장합니다.
+
+  # Split-from (v0.5.6+) — §1.8
+  prd.split_from.stage2_prompt: "Stage 1 (refactor-split) 완료. 신규 변경을 적용할 Stage 2 를 진행하시겠습니까? (Y) 다음 단계 / (N) separate commit 가시성 확보를 위해 종료, 나중에 update 호출"
+  prd.split_from.stage2_target_question: "신규 변경은 분해된 PRD 중 어디에 적용됩니까? {candidates}"
 
   prd.stage1_5.intake_prompt_verbatim: |
     참고 자료가 있으면 첨부해주세요 (없으면 '없음'). 다음 중 해당되는 것만:

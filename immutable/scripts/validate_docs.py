@@ -22,7 +22,12 @@ Coverage (matches SCHEMA.md "Validation invariants"):
      special-cases sourced from the profile.
   6. Filename format — matches the profile's `naming.filename_pattern`
      (falls back to `YYYY-MM-DD-<kebab-slug>.md` when no profile is set).
-  7. Single-active-per-chain invariant per (domain, type).
+  7. Supersede chain integrity — for each file with non-null `supersedes`, the
+     target must exist in the same doc-type set and have `deprecated: true`.
+     Multiple active files MAY coexist in the same domain (each on its own
+     supersede chain). Fan-out (one predecessor superseded by N successors,
+     e.g., a refactor-split) is permitted as long as the shared predecessor
+     is deprecated.
   8. pitch / ADR body-level check — **optional, enabled via `--strict-body`.**
      Every `profile.sections[i].required == true` entry (pitch) and
      `profile.adr.sections[i].required == true` entry (ADR) must appear as an
@@ -666,23 +671,53 @@ def validate_body_headings(
             )
 
 
-def check_single_active_invariant(
+def check_supersede_chain_integrity(
     doc_type: str,
     docs: list[tuple[Path, dict[str, Any]]],
     violations: list[str],
 ) -> None:
-    by_chain: dict[tuple[str, str], list[Path]] = {}
+    """Enforce per-edge supersede integrity.
+
+    For each file F with non-null F.supersedes:
+      - The target T must exist in this doc-type set, in the same domain
+        directory as F (cross-domain supersede is not supported by the
+        directory convention).
+      - T must have `deprecated: true`.
+
+    No global per-(domain, type) cap. Multiple active files may coexist in the
+    same domain — each on its own supersede chain. Fan-out (one predecessor
+    superseded by N successors, e.g., a refactor-split) is permitted as long
+    as the shared predecessor is deprecated.
+
+    Lookup is scoped by (domain, filename) since the same filename (e.g.,
+    `2026-04-16-initial.md`) may legitimately appear in multiple domain
+    directories.
+    """
+    by_key: dict[tuple[str, str], dict[str, Any]] = {}
     for path, fm in docs:
-        if fm.get("deprecated") is True:
+        domain = fm.get("domain") or "_global"
+        by_key[(domain, path.name)] = fm
+
+    for path, fm in docs:
+        target = fm.get("supersedes")
+        if target is None:
             continue
         domain = fm.get("domain") or "_global"
-        by_chain.setdefault((domain, doc_type), []).append(path)
-    for (domain, dtype), paths in by_chain.items():
-        if len(paths) > 1:
+        key = (domain, target)
+        if key not in by_key:
             warn(
                 violations,
-                f"single-active invariant violated for ({domain!r}, {dtype!r}): "
-                f"{len(paths)} active files — {[str(p) for p in paths]}",
+                f"{path}: supersedes `{target}` but target file not found in "
+                f"{doc_type} set under domain `{domain}`",
+            )
+            continue
+        target_fm = by_key[key]
+        if target_fm.get("deprecated") is not True:
+            warn(
+                violations,
+                f"{path}: supersedes `{target}` but target is still active "
+                f"(deprecated: false). Predecessor must be deprecated when a "
+                f"successor exists.",
             )
 
 
@@ -801,7 +836,7 @@ def main() -> int:
                             violations,
                         )
                 collected.append((md_path, fm_checked))
-        check_single_active_invariant(doc_type, collected, violations)
+        check_supersede_chain_integrity(doc_type, collected, violations)
 
     if args.json:
         print(json.dumps({"violations": violations, "clean": not violations}))

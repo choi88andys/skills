@@ -39,8 +39,9 @@ The skill is **profile-aware** in v0.5: section headings, the gate threshold, pe
 | Profile field | Where used |
 |---|---|
 | `sections[].heading` | Stage 6 body assembly (rendered in pitch file) |
-| `sections[].id` / `required` / `min_items` / `description` | Stage 2 interview branches + Stage 6 required-sections guard |
+| `sections[].id` / `required` / `min_items` / `max_items` / `description` | Stage 2 interview branches + Stage 6 required-sections guard. `max_items` (v0.5.6+, user_stories only) caps `### ` sub-section count — exceeding triggers `anti_monolith` escalation. |
 | `sections[id=user_stories].structure` (v0.5.3+) | Stage 2 Branch B completion criterion + Stage 6 pre-write structure guard. `per_story_grouped` (default) requires each story in a `### ` sub-section carrying a GWT triple + ≥1 bracketed normative line; `consolidated` accepts a single GWT list + single normative list under the H2 (v0.5.2 shape). |
+| `anti_monolith.tiers.{L1,L2,L3}` (v0.5.6+) | Stage 1.2 pre-check tier classification of existing active PRDs; Stage 1.3 intent menu adjustment (L2 promotes split, L3 blocks `update`); Stage 5 `concern_scope` criterion fail threshold. Fallback derived from `sections[user_stories].max_items` if block omitted. |
 | `normative_keywords[].token` / `meaning` | Stage 2 Branch C bracket vocabulary |
 | `identifier_patterns[].regex` / `hint` | Stage 3 code-identifier detection |
 | `vague_words[].regex` / `hint` (v0.5.3+) | Stage 3 vague-word detection (skill-side only; not enforced by the CI validator) |
@@ -127,24 +128,60 @@ Use Bash + Glob + Read to collect:
    - Load profile per the resolution order in **Profile Resolution** above. Cache the parsed profile for the rest of the session.
 2. Confirm `pitches/` exists in CWD (or at the configured `pitches_path`). If not, stop by rendering `prd.stage1.no_pitches_dir` (no substitutions).
 3. Read `pitches/README.md` — extract domain allowlist from the allowed-domains table (rows matching `` | `<name>` | ``). Use `profile.domain_allowlist.source` if it differs from the default `pitches/README.md`.
-4. For each allowlisted domain directory, scan `*.md` frontmatter to find the active pitch (`deprecated: false`, not `README.md`, not `TEMPLATE.md`).
+4. **Enumerate active pitches per domain** (changed v0.5.6 — was: "find the active pitch", singular). For each allowlisted domain directory, scan `*.md` frontmatter to find **all** files with `deprecated: false` (excluding `README.md` and `TEMPLATE.md`). A domain may host multiple active PRDs, each on its own supersede chain. None is privileged as "the" baseline for the domain.
 
-### 1.3 Classify intent
+### 1.2.1 Anti-monolith pre-check (v0.5.6+)
+
+Resolve the active anti-monolith policy:
+
+- If `profile.anti_monolith.enabled == true` and `profile.anti_monolith.tiers` exists → use those thresholds.
+- Else if `profile.anti_monolith` is omitted/disabled → derive thresholds from `profile.sections[user_stories].max_items`:
+  - `L1.sub_sections = max_items + 1`, `L2 = max_items + 2`, `L3 = max_items × 3`
+  - `L1/L2/L3.normative_lines = sub_sections × 5`
+
+Once the user has hinted at a target domain (from Stage 1.1 free-text or from the implicit domain in the request), compute metrics for every active PRD in that domain:
+
+- `sub_sections` — count of `### ` headers within the user_stories H2 slice (strip fenced code blocks first to avoid false matches)
+- `normative_lines` — count of lines whose first non-whitespace bracket token matches a `profile.normative_keywords[].token` (`[MUST]`, `[MUST NOT]`, `[SHOULD]`, `[SHOULD NOT]`, `[MAY]`)
+
+Classify each active PRD into the highest tier it triggers (L3 > L2 > L1 > none). Surface the result as part of the Stage 1.4 confirmation block:
+
+```
+도메인 `<domain>` 의 active PRDs:
+  - 2026-04-20-foo.md          [L3 — 8 sub-sections, 50+ normatives]
+  - 2026-04-22-bar.md          [pass]
+  - 2026-04-23-baz.md          [L1 — 4 sub-sections]
+```
+
+When the user's request appears to touch an L2/L3 PRD, this classification drives the Stage 1.3 intent menu.
+
+### 1.3 Classify intent (5-way, v0.5.6+)
 
 | Signal | Intent |
 |---|---|
 | New feature/flow, fits no allowlisted domain | `new-domain` (requires allowlist update) |
-| New feature/flow, fits an existing domain with no prior pitch | `new` (`supersedes: null`) |
-| Modification/addition/removal within an existing active pitch's scope | `update` (copy active, revise, flip old deprecated) |
-| "No longer provided" with no replacement | `deprecate-only` (flip active's `deprecated` flag) |
+| New feature/flow in an existing domain — distinct concern from any active PRD | **`new`** ← most common (`supersedes: null`, joins the domain as another active chain) |
+| The exact scope of one specific active PRD is being re-declared (the PRD's stated promise is wrong/incomplete and you are restating it) | `update` (copy active, revise, flip old deprecated). **Rare** — most "I want to change X" cases are actually `new` (separate concern) or `split-from` (X is one slice of a too-broad PRD) |
+| Existing PRD is too large (anti-monolith tier ≥ L1) and you want to reorganize it without semantic change | **`refactor-split`** ← Stage 1 only. Decomposes one PRD into N smaller ones preserving all behavior |
+| Existing PRD is too large AND you have a new semantic change targeting one of its sub-scopes | **`split-from`** ← Stage 1 (refactor) + Stage 2 (semantic change in the relevant new sub-PRD). Two-stage flow described below. |
+| "No longer provided" with no replacement | `deprecate-only` (flip target's `deprecated` flag) |
+
+#### Anti-monolith driven menu adjustment
+
+When the user's request maps onto an existing active PRD, consult that PRD's tier from §1.2.1:
+
+- **L1 (hint)**: keep the menu as listed. Show a one-line note: "기존 PRD `<file>` 가 약간 큼 (sub-sections N). 신규 작업이 별도 concern 이라면 `new` 권장."
+- **L2 (strong_recommend)**: reorder the menu so `refactor-split` and `split-from` precede `update`. If the user picks `update`, ask for an explicit reason (recorded in interview transcript only — not written to frontmatter or body).
+- **L3 (block)**: remove `update` from the menu entirely. Only `refactor-split`, `split-from`, `new` (separate small PRD) remain offerable.
 
 ### 1.4 Confirmation (mandatory)
 
 Always confirm intent and target before proceeding. Render `prd.stage1.confirmation` with:
 
 - `{domain}` — the confirmed domain name (e.g., `notice`)
-- `{intent_desc}` — lookup of the matching `prd.intent_desc.<intent>` key (`new` / `new_domain` / `update` / `deprecate_only`)
-- `{base_file}` — relative path to the active pitch being superseded, or `common.placeholder.none` for a new pitch
+- `{intent_desc}` — lookup of the matching `prd.intent_desc.<intent>` key (`new` / `new_domain` / `update` / `refactor_split` / `split_from` / `deprecate_only`)
+- `{base_file}` — for `update` / `refactor-split` / `split-from` / `deprecate-only`: the active file being acted on. For `new` / `new-domain`: `common.placeholder.none`.
+- `{anti_monolith_summary}` — the per-PRD tier summary from §1.2.1 (rendered when the domain has ≥1 active PRD)
 
 If classification is ambiguous, ask rather than guess.
 
@@ -161,6 +198,118 @@ If `new-domain`:
 ### 1.6 Deprecate-only flow
 
 Skip the interview. Request a reason string. Flip the target file's `deprecated: false` → `true` (single-line change only). Jump directly to Stage 6.
+
+### 1.7 Refactor-split flow (v0.5.6+, Stage 1 only)
+
+Decomposes an oversized active PRD into N smaller PRDs **without semantic change**. Pure structural refactor.
+
+#### 1.7.1 Sub-section enumeration
+
+Read the target PRD. Parse the user_stories H2 slice. Extract every `### ` sub-section as a candidate split unit. Each candidate carries:
+
+- Sub-section title (the `### ` text)
+- The sub-section's GWT triple (if present)
+- Bullet-head normative lines bound to that sub-section
+- Edge case rows that name only entities from this sub-section (heuristic match against sub-section title nouns)
+- No-go items that name only entities from this sub-section
+
+Cross-cutting content (RFC 2119 declaration, edge cases or no-gos that touch multiple sub-sections, normatives that live between the H2 and the first `### `) is held aside for §1.7.3.
+
+#### 1.7.2 Boundary confirmation
+
+Present the proposed split to the user:
+
+```
+기존 PRD: 2026-04-20-foo.md (8 sub-sections, 50 normatives)
+
+분할 후보 (N = 8):
+  1. <title-1>  — 4 GWT 라인, 5 normatives, 2 edge cases, 1 no-go
+  2. <title-2>  — 3 GWT 라인, 7 normatives, 1 edge case, 0 no-gos
+  ...
+
+Cross-cutting (특정 sub-section 에 귀속되지 않음):
+  - RFC 2119 declaration → 모든 split PRD 에 자동 복사
+  - "모든 화면에 닫기 affordance 제공" [MUST] → 어느 sub-section 의 책임?
+  - edge case "환불 완료 주문의 영수증 아이콘" → sub-section 6, 7 둘 다에 해당하는데 어디 둘까?
+
+진행: (a) 제안대로 분할 (b) 경계 조정 (c) 합쳐야 할 후보 지정 (d) 취소
+```
+
+If user picks (b) or (c), iterate until boundary is confirmed.
+
+#### 1.7.3 Cross-cutting handling
+
+- **형식 선언** (RFC 2119, 라이센스, glossary 헤더 등 — 1-line declarations) → 모든 split PRD 의 top 에 자동 복사. 중복은 해롭지 않음.
+- **Behavioral cross-cutting MUSTs**: ask the user per item which sub-section owns it. If truly cross-section (no single owner), offer to extract into a separate small PRD (`<domain>-<concern>-shared.md` — same domain, separate chain).
+
+#### 1.7.4 Mechanical write-out
+
+For each accepted sub-section, generate a small PRD file:
+
+```yaml
+---
+domain: <same as original>
+supersedes: <original filename>
+deprecated: false
+---
+
+# <derived title from sub-section>
+
+## <profile.sections[id=background].heading>
+
+(상속: 원본 Background 에서 본 sub-scope 와 무관한 단락은 생략. scope 명시
+한 줄 추가: "본 PRD 는 원본 `<original>.md` 의 `<sub-section title>` 부분을
+분리하여 다룬다.")
+
+## <profile.sections[id=user_stories].heading>
+
+### <sub-section title>
+
+(원본의 GWT + bullet-head normatives 그대로 복사)
+
+## <profile.sections[id=edge_cases].heading>
+
+(이 sub-scope 와 관련된 edge case 행만 복사)
+
+## <profile.sections[id=no_gos].heading>
+
+(이 sub-scope 와 관련된 no-go 항목만 복사 + cross-domain 항목은 그대로 상속)
+```
+
+Filename: `YYYY-MM-DD-<sub-section-slug>.md` (date = today, slug = kebab-cased sub-section title or user-chosen).
+
+#### 1.7.5 Sanity check (instead of full 90% gate)
+
+Skip the standard Stage 5 gate (this is a refactor, not new content). Run instead:
+
+- Each split file has valid frontmatter
+- Every original [MUST] / [MUST NOT] / [SHOULD] line appears in exactly one split file (no duplicates, no losses) — except cross-cutting form declarations (allowed to duplicate)
+- Every original edge case row appears in at least one split file
+- Every original no-go appears in at least one split file
+
+On any failure: do NOT write any file, report the missing/duplicated items, return to §1.7.2 for re-mapping.
+
+#### 1.7.6 Atomic write
+
+When sanity check passes, perform in this order:
+
+1. Write all N split files (`supersedes: <original>`, `deprecated: false`)
+2. Flip original file's `deprecated: false` → `true` (single-line edit)
+
+If the user wants to abort after seeing the proposed write list, halt without changing any file.
+
+#### 1.7.7 Handoff
+
+Render `prd.refactor_split.handoff` with the list of new files + the deprecated original. Recommend committing this as a single commit titled `refactor(<domain>): split <original> into N sub-pitches`. Skill does not commit.
+
+### 1.8 Split-from flow (v0.5.6+, Stage 1 + Stage 2)
+
+When the user has both a structural refactor need AND a semantic change targeting one of the new sub-scopes.
+
+1. Run §1.7 (refactor-split) end to end. Confirm completion.
+2. Ask: "Stage 2 진행 (신규 변경) 하시겠습니까? Y → 다음 단계 / N → 별도 commit 가시성 확보를 위해 여기서 종료, 나중에 `/immutable:prd` 다시 호출하여 update."
+3. If Y: re-enter Stage 1.3 with intent locked to `update`, target = the specific split-out PRD that owns the user's semantic change. Proceed through Stage 2 → Stage 5 → Stage 6 normally (full 90% gate applies to this step — it IS a semantic change).
+4. If N: end. The refactor-split commit stands alone.
 
 ---
 
@@ -213,7 +362,14 @@ If the user replies with a negative/empty response (e.g., `없음`, `none`, `no`
 ### Principles
 
 - **One question at a time.** Wait for the answer before the next.
-- **Always provide a recommended answer** with each question, derived from the active pitch, analogous patterns in other domains, industry defaults, or the confirmed Stage 1.5 summary. The user can accept, edit, or reject.
+- **Always provide a recommended answer** with each question. Derivation priority (v0.5.6+):
+  1. **Confirmed Stage 1.5 summary** (the user explicitly curated context — most reliable).
+  2. **Industry defaults** / Apple HIG / cited vendor docs.
+  3. **Analogous active pitches in other domains** — preferred sources are small PRDs (sub-section count ≤ `profile.sections[user_stories].max_items`). Use as structural template.
+  4. **Active pitches in the same domain** — but with tier-aware handling:
+     - Tier `pass` (under L1) — usable as both fact-source and structural template.
+     - Tier `L1` — usable as fact-source. Avoid copying its structure (it is borderline oversized).
+     - Tier `L2` / `L3` — **fact-source only, never a structural template.** Read for "this PRD says [MUST] X, ensure no contradiction" only. Do not derive sub-section count, ordering, normative density, or scope breadth from these. They are anti-pattern instances retained for backward compatibility.
 - **Forbid speculation.** When the user cannot answer or the answer is vague, record a tag in the format `<profile.gate.unresolved_tag> — <question summary>`. The tag literal comes from the active profile (one per locale). Never fill gaps with plausible-sounding content.
 - **Prefer codebase exploration over asking** when an answer is already present.
 
@@ -384,30 +540,50 @@ For each finding, offer three options (rendered in the active locale via profile
 
 ## Stage 5 — 90% Completeness Gate
 
-### Checklist (7 criteria)
+### Checklist (8 criteria, v0.5.6+)
 
-| # | Criterion | Pass Condition |
+The criteria list is sourced from `profile.gate.criteria[]` (id-keyed). Defaults below.
+
+| # | Criterion id | Pass Condition |
 |---|---|---|
-| 1 | Background is clear | Third party can summarize intent in ≤3 lines; no `<profile.gate.unresolved_tag>` tags remain |
-| 2 | User stories in GWT | At least 2 GWT blocks, all structurally complete |
-| 3 | Normative keywords | At least 3 bracketed statements across the body |
-| 4 | Edge cases table | At least 2 rows with explicit handling |
-| 5 | No-gos defined | At least 1 item with reason or handoff |
-| 6 | Zero code identifiers | Stage 3 passed cleanly |
-| 7 | Feature-scale scope | Passes the single-flag toggle test |
+| 1 | `background_clear` | Third party can summarize intent in ≤3 lines; no `<profile.gate.unresolved_tag>` tags remain |
+| 2 | `gwt_minimum` | happy path GWT ≥1 AND alternate/error GWT ≥1 (kind check, not count) |
+| 3 | `normative_minimum` | At least 3 bracketed statements across the body |
+| 4 | `edge_cases_minimum` | At least 1 row with explicit handling |
+| 5 | `no_gos_minimum` | At least 1 item with reason or handoff |
+| 6 | `no_code_identifiers` | Stage 3 passed cleanly |
+| 7 | `feature_scope` | Passes the single-flag toggle test |
+| 8 | `concern_scope` | Anti-monolith — see below |
+
+### `concern_scope` evaluation (v0.5.6+)
+
+Compute the in-flight draft's metrics before evaluating:
+
+- `sub_sections` — count of `### ` headers under the user_stories H2 slice
+- `normative_lines` — count of bracketed-keyword lines across the entire body
+
+Compare against `profile.anti_monolith.tiers` (or derived fallback per §1.2.1):
+
+- `sub_sections > L3.sub_sections` OR `normative_lines > L3.normative_lines` → **fail** (block file generation, force `refactor-split`)
+- `sub_sections > L2.sub_sections` OR `normative_lines > L2.normative_lines` → **pass with strong-recommend warning** (criterion counts as pass; surface `prd.stage5.l2_warning` to the user)
+- `sub_sections > L1.sub_sections` OR `normative_lines > L1.normative_lines` → **pass with hint** (criterion counts as pass; surface `prd.stage5.l1_hint`)
+- otherwise → pass
+
+The criterion only fails on L3 violation. L1/L2 are warnings that do not block but are visible.
 
 ### Judgment
 
-- **6 or 7 of 7 pass** → proceed to Stage 6
-- **Fewer than 6 pass** → refuse generation; loop to the relevant branch
+- Use `profile.gate.pass_threshold` (default 7 of 8 in default-ko / default-en since v0.5.6) → proceed to Stage 6
+- Below threshold → refuse generation; loop to the relevant branch
 - **Any `<profile.gate.unresolved_tag>` tag remains anywhere** → refuse generation regardless of count
+- **`concern_scope` failed (L3)** → refuse generation regardless of count, AND offer `refactor-split` of the in-flight draft as the recovery action
 
 ### Refusal message
 
 Render `common.gate.refusal_template` with:
 
-- `{criteria_rows}` — newline-joined per-criterion rows built from `common.gate.row_template` with `{n}` = 1..7, `{label}` = `profile.gate.criteria[i].label`, `{status}` = `common.gate.status_pass` or `common.gate.status_fail` (optionally appended with a short reason for failures in the active locale)
-- `{next_action}` — one-line actionable next step in the active locale, derived from which criteria failed (identify the failing branches by `profile.gate.criteria[i].id` and ask the user to address them)
+- `{criteria_rows}` — newline-joined per-criterion rows built from `common.gate.row_template` with `{n}` = 1..N (N = `profile.gate.total`), `{label}` = `profile.gate.criteria[i].label`, `{status}` = `common.gate.status_pass` or `common.gate.status_fail` (optionally appended with a short reason for failures in the active locale)
+- `{next_action}` — one-line actionable next step in the active locale, derived from which criteria failed (identify the failing branches by `profile.gate.criteria[i].id` and ask the user to address them). For `concern_scope` failure specifically, the next_action MUST recommend `refactor-split` (the failed draft is too large to ship as one PRD).
 
 ---
 
@@ -421,6 +597,8 @@ Render `common.gate.refusal_template` with:
   - `<slug>`: English kebab-case derived from the title; confirm with the user
 - **update** additionally: flip the previous active file's `deprecated: false` → `true`. Only that one line.
 - **deprecate-only**: flip only. No new file.
+- **refactor-split** (v0.5.6+): handled by §1.7 — N new files + flip original. Bypasses standard Stage 6 (no 90% gate, sanity check only).
+- **split-from** (v0.5.6+): Stage 1 phase = §1.7 / §1.8; Stage 2 phase enters this section as an ordinary `update` against the relevant split-out PRD.
 
 ### Frontmatter
 
@@ -539,8 +717,10 @@ Do NOT commit or push — the user owns the commit decision.
 4. **Never commit or push.** File writes only. The user owns the commit decision.
 5. **Never include code identifiers in the body.** Domain language only.
 6. **Never speculate in interview answers.** Unknown → `<profile.gate.unresolved_tag>` tag.
-7. **Never skip any stage.** Each stage has an explicit completion criterion.
+7. **Never skip any stage.** Each stage has an explicit completion criterion. (Exception: §1.7 `refactor-split` is a structural refactor and bypasses Stage 2-5; it runs its own §1.7.5 sanity check instead.)
 8. **Never ingest raw dumps from context intake.** Summarize, confirm, then use the summary.
+9. **Never derive PRD structure from an L2/L3 active pitch** (v0.5.6+). Oversized PRDs are anti-pattern instances; treat them as fact-source only when answering individual interview questions, never as templates for the new draft's shape, scope, or normative density.
+10. **Never let `update` intent target an L3 PRD** (v0.5.6+). The intent menu must remove `update` when the target is L3; only `refactor-split`, `split-from`, or `new` (separate small PRD) are offerable. Bypassing this rule perpetuates the domain-charter anti-pattern.
 
 ---
 
