@@ -174,7 +174,70 @@ After 5.2, additionally:
    - Find the line `# profile: .immutable-prd/profile.yml`
    - Replace with `profile: .immutable-prd/profile.yml` (uncomment)
 
-### 5.4 Report
+### 5.4 Spec repo path interview (two-repo-app only)
+
+**Runs only when `mode == two-repo-app`.** Other modes skip to 5.5.
+
+Goal: replace the `spec_repo_path: ../<your-spec-repo>` placeholder with a real path at init time, so the user does not have to hand-edit config.yml after bootstrap. Works regardless of app repo naming — the interview collects the path directly from the user rather than guessing via suffix convention.
+
+#### 5.4.1 Candidate scan (optional hint)
+
+Scan sibling directories (one level up from CWD, non-recursive) for spec repos:
+
+```bash
+_parent="$(dirname "$(pwd)")"
+for _dir in "$_parent"/*/; do
+  _dir="${_dir%/}"
+  [ "$_dir" = "$(pwd)" ] && continue
+  _cfg="$_dir/.immutable-prd/config.yml"
+  [ -f "$_cfg" ] || continue
+  _mode="$(grep '^repo_mode:' "$_cfg" 2>/dev/null | head -1 | awk '{print $2}')"
+  case "$_mode" in
+    two-repo|two-repo-spec) echo "$_dir" ;;
+  esac
+done
+```
+
+Outcomes:
+
+- **0 candidates** — no default. Render `init.stage5.spec_path_question` with `{suggestion_hint}` set to `init.stage5.spec_path_no_candidate`.
+- **1 candidate** — soft default. Render `init.stage5.spec_path_question` with `{suggestion_hint}` set to `init.stage5.spec_path_suggestion` (placeholder `{path}` = the sibling's relative path like `../myproject-spec`).
+- **2+ candidates** — render `init.stage5.spec_path_multiple` with `{candidate_list}` = newline-joined numbered list.
+
+The scan is a hint only. A candidate's existence does NOT imply the user wants to pair with it — always confirm.
+
+#### 5.4.2 User response handling
+
+Accept any of:
+
+- **Empty / negative response** (`skip`, `나중에`, `no`, `pass`, empty line) — set `spec_path_outcome = skipped`. Placeholder remains.
+- **Numeric selection** (only when 2+ candidates listed) — map to the chosen candidate's relative path. Set `spec_path_outcome = configured` with `{spec_path}` = mapped path.
+- **Absolute or relative path string** — use as-is. Set `spec_path_outcome = configured` with `{spec_path}` = user input.
+
+Do not validate beyond the soft target-existence check below. The skill accepts any string the user types.
+
+#### 5.4.3 Target existence check (soft warning)
+
+When `spec_path_outcome = configured`:
+
+1. Resolve to absolute path (absolute as-is; relative against CWD).
+2. If the target directory does not exist, OR exists but lacks both `.immutable-prd/config.yml` AND `pitches/` — render `init.stage5.spec_path_missing_target` with `{path}` = the input value.
+3. Do not abort. The user may be bootstrapping both repos in sequence and intends to run `/immutable:init` in the spec repo next.
+
+#### 5.4.4 Config edit
+
+When `spec_path_outcome = configured`:
+
+1. Edit `<CWD>/.immutable-prd/config.yml`:
+   - Find the exact line: `spec_repo_path: ../<your-spec-repo>`
+   - Replace with: `spec_repo_path: <spec_path>`
+2. Render `init.stage5.spec_path_set` with `{path}` = `<spec_path>`.
+
+When `spec_path_outcome = skipped`, render `init.stage5.spec_path_skipped` (no substitutions). config.yml is left untouched.
+
+Carry `spec_path_outcome` and `{spec_path}` forward to Stage 7 handoff selection.
+
+### 5.5 Report
 
 Render `init.stage5.copy_report` with:
 - `{copied_count}` — integer count of files successfully copied
@@ -206,7 +269,10 @@ Render `init.stage7.handoff_two_repo_spec`.
 
 ### two-repo-app
 
-Render `init.stage7.handoff_two_repo_app`.
+Render one of two handoff variants based on `spec_path_outcome` from Stage 5.4:
+
+- `spec_path_outcome = configured` — render `init.stage7.handoff_two_repo_app_configured` with `{lang}` and `{spec_path}`. Omits the placeholder-edit instruction since the path was already set interactively.
+- `spec_path_outcome = skipped` — render `init.stage7.handoff_two_repo_app_pending` with `{lang}`. Retains the original "edit the placeholder" instruction for users who deferred the decision.
 
 ### single-repo
 

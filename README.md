@@ -186,6 +186,7 @@ Clone the repo and reference the plugin directory directly, or copy `immutable/`
 
 | Release | Highlights |
 |---|---|
+| v0.5.5 | `/immutable:init` Stage 5.4 — interactive spec_repo_path interview for `two-repo-app` mode. Scans sibling dirs for spec repo candidates, accepts any absolute/relative path, edits config.yml in place. Naming-agnostic: works identically for backend/api/server repo pairs that do not follow the `-spec` suffix convention. Deferral path preserved — users may still keep the placeholder and hand-edit later. |
 | v0.5.4 | Multi-plugin marketplace hygiene — per-plugin manifest at `immutable/.claude-plugin/plugin.json` owns version; `marketplace.json: metadata.version` removed; CHANGELOG relocated to `immutable/CHANGELOG.md`. No user-facing feature changes. |
 | v0.5.3 | Pitch authoring tightened on two axes — **shape** (`sections[user_stories].structure: per_story_grouped` default; each `### ` sub-section carries its own bullet-list normative line; ≥2 sub-sections required; enforced at Stage 6 + `--strict-body` CI) and **depth** (Stage 3 vague-word regex + inline-normative scan; 4th adversarial-review persona `quality_auditor` focused on measurable/testable criteria). Bundled profiles ship the new fields; forked v0.5.2 profiles fall back to defaults. `consolidated` preserves the v0.5.2 shape. |
 | v0.5.2 | `validate_docs.py --strict-body` extended from ADR-only to pitch + ADR. CI/hook parity with the v0.5.1 skill-side guard for teams that wire the validator into pre-commit or pipelines. Still opt-in, off by default. |
