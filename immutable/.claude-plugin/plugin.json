@@ -1,6 +1,6 @@
 {
   "name": "immutable",
-  "version": "0.5.4",
+  "version": "0.5.5",
   "description": "Append-only SDD toolkit. /immutable:init bootstraps a starter (spec/app/single × ko/en). /immutable:prd authors pitches (WHAT). /immutable:adr authors Architecture Decision Records (WHY). /immutable:migrate upgrades v0.4 repos to the v0.5 profile system. All authoring skills enforce grill-me interview, 4-persona adversarial review, and a 90% completeness gate.",
   "author": {
     "name": "choi88andys"
