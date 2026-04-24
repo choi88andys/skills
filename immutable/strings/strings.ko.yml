@@ -104,6 +104,30 @@ strings:
     - .immutable-prd/profile.yml (편집 가능)
     - .immutable-prd/config.yml에 profile: 라인 활성화됨
 
+  init.stage5.spec_path_question: |
+    spec repo 경로를 입력하세요 (app repo 기준 상대경로 또는 절대경로).
+    비워두면 config.yml의 placeholder(`../<your-spec-repo>`)가 유지되고 나중에 직접 편집할 수 있습니다.
+    {suggestion_hint}
+
+  init.stage5.spec_path_suggestion: "감지된 spec repo 후보: `{path}` (그대로 쓰려면 Enter, 또는 다른 경로 입력)."
+
+  init.stage5.spec_path_no_candidate: "인접 디렉토리에서 spec repo 후보를 찾지 못했습니다. 경로를 직접 입력하거나 비워두세요."
+
+  init.stage5.spec_path_multiple: |
+    인접 디렉토리에서 여러 spec repo 후보를 발견했습니다:
+    {candidate_list}
+
+    번호로 선택하거나 직접 경로를 입력하세요. 비워두면 나중에 편집합니다.
+
+  init.stage5.spec_path_set: "`spec_repo_path: {path}` 설정 완료 (config.yml 편집됨)."
+
+  init.stage5.spec_path_skipped: "placeholder 유지. 첫 `/immutable:adr` 실행 전에 `.immutable-prd/config.yml`의 `spec_repo_path:`를 직접 편집하세요."
+
+  init.stage5.spec_path_missing_target: |
+    주의: `{path}` 대상이 아직 존재하지 않거나 `.immutable-prd/config.yml` / `pitches/`가 없습니다.
+    spec repo를 뒤이어 부트스트랩할 계획이라면 정상 — 해당 repo에서 `/immutable:init`을 실행하세요.
+    config.yml은 입력한 경로로 저장됩니다.
+
   init.stage6.git_init_suggestion: |
     이 디렉토리는 git 레포가 아닙니다. 다음 명령으로 초기화할 수 있습니다:
 
@@ -135,17 +159,30 @@ strings:
     - Pitch 컨벤션 전체: `CONTRIBUTING.md`
     - ADR은 sibling app repo에서 따로 운영 (`/immutable:init` for app starter)
 
-  init.stage7.handoff_two_repo_app: |
+  init.stage7.handoff_two_repo_app_configured: |
+    Bootstrap 완료 (mode: two-repo-app, lang: {lang}).
+
+    `spec_repo_path: {spec_path}` 설정됨.
+
+    다음 단계:
+    1. 위 Stage 6의 git 명령 실행
+    2. 첫 ADR 작성: `/immutable:adr`
+
+    참고:
+    - ADR 컨벤션: `adr/README.md`
+    - Pitches는 spec repo에서 따로 작성 (`/immutable:prd` in that repo)
+
+  init.stage7.handoff_two_repo_app_pending: |
     Bootstrap 완료 (mode: two-repo-app, lang: {lang}).
 
     다음 단계:
     1. 위 Stage 6의 git 명령 실행
-    2. `.immutable-prd/config.yml`의 `spec_repo_path: ../<your-spec-repo>` 수정 — placeholder를 실제 sibling spec repo 경로로 교체
+    2. `.immutable-prd/config.yml`의 `spec_repo_path: ../<your-spec-repo>` 수정 — placeholder를 실제 spec repo 경로로 교체 (상대/절대경로 모두 가능; 네이밍 제약 없음)
     3. 첫 ADR 작성: `/immutable:adr`
 
     참고:
     - ADR 컨벤션: `adr/README.md`
-    - Pitches는 sibling spec repo에서 따로 작성
+    - Pitches는 spec repo에서 따로 작성 (`/immutable:prd` in that repo)
 
   init.stage7.handoff_single_repo: |
     Bootstrap 완료 (mode: single-repo, lang: {lang}).

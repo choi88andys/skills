@@ -78,6 +78,30 @@ strings:
     - .immutable-prd/profile.yml (editable)
     - `profile:` line activated in .immutable-prd/config.yml
 
+  init.stage5.spec_path_question: |
+    Enter the path to your spec repo (absolute, or relative to this app repo).
+    Leave empty to keep the placeholder (`../<your-spec-repo>`) in config.yml and edit it later.
+    {suggestion_hint}
+
+  init.stage5.spec_path_suggestion: "Detected spec repo candidate: `{path}` (press Enter to accept, or type a different path)."
+
+  init.stage5.spec_path_no_candidate: "No spec repo candidates found in sibling directories. Type a path, or leave empty to defer."
+
+  init.stage5.spec_path_multiple: |
+    Multiple spec repo candidates detected in sibling directories:
+    {candidate_list}
+
+    Pick a number, or type a path directly. Leave empty to defer.
+
+  init.stage5.spec_path_set: "`spec_repo_path: {path}` configured (config.yml edited)."
+
+  init.stage5.spec_path_skipped: "Placeholder retained. Edit `spec_repo_path:` in `.immutable-prd/config.yml` before the first `/immutable:adr` run."
+
+  init.stage5.spec_path_missing_target: |
+    Note: `{path}` does not exist yet, or is missing `.immutable-prd/config.yml` / `pitches/`.
+    If you plan to bootstrap the spec repo next, this is fine — run `/immutable:init` in that repo.
+    config.yml is saved with the path you provided.
+
   init.stage6.git_init_suggestion: |
     This directory is not a git repo. You can initialize it with:
 
@@ -109,17 +133,30 @@ strings:
     - Pitch conventions: `CONTRIBUTING.md`
     - ADRs are authored separately in the sibling app repo (`/immutable:init` for the app starter)
 
-  init.stage7.handoff_two_repo_app: |
+  init.stage7.handoff_two_repo_app_configured: |
+    Bootstrap complete (mode: two-repo-app, lang: {lang}).
+
+    `spec_repo_path: {spec_path}` configured.
+
+    Next steps:
+    1. Run the git commands from Stage 6
+    2. Write the first ADR: `/immutable:adr`
+
+    Reference:
+    - ADR conventions: `adr/README.md`
+    - Pitches are authored separately in the spec repo (`/immutable:prd` in that repo)
+
+  init.stage7.handoff_two_repo_app_pending: |
     Bootstrap complete (mode: two-repo-app, lang: {lang}).
 
     Next steps:
     1. Run the git commands from Stage 6
-    2. Edit `spec_repo_path: ../<your-spec-repo>` in `.immutable-prd/config.yml` — replace the placeholder with your sibling spec repo path
+    2. Edit `spec_repo_path: ../<your-spec-repo>` in `.immutable-prd/config.yml` — replace the placeholder with your spec repo path (absolute or relative; no naming convention required)
     3. Write the first ADR: `/immutable:adr`
 
     Reference:
     - ADR conventions: `adr/README.md`
-    - Pitches are authored separately in the sibling spec repo
+    - Pitches are authored separately in the spec repo (`/immutable:prd` in that repo)
 
   init.stage7.handoff_single_repo: |
     Bootstrap complete (mode: single-repo, lang: {lang}).

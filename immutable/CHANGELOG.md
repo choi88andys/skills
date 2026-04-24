@@ -2,6 +2,25 @@
 
 All notable changes to the `immutable` plugin are documented in this file. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Version is canonically declared in `.claude-plugin/plugin.json`.
 
+## [0.5.5] — 2026-04-24
+
+Removes the last hand-edit step from the `two-repo-app` bootstrap flow. Previously, `/immutable:init` copied an app starter with a `spec_repo_path: ../<your-spec-repo>` placeholder that the user had to open in an editor afterward — a silent friction point for users whose spec repo did not follow the `-spec` suffix convention (backend / api / server repo pairs) and a correctness hazard when users forgot to replace it before running `/immutable:adr`. The skill now conducts the path interview interactively and writes the real path directly into config.yml.
+
+### Added
+
+- **`/immutable:init` Stage 5.4 — Spec repo path interview (two-repo-app only)**. After the starter is copied, the skill scans sibling directories for spec repo candidates (non-recursive, one level up, matching `repo_mode: two-repo-spec`), renders a prompt with an optional soft-default suggestion when exactly one candidate is found or a numbered pick-list when multiple are found, accepts any absolute or relative path the user types, warns (non-fatally) when the target directory does not yet exist, and edits the placeholder line in `.immutable-prd/config.yml` in place. Naming-agnostic: the interview works identically for `myproject-backend` ↔ `myproject-spec`, `api-server` ↔ `api-docs`, or any other pairing the user has.
+- **Catalog keys (`strings.ko.yml` + `strings.en.yml`)**: `init.stage5.spec_path_question`, `spec_path_suggestion`, `spec_path_no_candidate`, `spec_path_multiple`, `spec_path_set`, `spec_path_skipped`, `spec_path_missing_target`. Plus two Stage 7 variants: `init.stage7.handoff_two_repo_app_configured` (rendered when the path was set interactively — omits the placeholder-edit step) and `init.stage7.handoff_two_repo_app_pending` (rendered when the user deferred — retains the original "edit the placeholder" instruction).
+
+### Changed
+
+- **`init.stage7.handoff_two_repo_app` → renamed to `init.stage7.handoff_two_repo_app_pending`** and a companion `_configured` variant added. Stage 7 selects between them based on the Stage 5.4 outcome. The `_pending` text reinforces that any naming is acceptable (removes the "sibling" framing that suggested directory adjacency was required).
+
+### Backward compatibility
+
+- User may still decline the Stage 5.4 interview (empty response / `skip` / `나중에`). In that case behavior is identical to v0.5.4: the placeholder remains in config.yml and the Stage 7 handoff instructs the user to edit it manually.
+- Existing `spec_repo_path:` values in already-initialized repos are untouched. The new interview only runs during fresh `/immutable:init` invocations and only touches the placeholder line in a just-copied starter.
+- Single-repo and two-repo-spec modes are unchanged — Stage 5.4 is skipped entirely for those modes.
+
 ## [0.5.4] — 2026-04-23
 
 Hygiene release for multi-plugin marketplace readiness. No user-facing feature changes — this release restructures manifests and documentation so the `skills` marketplace repo can host additional plugins alongside `immutable` without ambiguity around versioning or changelogs. Existing `/immutable:*` skills, profiles, starters, and validator behavior are unchanged from v0.5.3.
