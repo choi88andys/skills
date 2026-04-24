@@ -185,6 +185,7 @@ strings:
   prd.stage1.confirmation: |
     [{domain}] {intent_desc}
     Base file: {base_file}
+    {anti_monolith_summary}
     Start the interview?
 
     (1) Confirm — start the interview
@@ -192,10 +193,69 @@ strings:
     (3) New domain — walk through the allowlist addition flow
     (4) Deprecate only — flip `deprecated` without interviewing
 
-  prd.intent_desc.new: "interpreted as a new pitch"
-  prd.intent_desc.new_domain: "interpreted as a new domain + new pitch"
-  prd.intent_desc.update: "interpreted as a domain update"
+  prd.intent_desc.new: "interpreted as adding a new PRD to the existing domain (separate supersede chain — multiple actives per domain are normal)"
+  prd.intent_desc.new_domain: "interpreted as a new domain + new PRD"
+  prd.intent_desc.update: "interpreted as re-declaring the exact scope of a specific existing PRD (rare — supersede on the same chain)"
+  prd.intent_desc.refactor_split: "interpreted as decomposing an oversized PRD into N small PRDs (no semantic change, structural refactor only)"
+  prd.intent_desc.split_from: "interpreted as decomposing an oversized PRD then applying a new change to one of the resulting small PRDs (Stage 1 + Stage 2)"
   prd.intent_desc.deprecate_only: "interpreted as a deprecate-only flip"
+
+  # Anti-monolith pre-check (v0.5.6+).
+  prd.stage1.anti_monolith_summary_template: |
+    Active PRDs in this domain (anti-monolith tier):
+    {per_pitch_rows}
+  prd.stage1.anti_monolith_row_pass: "  - {filename} [pass — {sub_count} sub-sections, {norm_count} normatives]"
+  prd.stage1.anti_monolith_row_l1: "  - {filename} [L1 hint — {sub_count} sub-sections, {norm_count} normatives]"
+  prd.stage1.anti_monolith_row_l2: "  - {filename} [L2 — split recommended; update requires reason]"
+  prd.stage1.anti_monolith_row_l3: "  - {filename} [L3 — update blocked. only refactor-split / split-from / new are offered]"
+  prd.stage1.anti_monolith_l3_block_message: |
+    The selected operation would `update` an L3 PRD `{filename}`.
+    This PRD has {sub_count} sub-sections and {norm_count} normatives, exceeding
+    the anti-monolith L3 thresholds. `update` is blocked. Choose one of:
+
+    (a) refactor-split — decompose into N small PRDs without semantic change (Stage 1 only)
+    (b) split-from     — decompose then apply your new change (Stage 1 + Stage 2)
+    (c) new            — add a separate small PRD; leave the existing one alone
+
+  # Stage 5 anti-monolith warnings (v0.5.6+)
+  prd.stage5.l1_hint: "anti-monolith L1 hint — {sub_count} sub-sections, {norm_count} normatives. Allowed to proceed, but consider smaller PRDs for subsequent work."
+  prd.stage5.l2_warning: "anti-monolith L2 — {sub_count} sub-sections, {norm_count} normatives. The in-flight PRD is likely a multi-feature bundle. Proceed anyway?"
+  prd.stage5.concern_scope_violation: "concern_scope criterion failed (L3) — {sub_count} sub-sections / {norm_count} normatives. The in-flight PRD is too large. Run refactor-split first."
+
+  # Refactor-split (v0.5.6+) — §1.7
+  prd.refactor_split.boundary_proposal: |
+    Original PRD: {original_filename} ({sub_count} sub-sections, {norm_count} normatives)
+
+    Split candidates (N = {n}):
+    {candidates}
+
+    Cross-cutting (not bound to any single sub-section):
+    {cross_cutting}
+
+    Proceed: (a) accept proposal (b) adjust boundaries (c) merge candidates (d) cancel
+  prd.refactor_split.cross_cutting_question: "Which sub-section owns this item? (a) {section_a} (b) {section_b} ... (z) cross-section — extract into a separate small PRD"
+  prd.refactor_split.sanity_failure: |
+    Sanity check failed — the following items are missing or duplicated in the proposed split:
+
+    {issues}
+
+    No file written. Returning to boundary adjustment.
+  prd.refactor_split.handoff: |
+    refactor-split complete. Files written:
+
+    New (active):
+    {new_files}
+
+    Deprecated: {original_filename}
+
+    Suggested commit message:
+      refactor({domain}): split {original_filename} into {n} sub-pitches
+
+    This is a structure-only refactor (no semantic change). Commit as a single commit for clarity.
+
+  # Split-from (v0.5.6+) — §1.8
+  prd.split_from.stage2_prompt: "Stage 1 (refactor-split) complete. Proceed to Stage 2 (apply the new semantic change)? (Y) continue / (N) end here so the refactor commit stands alone — invoke /immutable:prd later for the update"
+  prd.split_from.stage2_target_question: "Which split-out PRD does the new change target? {candidates}"
 
   prd.stage1_5.intake_prompt_verbatim: |
     Attach supporting material if you have any (reply 'none' if not). Only the following are accepted:

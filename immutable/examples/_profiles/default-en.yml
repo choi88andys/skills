@@ -7,7 +7,10 @@
 #
 # See default-ko.yml for per-field documentation; only values differ.
 
-profile_schema: 1
+# v1 → v2 (v0.5.6): added `sections[].max_items`, top-level `anti_monolith` block,
+# `adr.anti_monolith` block, new gate criterion `concern_scope`. v1 profiles auto-
+# fallback (anti-monolith thresholds derived from `sections[user_stories].max_items`).
+profile_schema: 2
 
 locale: en
 
@@ -31,14 +34,20 @@ sections:
   - id: user_stories
     heading: "User Stories and Acceptance Criteria"
     required: true
-    min_items: 2
+    min_items: 1
+    # v0.5.6: max_items added as anti-monolith hard cap (`### ` sub-section count
+    # under user_stories H2). 1 PRD = 1 feature/policy. 4-step linear flows
+    # (e.g., checkout) may legitimately need 4 — bump to 4 in your team profile
+    # if those are common. Above 5, the bundling is almost always 2 features
+    # disguised as 1.
+    max_items: 3
     structure: per_story_grouped
-    description: "≥2 Given/When/Then blocks covering happy path + alternate/error. Under the default per_story_grouped structure, each story gets its own `### ` sub-section carrying the GWT triple + bound normative keyword lines."
+    description: "Given/When/Then blocks — happy path + alternate/error each ≥1 (sum ≥2). Single-feature PRDs may legitimately have 1 sub-section + multiple MUSTs. Under the default per_story_grouped structure, each story gets its own `### ` sub-section carrying the GWT triple + bound normative keyword lines. sub-section count exceeding max_items triggers anti_monolith."
   - id: edge_cases
     heading: "Edge Cases"
     required: true
-    min_items: 2
-    description: "≥2 rows with explicit handling (expected behavior)."
+    min_items: 1
+    description: "≥1 row with explicit handling. Single-feature PRDs may have 1 row (e.g., a simple toggle's 'no behavior when off')."
   - id: no_gos
     heading: "Out of Scope"
     required: true
@@ -71,8 +80,8 @@ personas:
     checks:
       - "Single-flag toggleability"
       - "Completion within 2–6 weeks"
-      - "Epic-level content that should be split"
-      - "Overlap or conflict with existing active pitches"
+      - "Epic-level content that should be split — sub-section ≥4 auto-fires anti_monolith.L1 hint, ≥5 strong recommend, ≥8 (or anti_monolith.L3.sub_sections) blocks update intent"
+      - "Overlap or conflict with existing active pitches (multiple actives per domain are normal, but ensure no duplicate scope coverage)"
   - id: quality_auditor
     name: "Quality Auditor"
     question: "Can this pitch be implemented and verified against measurable criteria, with no clauses requiring subjective judgment?"
@@ -81,7 +90,8 @@ personas:
       - "Vague hedge words (\"appropriate\", \"reasonable\", \"naturally\", \"sufficient\") — catches context-vague cases even if the Stage 3 regex was satisfied"
       - "Every Then is pass/fail decidable rather than demanding subjective judgment"
       - "Passive voice / missing subject that hides the responsible actor (e.g., \"is processed\", \"is shown\")"
-      - "Depth appropriate to domain complexity — thin MUST/edge-case counts despite substantial Stage 1.5 intake is a drift signal"
+      - "If this PRD covers only part of the Stage 1.5 intake, confirm the rest is split into separate PRDs or planned to be (intake 1:1 mapping assumption dropped — one domain's intake naturally decomposes into N PRDs)"
+      - "Sub-section normative imbalance — if one sub-section has ≥7 normative lines while others have 1-2, that sub-section is likely its own feature (split recommended)"
 
 normative_keywords:
   - key: MUST
@@ -101,8 +111,8 @@ normative_keywords:
     meaning: "Optional."
 
 gate:
-  total: 7
-  pass_threshold: 6
+  total: 8
+  pass_threshold: 7
   reject_on_unresolved: true
   unresolved_tag: "[TBD]"
   criteria:
@@ -110,23 +120,26 @@ gate:
       label: "Background clear"
       pass_condition: "Third party can summarize intent in ≤3 lines; no [TBD] tags remain."
     - id: gwt_minimum
-      label: "≥2 GWT blocks"
-      pass_condition: "≥2 structurally complete Given/When/Then blocks."
+      label: "≥2 GWT kinds (happy + alternate)"
+      pass_condition: "happy path GWT ≥1 AND alternate/error GWT ≥1 (sum ≥2). Kind check, not count — a PRD with only a single happy path fails."
     - id: normative_minimum
       label: "≥3 normative statements"
-      pass_condition: "≥3 bracketed normative statements across the body."
+      pass_condition: "≥3 bracketed normative statements across the body. The depth signal of feature spec — floor preserved even for small PRDs."
     - id: edge_cases_minimum
-      label: "≥2 edge-case rows"
-      pass_condition: "≥2 rows with explicit handling."
+      label: "≥1 edge-case row"
+      pass_condition: "≥1 row with explicit handling (single-feature PRD may have 1)."
     - id: no_gos_minimum
       label: "≥1 no-go"
-      pass_condition: "≥1 classified out-of-scope item."
+      pass_condition: "≥1 classified out-of-scope item — every PRD must declare its own scope boundary."
     - id: no_code_identifiers
       label: "0 code identifiers"
       pass_condition: "Stage 3 identifier scan passes cleanly."
     - id: feature_scope
       label: "Feature-scale scope"
       pass_condition: "Single-flag toggle test passes; 2–6 week completability."
+    - id: concern_scope
+      label: "Single-concern scope (anti-monolith)"
+      pass_condition: "user_stories sub-section count ≤ sections[user_stories].max_items AND total normative ≤ anti_monolith.L3.normative_lines. anti_monolith.L1/L2 thresholds exceed: criterion still passes but hint/strong-recommend is shown; L3 exceed: fail (block)."
 
 identifier_patterns:
   - id: camelCase
@@ -199,6 +212,31 @@ feature_flag:
     - states
     - initial_state
     - fallback_ux
+
+# Anti-monolith escalation (v0.5.6 / profile_schema 2). See default-ko.yml
+# header comments for full rationale and skill integration points.
+#
+# Each tier checks 2 metrics (OR semantics):
+#   sub_sections     — `### ` headers under user_stories H2
+#   normative_lines  — bracketed-keyword lines in body
+#
+# Fallback when block is omitted: derived from sections[user_stories].max_items
+# (L1 = max+1, L2 = max+2, L3 = max×3; normative_lines = sub_sections × 5).
+anti_monolith:
+  enabled: true
+  tiers:
+    L1:
+      action: hint
+      sub_sections: 4
+      normative_lines: 20
+    L2:
+      action: strong_recommend
+      sub_sections: 5
+      normative_lines: 25
+    L3:
+      action: block
+      sub_sections: 8
+      normative_lines: 40
 
 domain_allowlist:
   source: "pitches/README.md"
@@ -295,3 +333,23 @@ adr:
       - id: references_valid
         label: "References valid"
         pass_condition: "references.pitches non-empty (unless _global), all referenced files exist."
+
+  # ADR anti-monolith (v0.5.6 / profile_schema 2). Looser than pitch — ADRs
+  # rarely bundle multiple decisions because the "single declarative sentence"
+  # gate already enforces it. This block catches edge cases where the
+  # alternatives or consequences sections grow into a survey document.
+  anti_monolith:
+    enabled: true
+    tiers:
+      L1:
+        action: hint
+        alternatives_count: 6
+        consequences_count: 12
+      L2:
+        action: strong_recommend
+        alternatives_count: 8
+        consequences_count: 18
+      L3:
+        action: block
+        alternatives_count: 12
+        consequences_count: 30

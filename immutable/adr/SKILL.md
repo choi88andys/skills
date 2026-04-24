@@ -98,14 +98,29 @@ If the user passed no argument, ask once using `adr.stage1.intent_question` (no 
 - Read `.immutable-prd/config.yml` → resolve ADR directory, pitches path, team language.
 - **Load profile** per the resolution order in **Profile Resolution** above. Cache `profile.adr.*` for the rest of the session.
 - Glob ADR directory for existing files. Read frontmatter of each to build the supersede chain index.
+- **Enumerate active ADRs per (domain, supersede chain)** (changed v0.5.6 — was: implicit "the active ADR per domain"). Multiple active ADRs may coexist in the same domain (notably in `_global`) provided each is on its own supersede chain. Cross-check the user's request against every active chain — `update` targets exactly one specific chain; `new` opens a separate chain.
 - If the user's intent mentions a specific domain or feature, cross-reference with active pitches in that domain.
+
+### 1.2.1 ADR anti-monolith pre-check (v0.5.6+)
+
+If `profile.adr.anti_monolith.enabled == true`, compute per-ADR metrics for every active ADR in the resolved domain (or in `_global` if scope is global):
+
+- `alternatives_count` — items in the alternatives section
+- `consequences_count` — total positive + negative + cost-of-adoption lines
+
+Classify into `pass` / `L1` / `L2` / `L3`. ADR thresholds are looser than pitch by design (the "single declarative sentence" gate already prevents most decision-bundling). Tier `L2` / `L3` on an ADR usually signals one of:
+
+- The ADR is summarizing a survey of vendor options instead of committing to one (alternatives bloat)
+- The decision actually bundles two decisions (e.g., "switch state lib AND add new persistence layer")
+
+Surface the classification to the user during Stage 1.5 confirmation. L3 ADRs cannot be `update`d — only `new` (separate chain) or `deprecate-only`.
 
 ### 1.3 Classify intent
 
 | Signal | Intent |
 |---|---|
-| No prior ADR on this topic | `new` (`supersedes: null`) |
-| Existing active ADR on the same topic, but direction is being reversed or significantly revised | `update` (copy latest, revise, flip old to `deprecated: true`) |
+| Decision on a topic with no prior ADR — or a topic that has prior ADRs but yours is a distinct decision | `new` (`supersedes: null`, opens a new chain). Multiple active ADRs in the same domain are normal under v0.5.6+. |
+| The exact same topic of one specific active ADR is being reversed or significantly revised | `update` (copy that chain's latest, revise, flip old to `deprecated: true`). Rare — be sure you are restating *that* decision, not making a related but distinct one. |
 | "This decision is no longer applicable" with no replacement | `deprecate-only` (flip only) |
 
 ### 1.4 Scope classification
@@ -113,7 +128,7 @@ If the user passed no argument, ask once using `adr.stage1.intent_question` (no 
 Ask which scope the ADR covers by rendering `adr.stage1.scope_question` (no substitutions).
 
 - Scope `(1)` → `domain: <name>`, `references.pitches` must include ≥1 active pitch in that domain.
-- Scope `(2)` → `domain: _global`, `references.pitches` may be empty. Require a written scope statement in the body.
+- Scope `(2)` → `domain: _global`, `references.pitches` may be empty. Require a written scope statement in the body. **Multiple coexisting `_global` ADRs are valid (v0.5.6+)** — each captures a distinct cross-cutting decision (e.g., "use ApiResult sealed", "use Equatable+Freezed mix", "Use case mandatory") on its own supersede chain.
 
 ### 1.5 Confirmation (mandatory)
 
@@ -121,7 +136,8 @@ Always confirm before proceeding. Show:
 
 - Intent (new / update / deprecate-only)
 - Scope (domain or `_global`)
-- Base file if superseding
+- Base file if superseding (the specific chain being updated, when there are multiple active chains in the same domain)
+- Anti-monolith tier summary for active ADRs in this scope (when ≥1 active)
 - Proceed option
 
 If ambiguous, ask rather than guess.
@@ -253,6 +269,14 @@ For each finding, offer three action choices rendered from the catalog:
 - **5 or 6 of 6 pass** → proceed to generation
 - **Fewer than 5 pass** → refuse; loop to the relevant branch
 - **Any `<profile.adr.gate.unresolved_tag>` tag anywhere** → refuse regardless of count
+
+### ADR anti-monolith check (v0.5.6+)
+
+If `profile.adr.anti_monolith.enabled == true`, additionally evaluate the in-flight draft against `profile.adr.anti_monolith.tiers`:
+
+- L3 violation (`alternatives_count > L3.alternatives_count` OR `consequences_count > L3.consequences_count`) → **refuse generation** regardless of gate count. ADR likely bundles ≥2 decisions or has decayed into a vendor survey. Recovery: split into 2+ ADRs (each with its own `decision` sentence), or extract the survey content into a separate non-ADR document.
+- L2 violation → pass with strong warning. The user must confirm "this single ADR truly captures one decision".
+- L1 violation → pass with hint. No flow change.
 
 ### Refusal format
 
