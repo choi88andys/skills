@@ -39,14 +39,23 @@ Guiding rule: **if the source of truth lives in code or tooling, don't create a 
 Both `pitch` and `adr` are append-only:
 
 - File body is **immutable** once committed. The only allowed in-place change is `deprecated: false → true`.
-- Changes require a **new file** in the same chain via `supersedes: <previous-filename>`.
-- The supersede chain is strict: at most one `deprecated: false` file per chain at any time.
+- Changes require a **new file** via `supersedes: <previous-filename>`.
+- **Per-edge integrity**: when a file F has `F.supersedes = T`, the target T must be `deprecated: true`. (Changed in v0.5.6 — there is no longer a global per-(domain, type) cap on actives. Multiple chains may have active leaves in the same domain — see "Granularity" below.)
+- **Fan-out is permitted**: a single predecessor may be superseded by N successors — the canonical use is a `refactor-split` that decomposes one oversized PRD into several smaller ones. The shared predecessor must still be deprecated.
 - Deleting an old file is forbidden — history is the audit trail.
+
+### Granularity (added v0.5.6)
+
+- **1 PRD = 1 feature/policy**, not 1 PRD = 1 domain. Domain is a categorization tag; multiple PRDs naturally coexist in the same domain.
+- Feature ↔ Domain is **M:N** — one feature may span multiple domains (cross-reference via `references.pitches`), and one domain hosts multiple features (each as its own PRD chain).
+- A PRD that grows beyond `profile.sections[user_stories].max_items` (default 3) `### ` sub-sections triggers `anti_monolith` escalation (hint / strong-recommend / block) — see "Anti-patterns" below.
 
 ### Cultural guidance (not mechanical)
 
-- Both pitch and ADR expect **rare** supersession. Each new version is a load-bearing policy shift. Reviewers push back hard.
-- Frequent churn on either type signals either (a) the decision wasn't load-bearing enough to warrant a file, or (b) the original framing missed something — both warrant a review conversation, not a quiet rewrite.
+- Pitch and ADR both expect **rare** supersession on the *same* concern. Each new version of a given chain is a load-bearing policy shift on that specific scope. Reviewers push back hard.
+- Adding a new chain (`supersedes: null`) for a *different* concern in the same domain is **not** supersession — it is decomposition. Encouraged when the existing chain's scope doesn't cover the new concern.
+- Frequent churn on a single chain signals either (a) the decision wasn't load-bearing enough to warrant a file, or (b) the original framing was too broad and should be split.
+- A single PRD attempting to cover an entire domain is the **domain-charter anti-pattern** (see "Anti-patterns" section). Use `refactor-split` to decompose without a semantic change.
 
 ---
 
@@ -294,8 +303,8 @@ ADR TEMPLATE carries one worked example per area. See `adr/TEMPLATE.md`.
 Checked at generation time by the `/immutable:adr` skill, and by CI via `scripts/validate_docs.py`:
 
 1. **Frontmatter schema**: required fields present and typed correctly.
-2. **Supersede chain integrity**: `supersedes` target exists in the same directory, has `deprecated: true`, and no cycles.
-3. **At most one active per chain**: per (domain, type), exactly one file has `deprecated: false`.
+2. **Supersede chain integrity (per-edge)**: for each file F with non-null `F.supersedes`, the target T must (a) exist in the same doc-type set and (b) have `deprecated: true`. No cycles.
+3. **No global per-(domain, type) cap on actives** (changed in v0.5.6): multiple `deprecated: false` files MAY coexist in the same domain provided each is on its own supersede chain. Fan-out (one predecessor superseded by N successors — e.g., a `refactor-split`) is permitted as long as the shared predecessor is deprecated. Rationale: 1 PRD = 1 feature/policy, and a domain naturally hosts multiple features. The previous "exactly one active per (domain, type)" cap forced domain-charter monoliths and triggered fake-domain workarounds for ADRs (see "Anti-patterns" below).
 4. **Reference existence**: every filename in `references.pitches` exists at the configured pitches location.
 5. **Reference policy**: ADR `references.pitches` non-empty unless the domain is declared `adr_only` in `profile.domain_allowlist.reserved_domains` (e.g., `_global`).
 6. **Domain allowlist**: pitch/ADR `domain` is in `pitches/README.md`, with reserved domains special-cased (validator reads the reserved list + `adr_only` flag from the profile and skips allowlist lookup for reserved IDs).
@@ -451,6 +460,105 @@ Additional locales (e.g., `default-ja`) may be added without schema change.
 
 - **Override (recommended)**: tweaking min_items, gate.pass_threshold, persona checks, adding a section, adjusting identifier regex. Done via a team-specific profile referenced from `config.yml`.
 - **Fork**: changing Core-Closed behavior (e.g., allowing body edits, adding a third doc type, removing supersede). This requires forking the `immutable` plugin itself — profiles cannot express it.
+
+---
+
+## Anti-monolith escalation (v0.5.6, profile_schema 2)
+
+A 3-tier guard that detects PRDs and ADRs which bundle multiple decisions into a single file. Operates as a profile-driven block (`anti_monolith` for pitches, `adr.anti_monolith` for ADRs).
+
+### Why
+
+The previous "single active per (domain, type)" cap forced a domain-charter pattern — one PRD per domain, every change requires copy-pasting the full PRD into a supersede file. Symptoms observed in dogfood: 197-line `order-history` PRD with 8 sub-sections, `settings` chain superseded 4 times in a single day, 8 cross-cutting ADRs unable to coexist because all needed `_global` (which had a single-active cap). v0.5.6 drops the cap and adds this guard so the new flexibility doesn't regress into multi-feature dumping.
+
+### Tier semantics
+
+| Tier | Action | Skill behavior |
+|---|---|---|
+| **L1** | `hint` | One-line warning at Stage 1.2 environment scan. No flow change. |
+| **L2** | `strong_recommend` | Stage 1.3 intent classification surfaces `refactor-split` / `split-from` as the default option. Choosing `update` requires an explicit reason (recorded in interview transcript, not frontmatter). |
+| **L3** | `block` | `update` intent is removed from the menu. Only `refactor-split` (Stage 1 only), `split-from` (Stage 1 + Stage 2), or `new` (separate small PRD) are offered. Stage 5 `concern_scope` criterion fails for in-flight drafts that exceed L3. |
+
+### Metrics (pitch)
+
+OR semantics — exceeding either trips the tier:
+
+- `sub_sections` — count of `### ` headers under the user_stories H2 slice
+- `normative_lines` — count of bracketed-keyword lines (`[MUST]`, `[MUST NOT]`, `[SHOULD]`, …) across the entire body
+
+### Metrics (ADR)
+
+OR semantics:
+
+- `alternatives_count` — items in the alternatives section
+- `consequences_count` — total positive + negative + cost-of-adoption lines
+
+### Fallback (block omitted)
+
+If the `anti_monolith` block is absent or `enabled: false`, thresholds are derived from `sections[user_stories].max_items`:
+
+```
+L1.sub_sections = max_items + 1
+L2.sub_sections = max_items + 2
+L3.sub_sections = max_items × 3
+L1/L2/L3.normative_lines = sub_sections × 5    (assumes ~5 normatives per feature)
+```
+
+So a profile with only `max_items: 3` (no anti_monolith block) gets L1/L2/L3 sub_sections of 4/5/9 and normative_lines of 20/25/45 automatically.
+
+### Skill integration
+
+`/immutable:prd` and `/immutable:adr` consult the active profile's anti_monolith block at:
+
+1. **Stage 1.2 environment scan** — compute metrics for every active PRD in the domain; classify into tier; surface in the pre-check message.
+2. **Stage 1.3 intent classification** — when `update` would target an L2/L3 PRD, inject `refactor-split` / `split-from` ahead of `update` in the menu (L2) or remove `update` entirely (L3).
+3. **Stage 5 gate** — `concern_scope` criterion checks the in-flight draft against L3; failure blocks file generation.
+
+### Override examples
+
+```yaml
+# Strict team (single happy path features only):
+anti_monolith:
+  enabled: true
+  tiers:
+    L1: { action: hint,             sub_sections: 3, normative_lines: 15 }
+    L2: { action: strong_recommend, sub_sections: 4, normative_lines: 20 }
+    L3: { action: block,            sub_sections: 6, normative_lines: 30 }
+
+# Lenient team (4-step linear flows are common, e.g., checkout/onboarding):
+sections:
+  - id: user_stories
+    max_items: 4    # bumped from 3
+# anti_monolith block omitted → derived: L1=5, L2=6, L3=12
+```
+
+---
+
+## Anti-patterns (v0.5.6)
+
+### Domain-charter
+
+**Symptom**: 1 domain = 1 active PRD, treated as the domain's "constitution". Every new spec change requires a supersede that copy-pastes the entire PRD body.
+
+**Why it's wrong**: (a) any partial change produces a 100+ line diff dominated by copy-paste noise, (b) volatile sub-scopes (e.g., a marketing-policy-driven section) drag stable sub-scopes into every supersede, (c) adversarial review effectiveness degrades on large drafts, (d) supersede frequency explodes (`settings` superseded 4× in one day during dogfood), (e) creates pressure for fake sub-domain workarounds (`_arch_layering`, `_arch_state`, …).
+
+**Fix**: 1 PRD = 1 feature/policy. Same domain hosts multiple active PRDs, each on its own supersede chain. `refactor-split` decomposes legacy charters without semantic change.
+
+### Fake reserved domains
+
+**Symptom**: Adding `_arch_*`, `_concern_*`, etc. to `profile.domain_allowlist.reserved_domains` to work around a too-tight active-uniqueness cap.
+
+**Why it's wrong**: Reserved domains were originally for system-level cross-cutting (`_global`, `_shared`); using them as decision-topic buckets bloats the profile, blurs the original meaning, and doesn't scale (every new architectural area needs a profile edit).
+
+**Fix**: With the v0.5.6 per-edge invariant, multiple coexisting decisions in `_global` (or any domain) are valid out of the box. Add new reserved domains only when a system-level boundary truly justifies it.
+
+### Dumping intake
+
+**Symptom**: A single PRD that absorbs an entire Stage 1.5 intake bundle (Figma file with 30 nodes, Notion page covering 6 features, etc.).
+
+**Why it's wrong**: The `quality_auditor` persona's "intake-volume vs output-volume" check used to flag this as "PRD too thin for the intake". Under the new model, the right action is to split the intake into multiple PRDs, not to inflate a single PRD to match.
+
+**Fix**: When intake is broad, plan the PRD boundaries first ("intake X covers feature A + B + C → 3 PRDs"). Each PRD takes only its slice of the intake.
 
 ---
 
