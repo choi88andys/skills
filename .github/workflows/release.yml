@@ -1,0 +1,27 @@
+name: Auto Release on Tag
+
+on:
+  push:
+    tags:
+      - 'immutable--v*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout (full history for release notes)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          VERSION="${TAG#immutable--}"
+          gh release create "$TAG" \
+            --title "$VERSION" \
+            --generate-notes
