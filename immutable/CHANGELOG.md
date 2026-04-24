@@ -2,6 +2,37 @@
 
 All notable changes to the `immutable` plugin are documented in this file. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Version is canonically declared in `.claude-plugin/plugin.json`.
 
+## [0.5.8] — 2026-04-24
+
+Restructures `/immutable:migrate` Stage 5 from per-version recipes to a universal structural diff algorithm. Motivated by a v0.5.7 dogfood gap report (peer e4185825): the v1→v2 recipe omitted `sections[user_stories].structure: per_story_grouped` because the SKILL.md author manually enumerated additions and missed one. Recipes are case-by-case patches by nature — every new field added in a future plugin version requires another SKILL.md update, with the same risk of omission. v0.5.8 eliminates that class of bug structurally.
+
+### Changed
+
+- **`/immutable:migrate` Stage 5.2 — universal structural diff** replaces per-version recipes. The skill now parses both team profile and bundled default as YAML, walks the bundled structure top-down, and identifies every additive difference: missing top-level keys, missing id-keyed sequence entries (matched by `id` or `key`), missing nested fields under existing entries. Output is a flat list of additions that Stage 5.4 executes via Edit operations. Future field additions in any plugin version are picked up automatically — no SKILL.md update required.
+- **Override preservation guarantees codified as algorithmic invariants** (rather than per-recipe rules):
+  - Scalars in team profile are never modified.
+  - Existing id-keyed entries are recursively walked but never replaced.
+  - Anonymous string lists (`feature_flag.states`, `personas[*].checks`, etc.) are preserved entirely — no element-level merging because there is no safe identity for diffing.
+  - Comments in the team profile are never touched.
+  - Description / heading text edits in bundled defaults do not propagate to teams that explicitly customized them.
+- **Sequence type detection** — a sequence is "id-keyed" when every element is a mapping containing either `id` or `key`. Otherwise treated as "anonymous" (preserved entirely from team). Documented examples in SKILL.md §5.2.2.
+- **SCHEMA.md "Profile field migration" subsection** rewritten to cover the v0.5.7→v0.5.8 transition, the recipe-vs-diff comparison table, override preservation guarantees as algorithmic invariants, and the locale parity guarantee that makes the universal diff sound across ko/en/future locales.
+
+### Fixed
+
+- **Recipe v1→v2 omission in v0.5.7** — `sections[user_stories].structure: per_story_grouped` was missing from the v0.5.7 hardcoded recipe. Under universal diff (v0.5.8), this field is detected automatically and included in the migration plan. Teams who already migrated under v0.5.7 will see `structure` flagged on next `/immutable:migrate` invocation (Stage 5 is idempotent — no harm in re-running).
+
+### Added
+
+- **Locale parity guarantee** documented in SCHEMA.md — bundled default-ko.yml and default-en.yml maintain identical structure (only locale-specific values differ, e.g., `vague_words` entries). This is now an explicit invariant; structural divergence between locale defaults is a breaking change. Verified via parity audit during v0.5.8 development (268 ko keypaths vs 262 en keypaths — only the `vague_words` items differ, by design).
+
+### Backward compatibility
+
+- **Behavior is strictly more inclusive than v0.5.7.** Any addition the v0.5.7 recipe would have caught is also caught by the v0.5.8 universal diff. Plus the universal diff catches additions the recipe missed (e.g., `structure`).
+- **No catalog key changes.** All `migrate.stage5.*` and `migrate.stage6.*` keys from v0.5.7 are reused unchanged.
+- **Teams who already ran `/immutable:migrate` v0.5.7** can re-run on v0.5.8 to pick up `sections[user_stories].structure` (and any future bundled additions). Idempotent — re-runs add only what is still missing.
+- **profile_schema bump remains explicit** (still a single in-place edit at the end of Stage 5). The diff algorithm is structural; the schema version marker is intentional metadata.
+
 ## [0.5.7] — 2026-04-24
 
 Hotfix for a defect surfaced during v0.5.6 dogfood: teams who ran `/immutable:migrate` on an earlier plugin version had a frozen v1 team profile that did not pick up v0.5.6's new `anti_monolith` block, `max_items` field, `concern_scope` gate criterion, or `quality_auditor` persona. The §1.2.1 anti-monolith pre-check fallback chain ("derive from `max_items`") also broke because v1 profiles lack `max_items` entirely. Net result: v0.5.6 headline features were silently disabled for migrated teams.

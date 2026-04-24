@@ -262,70 +262,115 @@ If any assertion fails, surface the failure to the user with a hardcoded English
 
 ---
 
-## Stage 5 — Profile field migration (v0.5.7+, conditional)
+## Stage 5 — Profile field migration (v0.5.7+, conditional, v0.5.8+ universal diff)
 
 Add fields introduced by newer plugin versions into the team profile.yml. **Existing values are never modified.** Only missing fields are inserted. Idempotent.
+
+**v0.5.7 → v0.5.8 change**: replaced per-version recipe enumeration with a universal structural diff algorithm (5.2 below). The recipe approach was easy to miss fields (the v0.5.7 recipe omitted `sections[user_stories].structure`, requiring a v0.5.8 fix). The universal diff compares the team profile's structure against the bundled default's structure and identifies every additive difference automatically — no recipe maintenance needed when future plugin versions add new fields.
 
 ### 5.1 Pre-conditions
 
 - Team profile.yml exists (Stage 1.3 verified this).
 - `team_profile_schema < bundled_profile_schema` (Stage 1.4 routed here).
 
-### 5.2 Per-version migration recipes
+### 5.2 Universal structural diff (v0.5.8+ — replaces per-version recipes)
 
-Each recipe describes what was added between two consecutive `profile_schema` versions. Apply recipes in order from `team_profile_schema + 1` up to `bundled_profile_schema`. For each recipe step, check whether the field already exists in the team profile (preserve override) before inserting.
+The skill computes the diff between the team profile and the bundled default **dynamically** by walking both YAML structures and identifying additive-only differences. This eliminates per-version recipes and ensures any field added in any future plugin version is automatically picked up.
 
-#### Recipe v1 → v2 (added in plugin v0.5.6)
+#### 5.2.1 Algorithm
 
-A. **Top-level additions** — append at end of file with a blank line separator.
+1. Parse both files as YAML mappings.
+2. Walk the bundled default's structure top-down. For each key encountered:
 
-  - `vague_words:` list — only if missing. Source from bundled default. Includes header comment block from bundled.
-  - `anti_monolith:` block — only if missing. Source from bundled default. Includes header comment block.
+   | Bundled has | Team has | Action |
+   |---|---|---|
+   | mapping | absent | mark for ADD: insert entire bundled subtree at end of file (with header comments) |
+   | mapping | mapping | recurse into nested keys |
+   | mapping | scalar / sequence | leave team value alone (type mismatch — user override is authoritative) |
+   | scalar | absent | mark for ADD: insert key+value at correct nesting position |
+   | scalar | scalar | leave team value alone (override preservation) |
+   | sequence (id-keyed) | absent | mark for ADD: insert entire bundled list (with header comments) |
+   | sequence (id-keyed) | sequence (id-keyed) | for each bundled element by `id`/`key`: if not in team → mark for ADD as entry append; if in team → recurse into its nested fields |
+   | sequence (id-keyed) | sequence (anonymous) | leave team value alone (type mismatch) |
+   | sequence (anonymous) | absent | mark for ADD: insert entire bundled list |
+   | sequence (anonymous) | sequence (any) | leave team value alone (no safe identity for element-level merge) |
 
-B. **Top-level value preservation (do NOT change)**:
+3. Output a flat list of additions: `(yaml_path, value, source_comment_block)`.
 
-  - `gate.total: 7` and `gate.pass_threshold: 6` are NOT modified by Stage 5. The team's existing gate semantics are preserved. The new `concern_scope` criterion (added in C below) requires a manual opt-in: after Stage 5 completes, the user is shown a one-line note recommending they bump `gate.total: 8` and `gate.pass_threshold: 7` if they want concern_scope to count toward the gate. Without this manual bump, concern_scope is registered but not evaluated against the threshold.
+#### 5.2.2 Sequence type detection
 
-C. **Nested additions**:
+A sequence is **id-keyed** when every element is a mapping containing either an `id` field or a `key` field (used by `normative_keywords`). Examples in current bundled defaults: `sections`, `personas`, `gate.criteria`, `adr.sections`, `adr.personas`, `adr.gate.criteria`, `vague_words`, `identifier_patterns`, `normative_keywords`, `domain_allowlist.reserved_domains`, `naming.forbidden_slug_patterns`.
 
-  - `sections[user_stories].max_items: 3` — only if the entry is missing within `sections[user_stories]`. Insert immediately after `min_items:` line within the user_stories block. Include the explanatory comment from bundled default.
-  - `personas[]` append `quality_auditor` block — only if no entry with `id: quality_auditor` exists. Append at end of `personas:` list with full structure from bundled.
-  - `gate.criteria[]` append `concern_scope` block — only if no entry with `id: concern_scope` exists. Append at end of `gate.criteria:` list with full structure from bundled.
+A sequence is **anonymous** when its elements are scalars (strings/numbers) or when elements lack a stable identifier. Examples: `feature_flag.states` (`[deployed, hidden]`), `feature_flag.required_fields` (`[key, states, ...]`), `personas[*].checks` (lists of free-form strings).
 
-D. **ADR side**:
+When in doubt, treat as anonymous (preserve team value entirely). The cost is "team misses bundled additions to that list" — acceptable per override-preservation principle.
 
-  - `adr.anti_monolith:` block — only if missing within `adr:`. Append at end of `adr:` block with header comment from bundled.
+#### 5.2.3 Override preservation guarantees
 
-E. **Schema bump**:
+The algorithm enforces these invariants:
 
-  - Replace exactly `profile_schema: <team_value>` with `profile_schema: 2`. If the comment immediately above (`# Schema revision...` lines) is the v1 stock text, also update the comment to mention the v1→v2 bump. Skip the comment update if the user has customized those comment lines.
+- **Scalars in team profile are never modified.** If team has `min_items: 2` and bundled has `min_items: 1`, team keeps `2`.
+- **Existing id-keyed entries are recursively merged but never replaced.** If team has `personas[product_lead]` with old `checks: [a, b]` and bundled has updated `checks: [a, b, c, d]`, team keeps `[a, b]` (anonymous list — preserved entirely; no per-element diff).
+- **Anonymous lists are preserved entirely.** No element-level merging.
+- **Comments in the team profile are never touched** (Edit operations only insert new blocks; existing text untouched).
+- **Description / heading text edits in bundled defaults do not propagate.** Teams who explicitly customized those keep their text.
+
+#### 5.2.4 Worked example: v1 → v2 transition (current dogfood case)
+
+A v1 team profile (v0.5.0-era) running through the algorithm against the v2 bundled default-ko:
+
+```
+ADD top-level: vague_words[*]                 (entire list — locale-specific hedge words)
+ADD top-level: anti_monolith                  (3-tier escalation block + header comment)
+ADD nested:    sections[user_stories].max_items: 3
+ADD nested:    sections[user_stories].structure: per_story_grouped
+ADD entry:     personas[quality_auditor]      (4th adversarial persona)
+ADD entry:     gate.criteria[concern_scope]   (8th gate criterion)
+ADD nested:    adr.anti_monolith              (ADR-side block)
+SKIP modify:   sections[user_stories].min_items (team has 2, bundled has 1 — preserve team)
+SKIP modify:   sections[edge_cases].min_items   (same)
+SKIP modify:   personas[product_lead].checks    (anonymous list — preserve team)
+SKIP modify:   personas[customer_support].checks (anonymous list — preserve team)
+SKIP modify:   gate.total / gate.pass_threshold  (scalars — preserve team)
+SKIP modify:   sections[user_stories].description (scalar text update — preserve team)
+```
+
+This example is **descriptive, not prescriptive** — the algorithm above is the source of truth. Future v2→v3 transitions will produce their own diff list automatically without any update to this SKILL.md.
+
+#### 5.2.5 Schema bump
+
+After the diff is collected, plan one final addition:
+
+- Replace exactly `profile_schema: <team_value>` with `profile_schema: <bundled_value>`. This is the only IN-PLACE modification the algorithm performs and it is bound to the schema version field specifically (the file's "I am at version X" marker).
+- If the comment immediately above `profile_schema:` is the bundled stock text for the team's old version, update the comment to reflect the bumped version range. Skip the comment update if the user has customized those comment lines (heuristic: any non-stock comment content within the 5 lines before `profile_schema:`).
 
 ### 5.3 Plan preview (when Stage 5 is the only stage running)
 
-Already shown in Stage 2. Skip re-rendering — proceed to 5.4.
+Already shown in Stage 2 (which renders the structural diff output from 5.2). Skip re-rendering — proceed to 5.4.
 
 ### 5.4 Execute additions
 
-For each addition planned in 5.2:
+For each addition from 5.2's diff list:
 
 1. Run a Grep against the team profile to confirm the field is still missing (defensive — handles the rare case where the user edited the file between Stage 2 and Stage 5).
-2. If missing: use Edit to insert the new content at the precise position.
+2. If missing: use Edit to insert the new content at the position dictated by the addition's yaml_path and type:
+   - **Top-level mapping/sequence** (`anti_monolith`, `vague_words`, etc.) — append at end of file, preceded by a blank line, including the bundled default's header comment block (lines prefixed with `#` immediately above the key in the bundled file).
+   - **Nested scalar** (`sections[user_stories].max_items`, `.structure`) — use Edit with enough surrounding context to make the match unique (typically the entry's `id:` line plus the preceding field acts as anchor). Include inline comments from bundled when present.
+   - **Id-keyed sequence entry append** (`personas[quality_auditor]`, `gate.criteria[concern_scope]`) — use Edit matching the last entry of the sequence as old_string, replace with `<last_entry> + blank_line + new_entry`. Preserve YAML indentation.
+   - **Nested mapping under id-keyed entry** (e.g., a new field inside `sections[user_stories]`) — Edit matching the entry's id declaration as anchor, insert the new field at the natural position.
 3. If present (race condition / already-merged): SKIP and note in handoff. Do NOT abort.
 
-For TOP-LEVEL appends (A, D), insert just before the next top-level block boundary or at end-of-file. Preserve trailing newline.
-
-For NESTED additions (C), use Edit with enough surrounding context to make the match unique within the team profile.
-
-If any Edit fails (old_string not found or not unique), abort the stage with a hardcoded English error pointing at the specific addition and suggesting manual merge from `${CLAUDE_PLUGIN_ROOT}/examples/_profiles/default-<lang>.yml`.
+If any Edit fails (old_string not found or not unique), abort the stage with `migrate.stage5.edit_failure` pointing at the specific addition and suggesting manual merge from `${CLAUDE_PLUGIN_ROOT}/examples/_profiles/default-<lang>.yml`. Do NOT continue with further additions — leave the profile in a consistent partial state and let the user inspect.
 
 ### 5.5 Bump schema and verify
 
 After all additions land:
 
-1. Edit `profile_schema:` line per recipe E.
-2. Read the updated profile.yml fully.
+1. Edit `profile_schema:` line per 5.2.5.
+2. Read the updated profile.yml fully (no Grep-only check — a full Read catches any structural damage).
 3. Confirm the bumped `profile_schema` value matches `bundled_profile_schema`.
-4. Confirm each planned addition is now present (Grep checks).
+4. Confirm each planned addition is now present (Grep checks for top-level keys and id-keyed entry ids).
+5. Confirm the file still parses as valid YAML (re-run the skill's internal parser against the updated content).
 
 If verification fails, surface the failure with the specific failing assertion and suggest rollback (`git restore .immutable-prd/profile.yml`).
 
