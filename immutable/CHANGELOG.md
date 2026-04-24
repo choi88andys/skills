@@ -2,6 +2,33 @@
 
 All notable changes to the `immutable` plugin are documented in this file. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Version is canonically declared in `.claude-plugin/plugin.json`.
 
+## [0.5.7] — 2026-04-24
+
+Hotfix for a defect surfaced during v0.5.6 dogfood: teams who ran `/immutable:migrate` on an earlier plugin version had a frozen v1 team profile that did not pick up v0.5.6's new `anti_monolith` block, `max_items` field, `concern_scope` gate criterion, or `quality_auditor` persona. The §1.2.1 anti-monolith pre-check fallback chain ("derive from `max_items`") also broke because v1 profiles lack `max_items` entirely. Net result: v0.5.6 headline features were silently disabled for migrated teams.
+
+### Added
+
+- **`/immutable:migrate` Stage 5 — profile field migration**. Reads team `profile_schema:` (default `1` if absent), compares to bundled default, and inserts only missing fields. Existing values are preserved verbatim. Bumps `profile_schema:` on success. Per-version recipes describe what was added between consecutive versions (currently `v1 → v2` covers the v0.5.6 surface). Idempotent — re-running adds nothing.
+- **`/immutable:migrate` Stage 1 routing matrix** — five distinct outcomes now mapped (config v2 + profile v1, config v3 + profile stale, fully current, profile missing, profile ahead of plugin). Replaces the v0.5.6 binary "already at v3 → refuse" decision.
+- **`/immutable:prd` and `/immutable:adr` Stage 1.bis schema mismatch detection**. When the team profile schema is older than the bundled default, the skill renders a one-line warning + recommends `/immutable:migrate`. For the in-flight run, missing fields fall back to bundled default values **with source annotation** ("from bundled default-ko v2 — your team profile is v1"). No disk write. Surfaces silent-skip behavior immediately rather than letting it pass unnoticed.
+- **`/immutable:prd` §1.2.1 anti-monolith fallback chain extended**. New step 3: when team profile lacks `anti_monolith` AND `max_items`, fall back to the bundled default's values (with source annotation). Step 4 (skip with note) only fires when even the bundled default lacks the block — should be impossible in correctly-installed plugins.
+- **Catalog keys (ko + en)** for: `migrate.stage1.fully_current`, `migrate.stage1.profile_missing`, `migrate.stage1.profile_ahead_of_plugin`, `migrate.stage2.plan_preview_full` / `_profile_only` / `_config_only`, `migrate.stage5.*` (already_current, field_added, field_skipped_present, execute_progress, edit_failure, verify_failure), `migrate.stage6.handoff` + `note_concern_scope_threshold`, `prd.stage1.profile_schema_mismatch` + `profile_fallback_annotation` + `anti_monolith_skipped_no_threshold`, `adr.stage1.profile_schema_mismatch` + `anti_monolith_skipped_no_threshold`.
+
+### Changed
+
+- **`/immutable:migrate` skill description and process overview** — now declares two responsibilities (config + profile field migration) instead of one. Stage count expanded from 4 to 6.
+- **`migrate.stage1.already_v3` catalog key** — preserved for backward-compat but downgraded to a soft alias. New callers should use the routing-matrix outcomes (`fully_current` / `profile_missing` / `profile_ahead_of_plugin`).
+- **SCHEMA.md `Migration` section** — added "Profile field migration (v0.5.7+)" subsection documenting the two-responsibility model, override preservation guarantee, and authoring-time detection behavior.
+- **`/immutable:migrate` Hard Prohibition #8** added: "Never change existing profile.yml values in Stage 5." Default value changes (e.g., `min_items: 2 → 1` in v0.5.6 defaults) are NOT propagated — teams who set explicit values likely want them.
+
+### Backward compatibility
+
+- **Teams on plugin v0.5.5 or older** are unaffected — `/immutable:migrate` still works for the v2 → v3 transition, and Stage 5 is a no-op when team profile schema already matches bundled.
+- **Teams on plugin v0.5.6 with current profile** are unaffected — Stage 1 routing detects fully-current state and aborts cleanly.
+- **Teams on plugin v0.5.6 with stale profile** (the dogfood case) get Stage 1 detection + Stage 5 migration on next `/immutable:migrate` invocation. Until then, Stage 1.bis warning surfaces in `/immutable:prd` and `/immutable:adr` runs.
+- **`gate.total` and `gate.pass_threshold` are NOT auto-bumped** even though `concern_scope` is added. Teams must opt in to the new criterion counting toward the gate by editing those values manually. Stage 6 handoff includes a NOTE pointing this out.
+- **`migrate.stage1.already_v3` callers** continue to render correctly (alias message is informative even if less precise).
+
 ## [0.5.6] — 2026-04-24
 
 The single largest design change since v0.3. Drops the global "single active per (domain, type)" cap and reframes a PRD as **1 feature/policy** instead of **1 domain charter**. Multiple active PRDs may coexist in the same domain, each on its own supersede chain. A new 3-tier `anti_monolith` guard (hint / strong-recommend / block) replaces the implicit cap with a measurable one tied to feature-scoped sub-section and normative counts.

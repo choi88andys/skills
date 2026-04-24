@@ -97,13 +97,20 @@ If the user passed no argument, ask once using `adr.stage1.intent_question` (no 
 
 - Read `.immutable-prd/config.yml` → resolve ADR directory, pitches path, team language.
 - **Load profile** per the resolution order in **Profile Resolution** above. Cache `profile.adr.*` for the rest of the session.
+- **Profile schema mismatch detection** (added v0.5.7): when the loaded profile is a TEAM profile, read its `profile_schema:` and the bundled default's `profile_schema:`. If team < bundled, render `adr.stage1.profile_schema_mismatch` with `{team_schema}` / `{bundled_schema}` / list of missing top-level fields (e.g., `adr.anti_monolith`). Recommend `/immutable:migrate`. For this run, fetch missing fields from the bundled default with source annotation in any tier output. Mirror behavior of `/immutable:prd` §1.bis — same rationale, same fallback chain.
 - Glob ADR directory for existing files. Read frontmatter of each to build the supersede chain index.
 - **Enumerate active ADRs per (domain, supersede chain)** (changed v0.5.6 — was: implicit "the active ADR per domain"). Multiple active ADRs may coexist in the same domain (notably in `_global`) provided each is on its own supersede chain. Cross-check the user's request against every active chain — `update` targets exactly one specific chain; `new` opens a separate chain.
 - If the user's intent mentions a specific domain or feature, cross-reference with active pitches in that domain.
 
 ### 1.2.1 ADR anti-monolith pre-check (v0.5.6+)
 
-If `profile.adr.anti_monolith.enabled == true`, compute per-ADR metrics for every active ADR in the resolved domain (or in `_global` if scope is global):
+Resolution chain (v0.5.7+ — mirrors `/immutable:prd` §1.2.1):
+
+1. Team profile `adr.anti_monolith.tiers` → use directly.
+2. Bundled default `adr.anti_monolith.tiers` → use with source annotation in tier output.
+3. Skip with one-line note "ADR anti-monolith pre-check skipped — `adr.anti_monolith` block missing in both team and bundled profile. Run `/immutable:migrate` to enable."
+
+If a tier set is resolved, compute per-ADR metrics for every active ADR in the resolved domain (or in `_global` if scope is global):
 
 - `alternatives_count` — items in the alternatives section
 - `consequences_count` — total positive + negative + cost-of-adoption lines
