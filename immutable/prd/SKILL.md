@@ -126,18 +126,27 @@ Use Bash + Glob + Read to collect:
    - If config absent: prompt the user to run `/immutable:init` first, or fall back to the inferred-defaults path documented in `../SCHEMA.md`.
    - Read `team_language`, `profile:` (if v3), and other config fields.
    - Load profile per the resolution order in **Profile Resolution** above. Cache the parsed profile for the rest of the session.
+1.bis. **Profile schema mismatch detection** (added v0.5.7):
+   - When the loaded profile is a TEAM profile (config v3 with `profile:` pointer to a repo-local file), read its `profile_schema:` value (default `1` if absent).
+   - Read the bundled default profile's `profile_schema:` value for the same `team_language`.
+   - **If `team_profile_schema < bundled_profile_schema`**: render `prd.stage1.profile_schema_mismatch` with `{team_schema}`, `{bundled_schema}`, and a comma-joined list of missing top-level fields detected via direct comparison (e.g., `anti_monolith`, `vague_words`, `personas[quality_auditor]`, `gate.criteria[concern_scope]`). Recommend `/immutable:migrate`.
+   - **For this run only**: when the skill needs a missing field (e.g., `anti_monolith.tiers.L3.sub_sections` for §1.2.1 anti-monolith pre-check), READ THE VALUE FROM THE BUNDLED DEFAULT and use it. Do NOT write to disk. Do NOT mutate the in-memory team profile object — fetch fallback values via a "look up in team profile, else look up in bundled default" function so the fallback path is auditable.
+   - **Skill traceability**: any output that references a value sourced from the bundled default fallback (rather than the team profile) MUST annotate the source — e.g., "(from bundled default-ko v2 — your team profile is v1)".
+   - This guard exists to surface silent-skip behavior immediately. Without it, teams who ran `/immutable:migrate` once on plugin v0.5.0-era and never re-migrated would see new features (anti_monolith, etc.) silently disabled.
 2. Confirm `pitches/` exists in CWD (or at the configured `pitches_path`). If not, stop by rendering `prd.stage1.no_pitches_dir` (no substitutions).
 3. Read `pitches/README.md` — extract domain allowlist from the allowed-domains table (rows matching `` | `<name>` | ``). Use `profile.domain_allowlist.source` if it differs from the default `pitches/README.md`.
 4. **Enumerate active pitches per domain** (changed v0.5.6 — was: "find the active pitch", singular). For each allowlisted domain directory, scan `*.md` frontmatter to find **all** files with `deprecated: false` (excluding `README.md` and `TEMPLATE.md`). A domain may host multiple active PRDs, each on its own supersede chain. None is privileged as "the" baseline for the domain.
 
 ### 1.2.1 Anti-monolith pre-check (v0.5.6+)
 
-Resolve the active anti-monolith policy:
+Resolve the active anti-monolith policy via this fallback chain (v0.5.7+):
 
-- If `profile.anti_monolith.enabled == true` and `profile.anti_monolith.tiers` exists → use those thresholds.
-- Else if `profile.anti_monolith` is omitted/disabled → derive thresholds from `profile.sections[user_stories].max_items`:
-  - `L1.sub_sections = max_items + 1`, `L2 = max_items + 2`, `L3 = max_items × 3`
-  - `L1/L2/L3.normative_lines = sub_sections × 5`
+1. **Team profile `anti_monolith.tiers`** — if `profile.anti_monolith.enabled == true` and `profile.anti_monolith.tiers` exists in the team profile → use those thresholds.
+2. **Team profile `sections[user_stories].max_items` derivation** — else if the team profile has `max_items` → derive: `L1.sub_sections = max_items + 1`, `L2 = max_items + 2`, `L3 = max_items × 3`, `L1/L2/L3.normative_lines = sub_sections × 5`.
+3. **Bundled default fallback** (added v0.5.7) — else if Stage 1.bis flagged a profile schema mismatch and the bundled default has `anti_monolith` (or `max_items`) → repeat steps 1-2 against the bundled default profile values. Annotate the rendered tier output with "(thresholds from bundled default-<lang> v<N> — your team profile is v<M>)".
+4. **Skip pre-check** — only when none of the above resolve (very old plugin + truly empty profile). Surface a one-line note: "anti-monolith pre-check skipped — profile lacks both `anti_monolith` block and `max_items` field. Run `/immutable:migrate` to enable."
+
+Step 4 was the silent-skip behavior in v0.5.6 — replaced in v0.5.7 by the bundled-default fallback in step 3 plus the explicit note when even that fails.
 
 Once the user has hinted at a target domain (from Stage 1.1 free-text or from the implicit domain in the request), compute metrics for every active PRD in that domain:
 
