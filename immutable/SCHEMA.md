@@ -722,17 +722,40 @@ v0.3 makes no promise of backward compatibility for the dropped doc types. They 
 
 **Compatibility window**: v0.5–v0.7 accept `version: 2` without complaint. v0.8 will warn, and a later release will drop the fallback — at which point `/immutable:migrate` becomes required.
 
-### Profile field migration (v0.5.7+)
+### Profile field migration (v0.5.7+, universal diff in v0.5.8+)
 
-Plugin updates may add new fields to `profile_schema`. v0.5.6 introduced `profile_schema: 2` (added `sections[].max_items`, top-level `anti_monolith` block, `gate.criteria[concern_scope]`, `personas[quality_auditor]`, `adr.anti_monolith`). Teams who ran `/immutable:migrate` before this update have a frozen v1 team profile that does not benefit from the new defaults — until they re-run `/immutable:migrate` v0.5.7+.
+Plugin updates may add new fields to `profile_schema`. v0.5.6 introduced `profile_schema: 2` (added `sections[].max_items`, `sections[].structure`, top-level `anti_monolith` block, `gate.criteria[concern_scope]`, `personas[quality_auditor]`, `vague_words` list, `adr.anti_monolith`). Teams who ran `/immutable:migrate` before this update have a frozen v1 team profile that does not benefit from the new defaults — until they re-run `/immutable:migrate` v0.5.7+.
 
 `/immutable:migrate` v0.5.7+ has two responsibilities:
 
 1. **Config migration** (`v2 → v3`) — unchanged from prior releases.
-2. **Profile field migration** — reads the team's `profile_schema:`, compares to the bundled default, and inserts only **missing** fields. Never modifies values the team already has. Bumps `profile_schema:` to match the bundled version on success.
+2. **Profile field migration** — reads the team's `profile_schema:`, compares the team profile's structure to the bundled default's structure, and inserts only **missing** fields/entries. Never modifies values the team already has. Bumps `profile_schema:` to match the bundled version on success.
 
-Idempotent. Safe to re-run after every plugin update. Override-preserving by design — explicit team choices on `min_items`, gate thresholds, persona checks, etc. survive the migration unchanged.
+#### v0.5.7 vs v0.5.8 implementation
+
+| | v0.5.7 (recipes) | v0.5.8+ (universal diff) |
+|---|---|---|
+| Approach | Per-version migration recipe (e.g., "v1→v2 adds these specific fields") | Compare team profile structure vs bundled default; mark every additive difference |
+| New plugin field | Requires SKILL.md update (recipe entry) | Picked up automatically — no skill update needed |
+| Risk of omission | High (v0.5.7 recipe missed `sections[user_stories].structure`) | None — diff is exhaustive by construction |
+| Override preservation | Explicit per-recipe rules | Single algorithmic guarantee: scalars and anonymous lists never modified; id-keyed entries recursively walked but existing fields preserved |
+
+The universal diff (v0.5.8+) is the source of truth. Per-version recipes from v0.5.7 are kept only as descriptive worked examples in the SKILL.md.
+
+#### Override preservation guarantees
+
+The algorithm enforces these invariants:
+
+- Scalars in the team profile are never modified.
+- Existing id-keyed entries (matched by `id` or `key`) are recursively walked but never replaced.
+- Anonymous string lists (`feature_flag.states`, `personas[*].checks`, etc.) are preserved entirely — no element-level merging because there is no safe identity for diffing.
+- Comments in the team profile are never touched.
+- Description / heading text edits in bundled defaults do not propagate to teams that explicitly customized them.
+
+Idempotent. Safe to re-run after every plugin update.
 
 **Detection at authoring time**: `/immutable:prd` and `/immutable:adr` Stage 1.2 also detect `team_profile_schema < bundled_profile_schema` and surface a one-line warning recommending `/immutable:migrate`. For the in-flight authoring run, missing fields fall back to the bundled default values **with explicit source annotation in the rendered output** ("from bundled default-ko v2 — your team profile is v1") — never silent. No disk write happens at authoring time; the team profile remains the source of truth.
 
-**Compatibility**: this is an additive change — v0.5.6 and earlier behave correctly when team profile is fully current. The v0.5.7 detection only fires when the team profile is genuinely behind.
+**Locale parity guarantee**: bundled default-ko.yml and default-en.yml maintain identical structure (same top-level keys, same id-keyed entries, same nested fields) — only locale-specific values differ (e.g., `vague_words` entries are Korean hedge words vs English hedge words). This guarantee is what makes the universal diff algorithm sound across all locales. Adding a structural divergence between locale defaults is a breaking change to the algorithm and must be paired with explicit handling in the migrate SKILL.md.
+
+**Compatibility**: this is an additive change — v0.5.6 and earlier behave correctly when team profile is fully current. The v0.5.7+ detection only fires when the team profile is genuinely behind.
