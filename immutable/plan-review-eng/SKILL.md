@@ -114,10 +114,13 @@ FEATURE_SLUG="${FEATURE_SLUG:-$(git branch --show-current 2>/dev/null | tr '/' '
 CEO_NOTE=".claude/immutable/plan-review/${FEATURE_SLUG}-ceo.md"
 
 REVIEW_MODE=""
+# The greps below are whitespace-tolerant but require `Verdict:` at line
+# start (no markdown bold or heading prefix — the writer side enforces this;
+# see Phase 4.2 below and plan-review-ceo Phase 4.2).
 if [ -f "$CEO_NOTE" ]; then
-  if grep -q '^Verdict: APPROVE' "$CEO_NOTE" 2>/dev/null; then
+  if grep -qE '^Verdict:[[:space:]]+APPROVE' "$CEO_NOTE" 2>/dev/null; then
     REVIEW_MODE="ceo-grounded"
-  elif grep -qE '^Verdict: (REVISE|REJECT)' "$CEO_NOTE" 2>/dev/null; then
+  elif grep -qE '^Verdict:[[:space:]]+(REVISE|REJECT)' "$CEO_NOTE" 2>/dev/null; then
     REVIEW_MODE="ceo-blocked"
   fi
 fi
@@ -228,8 +231,14 @@ Section 4: Performance Review
 Anti-skip rule strict. State "No issues found" and move on if a section
 has nothing — but always evaluate.
 
-For Section 3, use the test-coverage-diagram template at
-`templates/test-coverage-diagram.md`.
+**Section 3 — required pre-read**: before building the Test Coverage
+Diagram, **use the Read tool to fetch
+`${CLAUDE_PLUGIN_ROOT}/plan-review-eng/templates/test-coverage-diagram.md`
+now**. The 6-category structure (NEW UX FLOWS / NEW DATA FLOWS / NEW
+CODEPATHS / NEW BACKGROUND JOBS / NEW INTEGRATIONS / NEW ERROR/RESCUE
+PATHS), the per-item table schema, and the worked example there are the
+required output format. Skipping the pre-read produces freestyle output
+that loses the test-spec headers and ambition checks.
 
 Issue surface: one issue per AskUserQuestion call. Never batch.
 
@@ -349,6 +358,7 @@ Render via AskUserQuestion using `pre.phase4.verdict_question`:
 
 ```bash
 mkdir -p .claude/immutable/plan-review
+FEATURE_SLUG="${FEATURE_SLUG:-$(git branch --show-current 2>/dev/null | tr '/' '-' || echo "no-branch")}"
 OUT=".claude/immutable/plan-review/${FEATURE_SLUG}-eng.md"
 echo "OUTPUT_PATH: $OUT"
 ```
@@ -357,7 +367,7 @@ Note structure (record `REVIEW_MODE` near the top so downstream readers
 know whether the CEO scope envelope is also in play):
 
 - **Mode**: `ceo-grounded` or `standalone`
-- **Verdict**: `APPROVE` / `REVISE` / `REJECT` + one-line rationale
+- **Verdict line** — exact format required (see below)
 - **Scope context**:
   - ceo-grounded → reference to CEO note (path + Phase 1F decision summary)
   - standalone → Phase 0.3 scope-check result (files touched count, gate
@@ -369,6 +379,32 @@ know whether the CEO scope envelope is also in play):
 - ADR-authoring candidates (Phase 3 — concrete decisions + rationale)
 - Late-changes note (only when ceo-grounded mode and Phase 0.4 surfaced
   post-CEO commits)
+
+**Verdict line — REQUIRED format**
+
+The verdict line MUST be on its own line, beginning at column 0 with
+literally `Verdict:` followed by a single space and one of `APPROVE`,
+`REVISE`, or `REJECT`. Optionally append ` — <one-line rationale>`. The
+`ship` skill greps this line (`grep -qE '^Verdict:[[:space:]]+APPROVE'`)
+to decide whether to refuse — markdown formatting breaks the grep.
+
+Acceptable:
+```
+Verdict: APPROVE — all four sections passed; no late changes
+Verdict: REVISE
+Verdict: REJECT — Section 1 surfaced architecture blocker
+```
+
+NOT acceptable (these break downstream routing):
+```
+**Verdict:** APPROVE              ← markdown bold prefix
+### Verdict: APPROVE              ← heading prefix
+Verdict: **APPROVE**              ← markdown bold around the word
+- Verdict: APPROVE                ← list-marker prefix
+   Verdict: APPROVE               ← indented (not at column 0)
+```
+
+Place the verdict line as the first or second non-blank line of the note.
 
 ### 4.3 Handoff
 
