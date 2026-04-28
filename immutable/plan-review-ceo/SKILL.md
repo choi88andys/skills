@@ -240,9 +240,20 @@ is the result. State "Section X: No issues found." and move on. Do not skip.
 
 Between sections, pause for user feedback before proceeding to the next.
 
-For Section 2 specifically, the output table template is at
-`templates/error-rescue-map.md`. For Section 1's data-flow ASCII diagram,
-the template is at `templates/data-flow-diagram.md`.
+**Section 1 — required pre-read**: before producing any architecture
+diagram for Section 1, **use the Read tool to fetch
+`${CLAUDE_PLUGIN_ROOT}/plan-review-ceo/templates/data-flow-diagram.md`
+now**. The four-path (happy / nil / empty / error) ASCII convention and
+worked example there are the required output schema.
+
+**Section 2 — required pre-read**: before populating the rescue map for
+Section 2, **use the Read tool to fetch
+`${CLAUDE_PLUGIN_ROOT}/plan-review-ceo/templates/error-rescue-map.md`
+now**. The two-table format (failure-mode table + rescue table with GAP
+markers) and worked example there are the required output schema.
+
+Skipping either pre-read produces freestyle output that downstream
+readers can't easily parse and that loses the worked-example patterns.
 
 ---
 
@@ -312,12 +323,41 @@ echo "OUTPUT_PATH: $OUT"
 ```
 
 Write a structured note containing:
-- Verdict (`APPROVE` / `REVISE` / `REJECT`) + one-line rationale
+
+- **Verdict line** — exact format required (see below)
 - Scope envelope agreed in Phase 1F (mode + approach name)
 - Section-by-section highlights (one bullet per section, even "No issues")
 - Pitch supersede candidates (Phase 3.1) — concrete delta lines
 - ADR-authoring candidates (Phase 3.2) — concrete decision lines
 - Transient notes (Phase 3.3)
+
+**Verdict line — REQUIRED format**
+
+The verdict line MUST be on its own line, beginning at column 0 with
+literally `Verdict:` followed by a single space and one of `APPROVE`,
+`REVISE`, or `REJECT`. Optionally append ` — <one-line rationale>`.
+The `plan-review-eng` and `ship` skills grep this line
+(`grep -qE '^Verdict:[[:space:]]+(APPROVE|REVISE|REJECT)'`) to decide
+their routing — markdown formatting breaks the grep.
+
+Acceptable:
+```
+Verdict: APPROVE — scope locked at HOLD-mode under Approach B
+Verdict: REVISE
+Verdict: REJECT — premise 2 disagreed with by user; rerun office-hours
+```
+
+NOT acceptable (these break downstream routing):
+```
+**Verdict:** APPROVE              ← markdown bold prefix
+### Verdict: APPROVE              ← heading prefix
+Verdict: **APPROVE**              ← markdown bold around the word
+- Verdict: APPROVE                ← list-marker prefix
+   Verdict: APPROVE               ← indented (not at column 0)
+```
+
+Place the verdict line as the first or second non-blank line of the note
+so a casual reader sees it without scrolling.
 
 ### 4.3 Handoff
 

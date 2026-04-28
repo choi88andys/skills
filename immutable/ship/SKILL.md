@@ -147,6 +147,12 @@ The skill does NOT run interactive git operations on behalf of the user.
 ## Step 3 — Review artifact verification
 
 ```bash
+# Derive the slug from the current branch (matches the convention used by
+# every upstream skill in the 7-step flow). Each Bash invocation is a fresh
+# shell — variables don't persist across blocks, so this derivation repeats
+# in every block that needs the slug.
+FEATURE_SLUG="${FEATURE_SLUG:-$(git branch --show-current 2>/dev/null | tr '/' '-' || echo "no-branch")}"
+
 DESIGN_NOTE=".claude/immutable/design/${FEATURE_SLUG}.md"
 CEO_NOTE=".claude/immutable/plan-review/${FEATURE_SLUG}-ceo.md"
 ENG_NOTE=".claude/immutable/plan-review/${FEATURE_SLUG}-eng.md"
@@ -155,8 +161,10 @@ ENG_NOTE=".claude/immutable/plan-review/${FEATURE_SLUG}-eng.md"
 [ -f "$CEO_NOTE" ]    && echo "ceo note present"
 [ -f "$ENG_NOTE" ]    && echo "eng note present"
 
-# Eng note verdict must be APPROVE.
-if ! grep -q '^Verdict: APPROVE' "$ENG_NOTE" 2>/dev/null; then
+# Eng note verdict must be APPROVE. The grep is whitespace-tolerant but
+# requires `Verdict:` at line start (no markdown bold or heading prefix —
+# the writer side enforces this; see plan-review-{ceo,eng} Phase 4.2).
+if ! grep -qE '^Verdict:[[:space:]]+APPROVE' "$ENG_NOTE" 2>/dev/null; then
   echo "ENG NOT APPROVED"
 fi
 ```
@@ -231,6 +239,11 @@ directory. Read it now and render with captured values:
 ### 5.1 Resolve pitch path
 
 ```bash
+# Re-derive slug + design-note path (this is a fresh Bash invocation; vars
+# from Step 3 don't persist).
+FEATURE_SLUG="${FEATURE_SLUG:-$(git branch --show-current 2>/dev/null | tr '/' '-' || echo "no-branch")}"
+DESIGN_NOTE=".claude/immutable/design/${FEATURE_SLUG}.md"
+
 PITCHES_REL="$(grep '^pitches_path:' "$IMMUTABLE_PRD_SPEC_CONFIG" 2>/dev/null \
   | head -1 | awk '{print $2}')"
 PITCHES_REL="${PITCHES_REL:-pitches/}"
