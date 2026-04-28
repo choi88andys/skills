@@ -2,6 +2,25 @@
 
 All notable changes to the `immutable` plugin are documented in this file. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Version is canonically declared in `.claude-plugin/plugin.json`.
 
+## [0.6.1] — 2026-04-28
+
+Hotfix release patching three integration issues surfaced by static analysis after v0.6.0 shipped. All three are pre-dogfood findings — the v0.6.0 flow had not yet been exercised end-to-end on a real repo when these were caught — so v0.6.1 prevents the failures rather than reacting to them.
+
+### Fixed
+
+- **`/immutable:ship` Step 3 — `FEATURE_SLUG` undefined**. v0.6.0's `ship/SKILL.md` referenced `${FEATURE_SLUG}` to compose the design / CEO / ENG note paths but never set the variable in any preceding bash block. Each Bash tool invocation is a fresh shell, so the unset variable expanded to empty, producing paths like `.claude/immutable/design/.md` that could never match real notes. Result: `/immutable:ship` would always have refused with `ship.refuse.eng_not_approved`, blocking every PR. The fix adds the canonical slug-derivation line at the start of Step 3 and Step 5.1 (matching the convention used by every upstream skill in the 7-step flow).
+- **Verdict-line format mismatch between writer and reader**. The eng review's Phase 0.1 mode routing greps `^Verdict: APPROVE` (literal, line-start) on the CEO note; `/immutable:ship` Step 3 greps the same pattern on the eng note. v0.6.0's `plan-review-{ceo,eng}/SKILL.md` Phase 4.2 instructed the writer only loosely ("Verdict + one-line rationale"), allowing markdown formatting (`**Verdict**: APPROVE`, `### Verdict\nAPPROVE`, `Verdict: **APPROVE**`, indented or list-marker-prefixed lines) that breaks the grep. The fix tightens the writer side with an explicit "Verdict line — REQUIRED format" callout in both ceo and eng Phase 4.2 (lists acceptable / not-acceptable forms with a worked example), and slightly loosens the reader greps to use `[[:space:]]+` instead of a literal space — so a benign extra space is tolerated, but markdown formatting still fails fast.
+- **Template-file pre-reads not strongly enforced**. v0.6.0 referenced three output templates (`plan-review-ceo/templates/data-flow-diagram.md`, `plan-review-ceo/templates/error-rescue-map.md`, `plan-review-eng/templates/test-coverage-diagram.md`) with passive prose ("the template lives at..."). The Read-tool fetch was implied but not commanded, so Claude could plausibly skip the pre-read and produce freestyle output. The fix replaces the passive references with explicit "**use the Read tool to fetch `${CLAUDE_PLUGIN_ROOT}/.../template.md` now**" instructions tied to the relevant section's pre-read step, matching the strength already used for `sections.md` and `nuclear-scope-rubric.md`.
+
+### Changed
+
+- **Reader-side verdict greps** in `plan-review-eng/SKILL.md` Phase 0.1 (3 lines) and `ship/SKILL.md` Step 3 (1 line) updated from `'^Verdict: APPROVE'` (and equivalents) to `'^Verdict:[[:space:]]+APPROVE'` (regex). Comments next to each grep now explicitly document the writer-side format requirement, so a future reader knows where the contract is enforced.
+
+### Backward compatibility
+
+- Strictly forward-compatible. All v0.6.0 catalog keys, supporting files, scripts, and starters are unchanged. Repos that pulled v0.6.0 see only behavior fixes; no action required on the user side.
+- The verdict-line tightening is a writer-side rule. v0.6.0 review notes that happened to use the canonical `Verdict: APPROVE` form keep working under v0.6.1's reader. Notes with markdown formatting that v0.6.1 would have refused never reached production (the bug they would have triggered was caught here statically before any cycle ran).
+
 ## [0.6.0] — 2026-04-28
 
 Adds five new flow skills so the entire spec-driven development cycle runs from this plugin alone — no external harness required. Previously the SDD flow needed a local `~/.claude-dotfiles/claude/commands/sprint/` toolset (`office-hours`, `design`, `plan-review`, `plan-review-ceo`, `plan-review-eng`, `ship`); v0.6.0 absorbs the immutable-prd-mode behavior of those skills into the plugin so `claude plugin install immutable` is the single setup step on any machine.
