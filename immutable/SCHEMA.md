@@ -759,3 +759,134 @@ Idempotent. Safe to re-run after every plugin update.
 **Locale parity guarantee**: bundled default-ko.yml and default-en.yml maintain identical structure (same top-level keys, same id-keyed entries, same nested fields) — only locale-specific values differ (e.g., `vague_words` entries are Korean hedge words vs English hedge words). This guarantee is what makes the universal diff algorithm sound across all locales. Adding a structural divergence between locale defaults is a breaking change to the algorithm and must be paired with explicit handling in the migrate SKILL.md.
 
 **Compatibility**: this is an additive change — v0.5.6 and earlier behave correctly when team profile is fully current. The v0.5.7+ detection only fires when the team profile is genuinely behind.
+
+---
+
+## 7-step SDD flow (v0.6.0)
+
+v0.6.0 adds five new flow skills (`office-hours`, `design`, `plan-review-ceo`, `plan-review-eng`, `ship`) so the entire spec-driven development cycle runs from this plugin alone — no external harness required.
+
+### Single-repo flow
+
+```
+/immutable:office-hours
+  → /immutable:prd
+  → /immutable:design
+  → /immutable:plan-review-ceo
+  → /immutable:plan-review-eng
+  → /immutable:adr            (when an architecture decision is surfaced)
+  → /immutable:ship
+```
+
+### Two-repo flow
+
+Spec repo:
+
+```
+/immutable:office-hours
+  → /immutable:prd
+```
+
+Implementation repo:
+
+```
+/immutable:design
+  → /immutable:plan-review-ceo
+  → /immutable:plan-review-eng
+  → /immutable:adr            (when surfaced)
+  → /immutable:ship
+```
+
+### Step responsibilities
+
+| Step | Skill | Output | Persistence |
+|---|---|---|---|
+| 1 | `office-hours` | premise check + ≥3 alternatives + transient design-doc note | `.claude/immutable/office-hours/{slug}.md` (gitignored) |
+| 2 | `prd` | pitch (canonical WHAT) | `pitches/<domain>/...md` (committed) |
+| 3 | `design` | app-side context handoff note | `.claude/immutable/design/{slug}.md` (gitignored) |
+| 4 | `plan-review-ceo` | scope challenge + 11-section review note + verdict | `.claude/immutable/plan-review/{slug}-ceo.md` (gitignored) |
+| 5 | `plan-review-eng` | 4-section eng review note + verdict | `.claude/immutable/plan-review/{slug}-eng.md` (gitignored) |
+| 6 | `adr` | ADR (canonical WHY for load-bearing decisions) | `adr/...md` (committed) |
+| 7 | `ship` | PR with pitch + ADR paths included | GitHub PR (no local artifact) |
+
+The committed artifacts (pitch + ADR) are append-only and the SSoT. The transient notes (`.claude/immutable/`) are short-lived working memory between steps; review notes outlive the sprint only if the team decides to commit them out-of-convention.
+
+---
+
+## Transient artifact namespace (`.claude/immutable/`)
+
+Five of the seven flow skills write transient notes outside the canonical pitch / ADR paths. These notes flow context between flow steps but are never the SSoT for any decision.
+
+### Path conventions
+
+```
+.claude/immutable/
+├── office-hours/{slug}.md             # /immutable:office-hours output
+├── design/{slug}.md                   # /immutable:design output
+└── plan-review/
+    ├── {slug}-ceo.md                  # /immutable:plan-review-ceo output
+    └── {slug}-eng.md                  # /immutable:plan-review-eng output
+```
+
+`{slug}` is derived from the current git branch name (or `no-branch` when detached). All notes for one feature share the same `{slug}`, so the next skill in the chain can find the predecessor's output without prompting.
+
+### .gitignore convention
+
+The init starter places `.claude/immutable/` in the bootstrapped repo's `.gitignore` so transient notes never accidentally land in commits. Manually-bootstrapped repos must add this line themselves; the flow skills surface `common.transient_namespace_hint` on first write to cue the user.
+
+### Rationale
+
+- **Pitch + ADR are append-only and immutable.** They cannot absorb mid-sprint scratch context without diluting their semantics.
+- **Transient state belongs near the implementation, not the spec.** Even in two-repo layouts, the design / review notes live with the implementation tree where they were generated.
+- **Cross-skill handoff is by file convention, not state passing.** Each flow skill reads its predecessor's output by deterministic path, so re-running a step or interleaving with manual edits "just works."
+- **Forgetting to gitignore is recoverable.** If a transient note lands in a commit by accident, the canonical pitch / ADR are unaffected — the worst case is a noisy diff.
+
+### Cleanup
+
+The flow skills do not auto-delete transient notes. After merge, the user can manually `rm -rf .claude/immutable/{slug}*` for the merged sprint, or leave them in place as session history. The `{slug}` namespace prevents collision between sprints, so accumulation is harmless if disk space is not a concern.
+
+---
+
+## `scripts/sdd_mode_detect.sh` helper
+
+v0.6.0 ships a single sourceable script that consolidates the SDD-mode detection logic previously duplicated across multiple flow skills. The five new flow skills (`office-hours`, `design`, `plan-review-ceo`, `plan-review-eng`, `ship`) source this script during their preconditions block.
+
+### Usage
+
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/scripts/sdd_mode_detect.sh"
+```
+
+After sourcing, the variables below are exported into the caller's shell.
+
+### Exported variables
+
+| Variable | Meaning |
+|---|---|
+| `SDD_MODE` | `immutable-prd` or `legacy`. Flow skills MUST refuse when `legacy`. |
+| `IMMUTABLE_PRD_CONFIG` | Absolute path to the primary `.immutable-prd/config.yml` (the repo PWD is in). Empty when detection fails. |
+| `IMMUTABLE_PRD_SPEC_CONFIG` | Path to the spec repo's config (has `pitches_path:`). Equals `IMMUTABLE_PRD_CONFIG` in single-repo mode. |
+| `IMMUTABLE_PRD_APP_CONFIG` | Path to the app repo's config (has `adr_path:`). Equals `IMMUTABLE_PRD_CONFIG` in single-repo mode. |
+| `IMMUTABLE_PRD_REPO_MODE` | Value of primary config's `repo_mode:` — `two-repo`, `two-repo-app`, `two-repo-spec`, or `single-repo`. |
+| `SDD_AMBIGUITY_FLAG` | `1` when the reverse-config scan found multiple sibling app configs claiming this spec; `0` otherwise. |
+
+### Resolution order
+
+1. **Walk-up** from PWD to repo root (`.git` boundary), looking for `.immutable-prd/config.yml`.
+2. **Explicit pointer** at `$PWD/.claude/sdd-mode` — escape hatch for non-standard layouts. Format: a single line `immutable-prd:<path-to-repo-with-config>`.
+3. **Sibling `-app` / `-spec` suffix** — last-resort bootstrap fallback for the standard naming convention.
+
+For the secondary (cross-paired) config:
+
+- PWD == app repo: resolve spec via app's `spec_repo_path:` (preferred, relative-path-safe); fall back to suffix-sibling.
+- PWD == spec repo: reverse-scan siblings for an app config whose `spec_repo_path:` resolves back to this spec root (naming-agnostic). Fall back to suffix-sibling on no match. Set `SDD_AMBIGUITY_FLAG=1` on >1 matches.
+- PWD == single repo: spec and app point at the same config.
+
+### Design notes
+
+- The script does NOT call `set -u` / `set -e`; sourcing it must not change the caller's shell options.
+- All helper function names are prefixed with `_sdd_` to avoid colliding with caller scope.
+- The script emits a one-line summary to stdout (for transcripts) and any warnings to stderr.
+- Internal temporary variables are unset at the end so they don't leak into the caller.
+
+The full source lives at `immutable/scripts/sdd_mode_detect.sh`. See its file header for the complete contract.

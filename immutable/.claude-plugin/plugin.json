@@ -1,7 +1,7 @@
 {
   "name": "immutable",
-  "version": "0.5.8",
-  "description": "Append-only SDD toolkit. /immutable:init bootstraps a starter (spec/app/single × ko/en). /immutable:prd authors pitches (WHAT). /immutable:adr authors Architecture Decision Records (WHY). /immutable:migrate handles config v2→v3 AND profile field migration (override-preserving). All authoring skills enforce grill-me interview, 4-persona adversarial review, and a 90% completeness gate, with anti-monolith escalation guarding against multi-feature dumping.",
+  "version": "0.6.0",
+  "description": "Append-only SDD toolkit. v0.6.0 ships nine skills covering the full 7-step flow: /immutable:init bootstraps a starter (spec/app/single × ko/en); /immutable:office-hours forces premise challenge plus 3 alternatives; /immutable:prd authors pitches (WHAT); /immutable:design captures app-side context; /immutable:plan-review-ceo runs scope challenge + 11-section review; /immutable:plan-review-eng runs 4-section engineering review; /immutable:adr authors Architecture Decision Records (WHY); /immutable:ship verifies and creates the PR; /immutable:migrate handles config v2→v3 AND profile field migration (override-preserving). Authoring skills enforce grill-me interview, multi-persona adversarial review, and a 90% completeness gate. The flow runs standalone — no external harness required.",
   "author": {
     "name": "choi88andys"
   },
@@ -21,6 +21,11 @@
     "bootstrap",
     "starter",
     "migrate",
-    "profile"
+    "profile",
+    "office-hours",
+    "design",
+    "plan-review",
+    "ship",
+    "spec-driven-development"
   ]
 }

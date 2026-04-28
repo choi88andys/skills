@@ -632,3 +632,744 @@ strings:
   common.separator.list_comma: ", "
 
   common.fallback_warning: "⚠️ strings fallback: `{key}` missing in strings.{requested_locale}.yml — using strings.en.yml"
+
+  # --------------------------------------------------------------------------
+  # Shared keys for v0.6.0+ flow skills (office-hours, design, plan-review-*,
+  # ship). Each new skill calls into these for cross-cutting concerns:
+  # legacy-mode refusal, protected-branch warning, transient-artifact hints.
+  # --------------------------------------------------------------------------
+
+  common.refuse_legacy_mode: |
+    This directory is not an immutable SDD repo (`.immutable-prd/config.yml` not found).
+
+    The `/immutable:office-hours`, `/immutable:design`, `/immutable:plan-review-ceo`,
+    `/immutable:plan-review-eng`, and `/immutable:ship` skills require immutable-prd mode.
+
+    Options:
+    - Bootstrap a new immutable SDD repo: `/immutable:init`
+    - Calling from inside an existing spec/app repo: cd into that repo and rerun
+    - Non-standard layout: write a `.claude/sdd-mode` pointer file (see SCHEMA.md
+      for the format)
+
+    Aborting.
+
+  common.protected_branch_warn: |
+    ⚠️ The current branch `{branch}` looks like a protected branch (main / master / develop).
+    Be careful that this skill's transient writes do not land directly on the protected branch.
+    If your team forbids direct commits to protected branches, switch to a working branch first:
+        git switch -c feat/<your-task-name>
+
+  common.transient_namespace_hint: |
+    This skill writes transient notes under `.claude/immutable/`.
+    The init starter adds this directory to .gitignore so the notes are not committed.
+    For manually-bootstrapped repos, add `.claude/immutable/` as a one-liner to your .gitignore.
+
+  common.handoff.next_skill: "Next step: invoke `{next_skill}`"
+
+  # ==========================================================================
+  # office-hours skill (v0.6.0)
+  # ==========================================================================
+
+  oh.phase1.mode_question: |
+    Before we dig in — what's the nature of this work?
+
+    (1) New feature for users — product-facing, has real users
+    (2) Internal tooling / developer experience — team-facing
+    (3) Refactor / cleanup — architecture, not user-visible
+    (4) Exploration / spike — learning, not committing
+
+    Pick a number.
+
+  oh.phase1.context_summary_template: |
+    Here is what I understand about this project and the area you want to change:
+
+    {summary}
+
+    Is this summary accurate? (Y) Proceed | (N) Add context
+
+  oh.phase2.premise_challenge_intro: |
+    Before proposing any approach, I want to confirm the premises the framing
+    assumes. We will walk one premise at a time and you confirm or revise each.
+
+    PREMISES:
+    {numbered_premises}
+
+  oh.phase2.premise_question_template: |
+    Premise {number}: {statement}
+
+    Do you agree with this premise?
+    - (A) Agree — move to next premise
+    - (B) Disagree — explain how it's different
+    - (C) Partial — propose a revision
+
+  oh.phase2.premises_locked: |
+    All premises confirmed. Moving to Phase 3 (generate 3 alternatives).
+
+  oh.phase3.alternatives_intro: |
+    Now I will produce 3 implementation approaches. **Non-negotiable**: A (Minimal
+    viable) + B (Ideal architecture) + C (Creative / lateral) all required. If C
+    cannot be generated as a meaningfully different framing, I will say so
+    explicitly with a reason — never fake a third option.
+
+    The Phase 3 authoring guide (what each slot means, common failures, worked
+    examples) lives at `${{CLAUDE_PLUGIN_ROOT}}/office-hours/premise-rubric.md`.
+    Read it now before proceeding.
+
+  oh.phase3.approach_template: |
+    APPROACH {letter}: {name}
+      Summary: {summary}
+      Effort:  {effort}
+      Risk:    {risk}
+      Pros:    {pros}
+      Cons:    {cons}
+      Reuses:  {reuses}
+
+  oh.phase3.recommendation_template: |
+    RECOMMENDATION: Approach {letter} because {one_line_reason}.
+
+  oh.phase3.choice_question: |
+    Which approach should we proceed with?
+    - (A) Approve the recommended approach — proceed to Phase 4
+    - (B) Pick a different approach — specify which
+    - (C) Regenerate — my framing changed or I want new options
+    - (D) None of these — start over from Phase 1
+
+  oh.phase4.design_doc_path_announce: "Design doc output path: `{path}`"
+
+  oh.phase4.design_doc_written: |
+    Design doc written: `{path}`
+
+    This is a transient note (in `.claude/immutable/` namespace, gitignored)
+    intended as the Stage 1.5 Context Intake input for the next skill,
+    `/immutable:prd`.
+
+  oh.phase5.handoff_immutable_prd_single: |
+    Single-repo mode (config detected: `{config_path}`)
+
+    Next step: invoke `/immutable:prd` from the same directory.
+    Attach this design-doc path as the Stage 1.5 Context Intake input:
+      `{design_doc_path}`
+
+  oh.phase5.handoff_immutable_prd_two_repo: |
+    Two-repo mode (this directory: `{primary_role}`)
+
+    Next step: cd into the spec repo, then invoke `/immutable:prd`.
+      Spec repo path: `{spec_repo_path}`
+      Spec config:    `{spec_config_path}`
+
+    Attach this design-doc path as the Stage 1.5 Context Intake input:
+      `{design_doc_path}`
+
+    The spec repo is a separate git repo, but the design doc lives in this
+    repo's `.claude/immutable/` — `/immutable:prd` reads from the absolute
+    path directly, so no copy is needed.
+
+  oh.completion.done: |
+    ✅ DONE — design doc written, Approach {chosen_letter} approved.
+
+  oh.completion.done_with_questions: |
+    ⚠️  DONE_WITH_QUESTIONS — design doc written, but the Open Questions
+    section is non-empty. Resolve these in `/immutable:prd` Stage 1.5:
+
+    {open_questions}
+
+  oh.completion.needs_context: |
+    🛑 NEEDS_CONTEXT — some Phase 2 premises were not answered, so the
+    design doc was NOT written. Unresolved premises:
+
+    {unresolved}
+
+    Gather more context and rerun `/immutable:office-hours` when ready.
+
+  oh.refuse.write_during_oh: |
+    `/immutable:office-hours` does not write code. This skill writes ONE transient
+    design doc (`.claude/immutable/office-hours/`) — nothing else.
+
+    Implementation work happens in the downstream skills (`/immutable:prd` →
+    `/immutable:design` → `/immutable:plan-review-ceo` → `/immutable:plan-review-eng`
+    → `/immutable:adr` → `/immutable:ship`).
+
+  # ==========================================================================
+  # design skill (v0.6.0)
+  # ==========================================================================
+
+  design.step1.pitch_picker_question: |
+    Which pitch are you implementing? Active pitches found:
+
+    {pitch_list}
+
+    Pick by number or path. For non-pitch work (refactor, infra) type "refactor".
+
+  design.step1.pitch_confirmation: |
+    Selected pitch: `{pitch_path}` (`domain: {pitch_domain}`)
+
+    Pitch summary:
+    {pitch_summary}
+
+    Does this pitch match the work?
+    - (Y) Proceed
+    - (N) Pick a different pitch
+    - (S) Pitch is stale — supersede via `/immutable:prd` first, then rerun
+
+  design.step1.no_pitches_found: |
+    No active pitches in `{pitches_dir}`.
+
+    Options:
+    - (A) Author a new pitch via `/immutable:prd`, then rerun
+    - (B) Proceed in refactor mode — implementation without a pitch (internal
+      work, infra changes, etc.)
+    - (C) Abort
+
+  design.step1.refactor_mode_acknowledged: |
+    Refactor mode — proceeding without a pitch. The transient note will be
+    read by plan-review-ceo, but pitch-grounded questions will be skipped.
+
+  design.step3.activation_question: |
+    Activation status (required if the pitch's Open UX questions section is empty):
+
+    1. Which version / when does this become user-visible?
+    2. Hidden paths or feature flags gating it before launch? (Exact identifiers)
+    3. Live trigger? (Metric / approval / date)
+
+  design.step3.dependencies_question: |
+    Dependent features:
+
+    1. Other features sharing the same data / screen / service?
+    2. Any of them in active development on a different branch?
+    3. Does this work block, or is it blocked by, another feature's ship date?
+
+  design.step3.module_question: |
+    Module placement:
+
+    1. Which module / package owns this work? (Specific: e.g., `lib/cart/`)
+    2. Cross-module dependencies the pitch doesn't surface?
+    3. Does this introduce a new module? If so, what's its boundary contract?
+
+  design.step4.note_written: |
+    Design handoff note written: `{path}`
+
+    This note is the transient context that the next skill
+    (`/immutable:plan-review-ceo`) reads in addition to the pitch + linked ADRs.
+    It lives in the `.claude/immutable/` namespace and is gitignored.
+
+  design.step4.handoff_to_plan_review_ceo: |
+    Next step: `/immutable:plan-review-ceo`
+
+    Review targets:
+    - Pitch:        `{pitch_path}` (spec repo)
+    - ADRs:         active ADRs linked to the pitch (plan-review-ceo auto-discovers)
+    - Design note:  `{handoff_note_path}` (this step's output)
+
+    Mode: `{repo_mode}` — {mode_specific_hint}
+
+  design.refuse.spec_only_repo: |
+    This directory is a spec-only repo (`repo_mode: two-repo-spec`).
+
+    `/immutable:design` runs in the implementation repo (the pitch is already
+    in the spec repo). Options:
+
+    - (A) cd into the implementation repo (usually sibling `*-app`) and rerun
+    - (B) If the spec repo was your intended target, `/immutable:prd` is the
+      right tool
+
+    Aborting.
+
+  # ==========================================================================
+  # plan-review-ceo skill (v0.6.0)
+  # ==========================================================================
+
+  prc.phase0.target_pitch_question: |
+    Which pitch are we reviewing? Active pitches in the spec repo (`{spec_root}`):
+
+    {pitch_list}
+
+    Pick by number or path. For refactor mode (no pitch), type "refactor".
+
+  prc.phase0.system_audit_summary: |
+    System audit:
+    - In-flight work: {in_flight}
+    - Open PRs:       {open_prs}
+    - Pain points:    {pain_points}
+    - TODO/FIXME hotspots: {todo_hotspots}
+
+    If anything above conflicts with the area this plan touches, it surfaces
+    in Phase 1 first.
+
+  prc.phase0.landscape_findings: |
+    Landscape check (Phase 0.5 — scope expansion is on the table):
+    - [Layer 1] tried-and-true: {layer1}
+    - [Layer 2] popular practice: {layer2}
+    - [Layer 3] first principles: {layer3}
+    {eureka_block}
+
+  prc.phase1.scope_locked: |
+    Phase 1F decision locked:
+      Mode:      {mode}
+      Approach:  {approach_letter} ({approach_name})
+
+    Confirmed scope:
+    {in_scope}
+
+    Out of scope (deferred or rejected):
+    {out_of_scope}
+
+    Triggers for downstream phases:
+    - Pitch supersede candidate: {pitch_trigger}
+    - ADR-authoring candidate:    {adr_trigger}
+
+    This envelope does not change during Phase 2 (11 sections).
+
+  prc.phase1.alternatives_required: |
+    1C-bis is mandatory. At least 2 (preferably 3) distinct implementation
+    approaches must be evaluated before mode selection (1F). If only 1
+    approach genuinely exists, surface that explicitly with reasons.
+
+  prc.phase1.premise_list: |
+    PREMISES (assumed by the current plan):
+    {numbered_premises}
+
+    Each premise gets validated one at a time. If the design handoff note
+    or the pitch has a "Premises" section, copy those as the starting set.
+
+  prc.phase1.exit_to_office_hours: |
+    The problem statement isn't stabilizing in this session (premises keep
+    flipping or framing keeps changing). That's what `/immutable:office-hours`
+    is for.
+
+    Options:
+    - (A) Run office-hours now and come back
+    - (B) Keep going (the review will be shallower)
+
+  prc.phase1.dream_state_template: |
+    CURRENT STATE         THIS PLAN              12-MONTH IDEAL
+    {current}    --->     {delta}        --->    {target}
+
+  prc.phase1.mode_selection: |
+    Mode selection (1F):
+
+    1. SCOPE EXPANSION — plan is good but could be great. Dream big. Each
+       expansion opted in individually via cherry-pick ceremony.
+    2. SELECTIVE EXPANSION — scope is baseline. Surface possible cherry-picks.
+       Neutral recommendations.
+    3. HOLD SCOPE — scope is right. Review with maximum rigor. No expansions.
+    4. SCOPE REDUCTION — plan is overbuilt. Propose minimal version, then
+       review that.
+
+    Recommended default: {default_mode} ({reason})
+
+  prc.phase2.section_intro_template: |
+    --- Section {n}: {section_name} ---
+    {section_objective}
+
+    Scope of this section:
+    {scope_bullets}
+
+    Issues are surfaced one at a time. After all are resolved, we move to
+    the next section.
+
+  prc.phase2.section_no_issues: "Section {n}: {section_name} — No issues found."
+
+  prc.phase3.trigger_summary: |
+    Phase 3 trigger summary:
+
+    Pitch supersede candidates ({pitch_count}):
+    {pitch_candidates}
+
+    ADR-authoring candidates ({adr_count}):
+    {adr_candidates}
+
+    Transient note only ({minor_count}):
+    {minor_notes}
+
+  prc.phase3.pitch_supersede_recommendation: |
+    Pitch supersede recommended: `{pitch_path}`
+
+    Reason: {reason}
+
+    Action: cd into the spec repo → `/immutable:prd` → append a new file in
+    `pitches/{domain}/` (frontmatter `supersedes: {old_filename}`). This is
+    a separate spec-repo PR from the implementation PR.
+
+  prc.phase3.adr_authoring_recommendation: |
+    ADR authoring recommended: decision = "{decision_summary}"
+
+    Reason: {reason}
+
+    Action: in the app repo, run `/immutable:adr` → append a new ADR in
+    `adr/` (frontmatter `references.pitches: [{pitch_filename}]` to link
+    this pitch). Bundle into this PR or split into a separate one (team
+    convention).
+
+  prc.phase4.verdict_question: |
+    Phase 4 verdict:
+
+    - APPROVE — proceed to `/immutable:plan-review-eng`. Phase 3 triggers
+      can be acted on in parallel (pitch supersede is a spec-repo PR and
+      doesn't block app-repo work).
+    - REVISE — a pitch supersede or scope change must happen first. Pause
+      review; rerun after pitch is updated.
+    - REJECT — premises do not hold OR scope is fundamentally wrong.
+      Recommend going back to `/immutable:office-hours`.
+
+  prc.phase4.review_note_written: |
+    Review note written: `{path}`
+
+    Includes:
+    - Verdict + one-line rationale
+    - Phase 1F scope envelope (mode + approach)
+    - Section 1-11 highlights
+    - Phase 3 trigger candidates (pitch supersede, ADR authoring, transient)
+
+  prc.phase4.handoff_to_plan_review_eng: |
+    Verdict: {verdict}
+    Review note: `{path}`
+
+    {next_step_block}
+
+    Phase 3 trigger reminders:
+    {trigger_reminders}
+
+  prc.refuse.spec_only_repo: |
+    This directory is a spec-only repo (`repo_mode: two-repo-spec`).
+
+    plan-review runs in the implementation repo. Options:
+    - (A) cd into the implementation repo and rerun
+    - (B) If the spec repo was your intended target, `/immutable:prd` is the
+      right tool
+
+    Aborting.
+
+  prc.refuse.no_pitch: |
+    No pitch found to review.
+
+    Options:
+    - (A) Author a new pitch via `/immutable:prd`, then rerun
+    - (B) For refactor mode, run `/immutable:design` first in "refactor" mode
+      to write the transient note, then rerun
+    - (C) Abort
+
+  prc.warn.no_design_note: |
+    No design handoff note found at `{expected_path}`.
+
+    Running `/immutable:design` first captures app-side context cleanly. To
+    proceed without it, Phase 0 will need to gather that context manually.
+
+    - (A) Pause and run `/immutable:design`
+    - (B) Proceed without the note (Phase 0 grows)
+
+  prc.critical.one_issue_one_question: |
+    Reminder: surface one issue at a time. Batching multiple issues into a
+    single AskUserQuestion makes partial answers awkward and lets later
+    questions reference stale context.
+
+  # ==========================================================================
+  # plan-review-eng skill (v0.6.0)
+  # ==========================================================================
+
+  pre.phase0.mode_ceo_grounded: |
+    Mode: ceo-grounded.
+
+    CEO review note: `{ceo_note_path}` (verdict: APPROVE)
+    Scope envelope (Phase 1F): {scope_summary}
+    CEO Phase 3 trigger candidates: {trigger_summary}
+
+    Running the 4-section review + worktree analysis on top of this envelope.
+    Phase 0.3 scope check is skipped (CEO already handled it).
+
+  pre.phase0.ceo_missing_question: |
+    No CEO review note found (`{ceo_note_path}` is absent).
+
+    Options:
+    - (A) Proceed in standalone mode — eng review on its own, reading pitch +
+      ADRs directly. Suited for small tasks, clear-scope work, or sprints
+      focused on ADR authoring. The Phase 0.3 lightweight scope check is
+      activated.
+    - (B) Pause and run `/immutable:plan-review-ceo` first (recommended for
+      non-trivial work — the full scope challenge + 11-section review is
+      stronger)
+    - (C) Abort
+
+  pre.phase0.standalone_acknowledged: |
+    Mode: standalone.
+
+    Proceeding without a CEO review — eng review is the only review for this
+    work. Phase 0.3's lightweight scope check is mandatory (replaces the CEO's
+    nuclear scope challenge). Phase 3 ADR triggers have no CEO Phase 3 to
+    cross-reference, so every architecture decision the eng review surfaces
+    becomes a candidate.
+
+  pre.phase0.standalone_scope_check: |
+    Standalone scope check:
+      Files touched:                                      {files_touched}
+      New abstractions (services / classes / modules):    {new_abstractions}
+
+    Threshold: ≥ 8 files OR ≥ 2 new abstractions ⇒ heavier than the standalone
+    fast-path is intended for.
+    {smell_status}
+
+    {choice_block}
+
+  pre.phase0.late_changes: |
+    The branch has commits added AFTER the CEO review note was written:
+
+    {commits_since_ceo}
+
+    The CEO review didn't see these. The eng review will cover this delta too.
+
+  pre.phase2.skip_summary: |
+    Phase 2 (worktree analysis) skipped — reason: {reason}
+
+    The review note will record: "Sequential implementation, no parallelization
+    opportunity."
+
+  pre.phase2.dependency_table_template: |
+    Phase 2.2 dependency table:
+
+    | Step | Modules touched | Depends on |
+    |------|----------------|------------|
+    {rows}
+
+    Work at module / directory level (file-level guesses are unreliable).
+
+  pre.phase2.parallel_lanes_template: |
+    Phase 2.3 parallel lanes:
+
+    {lanes}
+
+    Steps touching the same module → same lane (sequential).
+    Independent modules + no dependency → separate lanes (parallel).
+
+  pre.phase2.execution_order_template: |
+    Phase 2.4 execution order:
+
+    {order_description}
+
+  pre.phase2.conflict_flag_template: |
+    ⚠️ Lane conflict: lanes {lane_a} and {lane_b} both touch module `{module}`.
+    Potential merge conflict — consider sequential execution or careful coordination.
+
+  pre.phase3.adr_recommendation: |
+    ADR authoring recommended: "{adr_title}"
+
+    Reason (Section {section}): {reason}
+
+    Action: in the app repo, run `/immutable:adr`. The ADR must reference
+    pitch `{pitch_filename}` (frontmatter `references.pitches: [{pitch_filename}]`).
+
+    If this ADR was already flagged in the CEO review's Phase 3, cross-reference
+    instead of duplicating.
+
+  pre.phase4.verdict_question: |
+    Phase 4 verdict (eng):
+
+    - APPROVE — implement → (if needed) `/immutable:adr` → `/immutable:ship`.
+      Phase 3 ADR triggers can be acted on before or during implementation.
+    - REVISE — code-level issues affect plan shape. Pause; rerun after the
+      plan is updated.
+    - REJECT — eng concerns require scope or approach change. Recommend
+      returning to plan-review-ceo or office-hours.
+
+  pre.phase4.review_note_written: |
+    Eng review note written: `{path}`
+
+    Contains:
+    - Verdict + one-line rationale
+    - Section 1-4 highlights
+    - Test Coverage Diagram (Section 3)
+    - Worktree Analysis (Phase 2 — or skip rationale)
+    - ADR-authoring candidates (Phase 3)
+    - Late-changes note (when commits arrived after the CEO review)
+
+  pre.phase4.handoff_to_ship: |
+    Verdict: APPROVE
+    Eng review note: `{path}`
+
+    Recommended implementation order:
+    1. If Phase 3 surfaced ADR triggers, run `/immutable:adr` first (or during
+       implementation)
+    2. Implement (use the Test Coverage Diagram as a checklist)
+    3. After all tests green, run `/immutable:ship`
+
+    ADR triggers surfaced in this review:
+    {adr_triggers}
+
+  pre.phase4.handoff_to_revise: |
+    Verdict: {verdict}
+    Eng review note: `{path}`
+
+    {next_step_description}
+
+    {recommendation}
+
+  pre.refuse.spec_only_repo: |
+    This directory is a spec-only repo (`repo_mode: two-repo-spec`).
+
+    plan-review-eng runs in the implementation repo. cd into the implementation
+    repo and rerun.
+
+    Aborting.
+
+  pre.refuse.ceo_not_approved: |
+    The CEO review (`{ceo_note_path}`) is in REVISE / REJECT state — eng review
+    cannot proceed.
+
+    Current state: {ceo_status}
+
+    The blockers the CEO surfaced (scope changes, pitch supersede, premise
+    flips, etc.) must be resolved before eng review is meaningful.
+
+    Options:
+    - (A) Address the CEO's issues, then rerun `/immutable:plan-review-ceo`
+      to obtain APPROVE (most common path)
+    - (B) If a pitch supersede is needed, run `/immutable:prd` in the spec
+      repo to supersede, then rerun CEO
+    - (C) Abort
+
+    Note: when the CEO review note is **missing entirely**, you can proceed
+    in standalone mode instead (Phase 0.1's ceo_missing_question handles
+    that branch). This refusal applies only when the note exists but the
+    verdict is REVISE / REJECT.
+
+  pre.refuse.no_pitch: |
+    No pitch found, and refactor mode was not opted into.
+
+    Standalone-mode eng review needs at least a pitch or a refactor context.
+
+    Options:
+    - (A) Author a new pitch via `/immutable:prd`, then rerun
+    - (B) For refactor mode, run `/immutable:design` first (pick the
+      "refactor" option in Step 1) to write the transient note, then rerun
+    - (C) Abort
+
+  # ==========================================================================
+  # ship skill (v0.6.0)
+  # ==========================================================================
+
+  ship.step1.mixed_concerns: |
+    Diff inspection: changes outside the pitch's area are included:
+
+    {unrelated_files}
+
+    Options:
+    - (A) Split into a separate commit / PR and rerun (recommended —
+      bisect-friendly)
+    - (B) Proceed (when a mixed PR is intentional)
+
+  ship.step2.hygiene_issues: |
+    Commit hygiene issues found:
+
+    {issues}
+
+    Options:
+    - (A) Run `git rebase -i` yourself to clean up, then rerun (recommended)
+    - (B) Proceed as-is — the issues will be flagged in the verdict
+
+    This skill does not run interactive git operations on your behalf.
+
+  ship.step3.notes_check: |
+    Review artifact verification:
+    - Design note:  {design_note_status}
+    - CEO note:     {ceo_note_status}
+    - Eng note:     {eng_note_status}
+    - Eng verdict:  {eng_verdict}
+
+    {action_hint}
+
+  ship.step4.build_passed: |
+    Build & test passed (project type: {project_types}).
+
+    Commands run:
+    {commands_run}
+
+    The Test plan section of the PR body is auto-populated from the eng
+    review's Test Coverage Diagram in Step 5.
+
+  ship.step4.tests_failing: |
+    🛑 Tests failing — PR creation aborted.
+
+    Failure summary:
+    {failure_output}
+
+    Fix the failures → commit → rerun `/immutable:ship`. This skill will
+    not create a PR with failing tests.
+
+  ship.step5.body_preview: |
+    PR body assembled. Preview:
+
+    Title: {title}
+
+    ---
+    {body}
+    ---
+
+    Options:
+    - (A) Create the PR as-is
+    - (B) Edit body — which section should change?
+    - (C) Cancel
+
+  ship.step6.confirm_create: |
+    Running `gh pr create` will open a PR on GitHub immediately (visible to
+    others). Proceed?
+
+    Title: {title}
+    Base:  {base_branch}
+    Head:  {head_branch}
+
+    - (A) Create
+    - (B) Edit body and re-preview
+    - (C) Cancel
+
+  ship.step6.pr_created: |
+    ✅ PR created: {pr_url}
+
+  ship.step7.cleanup_hint: |
+    PR created: {pr_url}
+
+    Recommended post-merge actions:
+    - Pull the merged commit on the base branch
+    - Delete the feature branch (local + remote)
+    - If implementation surfaced additional architecture decisions, run
+      `/immutable:adr` to record them
+    - Two-repo mode: if a pitch supersede is pending in the spec repo,
+      open that PR (chain ordering is not enforced — either order works)
+
+    This skill does not run cleanup commands automatically.
+
+  ship.refuse.spec_only_repo: |
+    This directory is a spec-only repo (`repo_mode: two-repo-spec`).
+
+    `/immutable:ship` runs in the implementation repo. Handle spec-repo PRs
+    via the regular GitHub web UI or `gh pr create` directly.
+
+    Aborting.
+
+  ship.refuse.eng_not_approved: |
+    The eng review is not in APPROVE state.
+
+    Path:   `{eng_note_path}`
+    Status: {eng_status}
+
+    Options:
+    - (A) Rerun `/immutable:plan-review-eng` and obtain APPROVE
+    - (B) Address the issues the review surfaced
+    - (C) Abort
+
+    `/immutable:ship` does not create a PR without eng APPROVE.
+
+  ship.refuse.dirty_tree: |
+    Working tree is not clean:
+
+    {git_status}
+
+    Options:
+    - (A) Commit the changes and rerun
+    - (B) Run `git stash` (reversible) and proceed
+    - (C) Abort
+
+  ship.refuse.protected_branch: |
+    The current branch `{branch}` is a protected branch (main / master / develop).
+
+    `/immutable:ship` runs from feature / fix / chore branches. Switch to a
+    working branch first: `git switch -c feat/<task-name>` and rerun.
+
+    Aborting.
