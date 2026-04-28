@@ -2,6 +2,40 @@
 
 All notable changes to the `immutable` plugin are documented in this file. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Version is canonically declared in `.claude-plugin/plugin.json`.
 
+## [0.6.0] — 2026-04-28
+
+Adds five new flow skills so the entire spec-driven development cycle runs from this plugin alone — no external harness required. Previously the SDD flow needed a local `~/.claude-dotfiles/claude/commands/sprint/` toolset (`office-hours`, `design`, `plan-review`, `plan-review-ceo`, `plan-review-eng`, `ship`); v0.6.0 absorbs the immutable-prd-mode behavior of those skills into the plugin so `claude plugin install immutable` is the single setup step on any machine.
+
+### Added
+
+- **`/immutable:office-hours`** — heaviest context-gather skill in the flow. Forces premise challenge plus three implementation alternatives (Minimal / Ideal / Creative) before any approach is chosen. Output is a transient design-doc note at `.claude/immutable/office-hours/{slug}.md` that `/immutable:prd` consumes during Stage 1.5 Context Intake. Refuses to write code; writes only the one transient note.
+- **`/immutable:design`** — lightweight bridge between pitch authoring and review. Confirms which pitch the implementation work targets, captures the app-side context the pitch couldn't include (activation status, dependent features, module placement), and writes a transient handoff note at `.claude/immutable/design/{slug}.md`. Does NOT generate a design artifact — the pitch is the design artifact in immutable-prd mode.
+- **`/immutable:plan-review-ceo`** — scope challenge + 11-section adversarial review of pitch + linked ADRs + design handoff. Phase 0 nuclear scope challenge (premise / existing-code leverage / dream-state / **mandatory alternatives** / mode selection). Phase 2 walks 11 sections (Architecture / Error & Rescue Map / Security / Data Flow / Code Quality / Test / Performance / Observability / Deployment / Long-Term / UX). Phase 3 surfaces pitch-supersede candidates and ADR-authoring candidates. Outputs `.claude/immutable/plan-review/{slug}-ceo.md` with verdict.
+- **`/immutable:plan-review-eng`** — engineering-perspective review with two-mode routing. **`ceo-grounded`** when `/immutable:plan-review-ceo` ran first and APPROVED — consumes the CEO scope envelope and Phase 3 trigger list, skips the lightweight scope check. **`standalone`** when no CEO note exists — runs a built-in lightweight scope check (Phase 0.3) and surfaces every architecture decision as an ADR candidate (no CEO Phase 3 to cross-reference). Standalone mode supports the small-task / quick-ADR path where the full CEO review is overkill. Refuses with structured options when CEO note exists in REVISE / REJECT state. Walks 4 sections (Architecture-eng / Code Quality / Test Coverage Diagram / Performance) and runs a worktree parallelization analysis. Outputs `.claude/immutable/plan-review/{slug}-eng.md` recording the mode + verdict.
+- **`/immutable:ship`** — final step, intentionally **minimum-viable**. Runs pre-ship checklist (branch sanity, commit hygiene), verifies review artifacts (ENG note must be APPROVE), runs build + test for the auto-detected project type (Flutter / iOS / Node / Python / Rust / Go), composes a PR body that auto-includes pitch path + linked ADRs + Test Coverage Diagram + deferred items from CEO Phase 3, and runs `gh pr create` after explicit user confirmation. Does NOT integrate cross-session learnings capture or harness policy enforcement — teams running an external harness with a richer ship skill (e.g., gstack `/sprint:ship`) may prefer that. Both skills coexist without conflict (different slash namespaces); see `immutable/README.md` "Ship positioning" for the routing rules.
+- **`scripts/sdd_mode_detect.sh`** — sourceable bash script consolidating the SDD-mode detection logic (walk-up → explicit pointer → sibling-suffix → cross-pair resolution via `spec_repo_path:` and reverse-config scan). Replaces ~200 lines of duplicated detection in each flow skill. Exports `SDD_MODE`, `IMMUTABLE_PRD_CONFIG`, `IMMUTABLE_PRD_SPEC_CONFIG`, `IMMUTABLE_PRD_APP_CONFIG`, `IMMUTABLE_PRD_REPO_MODE`, `SDD_AMBIGUITY_FLAG` into the caller's shell.
+- **`.claude/immutable/` transient artifact namespace**. Five flow skills write notes here for cross-skill handoff. Gitignored by the init starter (all 6 starter directories now ship a `.gitignore` containing the line). Manually-bootstrapped repos see `common.transient_namespace_hint` on first write.
+- **79 new strings catalog keys** across `strings.ko.yml` and `strings.en.yml` (parity-strict): 5 shared `common.*`, 17 `oh.*`, 10 `design.*`, 21 `prc.*`, 18 `pre.*` (covers the dual-mode routing — ceo-grounded / ceo-missing / ceo-blocked / standalone), 13 `ship.*`. `strings.ja.yml` continues to fall back to `en` per existing convention.
+- **3 new SCHEMA.md sections**: "7-step SDD flow", "Transient artifact namespace", "scripts/sdd_mode_detect.sh helper".
+- **Progressive disclosure pattern** for new flow skills: SKILL.md kept under ~500 lines; detailed reference (review sections, rubrics, output templates) lives in supporting files (`sections.md`, `nuclear-scope-rubric.md`, `templates/*.md`) that the skill instructs Claude to read at the right moment. Existing skills (`prd`, `adr`, `init`, `migrate`) are unchanged in this release; their refactor to the same pattern is deferred to a future minor.
+
+### Changed
+
+- **`README.md` (immutable/) skill table** lists nine skills (was four). The "What v0.6.0 changed" section is added; the existing "What v0.5 changed" section is preserved for archival reference.
+- **All 6 init starter directories** (`spec-{ko,en}`, `app-{ko,en}`, `single-{ko,en}`) gain a `.gitignore` containing `.claude/immutable/`. Previously these starters had no `.gitignore`, so v0.6.0 transient notes would have been visible to git.
+
+### Removed
+
+- Nothing. v0.6.0 is fully backward-compatible with v0.5.x — existing skills, configs, profiles, and starters work without any change.
+
+### Backward compatibility
+
+- **Existing v0.5.x repos** can use the new flow skills immediately on install. No config bump or migration is required.
+- **`/immutable:prd`, `/immutable:adr`, `/immutable:init`, `/immutable:migrate`** — behavior is unchanged. The validator (`scripts/validate_docs.py`) is unchanged.
+- **Repos manually bootstrapped before v0.6.0** must add `.claude/immutable/` to their `.gitignore` themselves. The flow skills surface a one-line hint on first write.
+- **Legacy mode** — the new flow skills require `.immutable-prd/config.yml` and refuse with a structured message otherwise (suggesting `/immutable:init`). v0.5.x didn't have flow skills, so this is not a regression.
+- **No `~/.claude-dotfiles/` dependency.** The new skills do not call `policy-resolve.sh`, `learnings.sh`, or any other gstack helper. Users keeping a local gstack harness alongside v0.6.0 see no conflict — the layers are now disjoint.
+
 ## [0.5.8] — 2026-04-24
 
 Restructures `/immutable:migrate` Stage 5 from per-version recipes to a universal structural diff algorithm. Motivated by a v0.5.7 dogfood gap report (peer e4185825): the v1→v2 recipe omitted `sections[user_stories].structure: per_story_grouped` because the SKILL.md author manually enumerated additions and missed one. Recipes are case-by-case patches by nature — every new field added in a future plugin version requires another SKILL.md update, with the same risk of omission. v0.5.8 eliminates that class of bug structurally.

@@ -1,0 +1,5 @@
+# Transient artifacts written by immutable-plugin v0.6.0+ flow skills.
+# Office-hours notes, design handoff notes, and plan-review notes live here.
+# These are intentionally NOT committed — the canonical SDD artifacts are
+# pitches/ and (when present) adr/.
+.claude/immutable/

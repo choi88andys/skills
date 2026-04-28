@@ -661,3 +661,723 @@ strings:
   common.separator.list_comma: ", "
 
   common.fallback_warning: "⚠️ strings fallback: `{key}` missing in strings.{requested_locale}.yml — using strings.en.yml"
+
+  # --------------------------------------------------------------------------
+  # Shared keys for v0.6.0+ flow skills (office-hours, design, plan-review-*,
+  # ship). Each new skill calls into these for cross-cutting concerns:
+  # legacy-mode refusal, protected-branch warning, transient-artifact hints.
+  # --------------------------------------------------------------------------
+
+  common.refuse_legacy_mode: |
+    이 디렉토리는 immutable SDD 레포가 아닙니다 (`.immutable-prd/config.yml` 미발견).
+
+    `/immutable:office-hours` `/immutable:design` `/immutable:plan-review-ceo` `/immutable:plan-review-eng` `/immutable:ship`
+    스킬은 immutable-prd 모드 전용입니다.
+
+    옵션:
+    - 새 immutable SDD 레포로 부트스트랩: `/immutable:init`
+    - 기존 spec/app 레포에서 호출: 해당 레포 디렉토리로 이동 후 다시 실행
+    - 비표준 레이아웃: `.claude/sdd-mode` 포인터 파일 작성 (자세한 형식은 SCHEMA.md 참조)
+
+    작업을 중단합니다.
+
+  common.protected_branch_warn: |
+    ⚠️ 현재 브랜치 `{branch}`는 보호 브랜치(main / master / develop)일 가능성이 큽니다.
+    이 스킬이 transient artifact를 디스크에 쓸 때 보호 브랜치에 직접 변경이 들어가지 않도록 주의하세요.
+    팀 정책상 보호 브랜치 직접 작업이 금지된다면 작업용 브랜치로 먼저 분기하세요:
+        git switch -c feat/<your-task-name>
+
+  common.transient_namespace_hint: |
+    이 스킬은 `.claude/immutable/` 아래에 transient note를 작성합니다.
+    이 디렉토리는 init starter의 .gitignore에 포함되어 있어 git에 커밋되지 않습니다.
+    수동 부트스트랩 레포라면 `.gitignore`에 `.claude/immutable/` 한 줄을 추가하세요.
+
+  common.handoff.next_skill: "다음 단계: `{next_skill}` 호출"
+
+  # ==========================================================================
+  # office-hours skill (v0.6.0)
+  # ==========================================================================
+
+  oh.phase1.mode_question: |
+    시작하기 전에 — 이번 작업의 성격이 무엇인가요?
+
+    (1) New feature for users — 사용자 노출 기능, 실제 사용자가 있는 변경
+    (2) Internal tooling / DX — 팀 내부용 도구
+    (3) Refactor / cleanup — 아키텍처 정리, 사용자 비가시
+    (4) Exploration / spike — 학습용 탐색, 구현 약속 X
+
+    번호로 선택해주세요.
+
+  oh.phase1.context_summary_template: |
+    이 프로젝트와 변경하려는 영역에 대해 제가 파악한 내용:
+
+    {summary}
+
+    위 요약이 정확합니까? (Y) 진행 | (N) 보충 설명
+
+  oh.phase2.premise_challenge_intro: |
+    구체적인 접근법을 제안하기 전에, 사용자의 framing이 가정하고 있는 premise들을
+    먼저 동의받겠습니다. 한 premise씩 검토하면서 동의 여부를 확인해주세요.
+
+    PREMISES:
+    {numbered_premises}
+
+  oh.phase2.premise_question_template: |
+    Premise {number}: {statement}
+
+    이 premise에 동의하십니까?
+    - (A) 동의 — 다음 premise로
+    - (B) 동의하지 않음 — 어떻게 다른지 알려주세요
+    - (C) 일부만 동의 — 수정안 제안
+
+  oh.phase2.premises_locked: |
+    Premises 모두 확정. 이제 Phase 3 (3개 대안 생성)로 진행합니다.
+
+  oh.phase3.alternatives_intro: |
+    이제 3가지 구현 접근법을 생성합니다. **non-negotiable**: A (Minimal viable)
+    + B (Ideal architecture) + C (Creative / lateral) 모두 필요.
+    C가 진정으로 다른 framing이 안 나오면 명시적으로 "C를 생성할 수 없는 이유"를
+    출력합니다 — 가짜 옵션을 만들지 않습니다.
+
+    Phase 3 작성 가이드 (Minimal/Ideal/Creative 슬롯의 의미, 흔한 실패, 작성 예시)는
+    `${{CLAUDE_PLUGIN_ROOT}}/office-hours/premise-rubric.md` 에 있습니다.
+    지금 그 파일을 읽고 진행하세요.
+
+  oh.phase3.approach_template: |
+    APPROACH {letter}: {name}
+      Summary: {summary}
+      Effort:  {effort}
+      Risk:    {risk}
+      Pros:    {pros}
+      Cons:    {cons}
+      Reuses:  {reuses}
+
+  oh.phase3.recommendation_template: |
+    RECOMMENDATION: Approach {letter} because {one_line_reason}.
+
+  oh.phase3.choice_question: |
+    어떤 접근법으로 진행할까요?
+    - (A) 추천된 접근법 승인 — Phase 4로
+    - (B) 다른 접근법 선택 — 어느 것?
+    - (C) 재생성 — framing이 바뀌었거나 새 옵션을 원함
+    - (D) 어느 것도 마음에 안 듦 — Phase 1로 돌아가서 다시 시작
+
+  oh.phase4.design_doc_path_announce: "Design doc 출력 경로: `{path}`"
+
+  oh.phase4.design_doc_written: |
+    Design doc 작성 완료: `{path}`
+
+    이 파일은 transient note (`.claude/immutable/` 네임스페이스, .gitignore 적용)
+    로, 다음 단계 `/immutable:prd` 의 Stage 1.5 Context Intake 입력으로 사용됩니다.
+
+  oh.phase5.handoff_immutable_prd_single: |
+    Single-repo 모드 (감지된 config: `{config_path}`)
+
+    다음 단계: 같은 디렉토리에서 `/immutable:prd` 호출.
+    이 design doc 경로를 Stage 1.5 Context Intake 첨부로 사용:
+      `{design_doc_path}`
+
+  oh.phase5.handoff_immutable_prd_two_repo: |
+    Two-repo 모드 (이 디렉토리: `{primary_role}`)
+
+    다음 단계: spec repo로 이동해서 `/immutable:prd` 호출.
+      Spec repo path: `{spec_repo_path}`
+      Spec config:    `{spec_config_path}`
+
+    이 design doc 경로를 Stage 1.5 Context Intake 첨부로 사용:
+      `{design_doc_path}`
+
+    spec repo가 별도 git repo이므로 design doc 자체는 spec repo로 복사할 필요
+    없습니다 — `/immutable:prd` 가 직접 이 경로를 읽습니다.
+
+  oh.completion.done: |
+    ✅ DONE — design doc 작성 완료, Approach {chosen_letter} 승인됨.
+
+  oh.completion.done_with_questions: |
+    ⚠️  DONE_WITH_QUESTIONS — design doc 작성 완료, 단 Open Questions 섹션이 비어있지
+    않습니다. 다음 `/immutable:prd` Stage 1.5 에서 해소하세요:
+
+    {open_questions}
+
+  oh.completion.needs_context: |
+    🛑 NEEDS_CONTEXT — Phase 2 premises 중 답변되지 않은 항목이 있어 design doc을
+    작성하지 않았습니다. 미해결 premise:
+
+    {unresolved}
+
+    충분한 context를 갖춘 후 `/immutable:office-hours` 를 다시 호출하세요.
+
+  oh.refuse.write_during_oh: |
+    `/immutable:office-hours` 동안에는 코드를 작성하지 않습니다. 이 스킬은 transient
+    design doc 한 개만 작성합니다 (`.claude/immutable/office-hours/`).
+
+    구현은 다음 단계 (`/immutable:prd` → `/immutable:design` → `/immutable:plan-review-ceo`
+    → `/immutable:plan-review-eng` → `/immutable:adr` → `/immutable:ship`) 에서
+    진행됩니다.
+
+  # ==========================================================================
+  # design skill (v0.6.0)
+  # ==========================================================================
+
+  design.step1.pitch_picker_question: |
+    어느 pitch 를 구현 중인가요? 현재 활성 pitch 목록:
+
+    {pitch_list}
+
+    번호 또는 path 로 선택해주세요. pitch 가 없는 작업 (refactor, infra)이면
+    "refactor" 라고 입력하세요.
+
+  design.step1.pitch_confirmation: |
+    선택된 pitch: `{pitch_path}` (`domain: {pitch_domain}`)
+
+    Pitch 요약:
+    {pitch_summary}
+
+    이 pitch 가 이번 작업에 맞습니까?
+    - (Y) 진행
+    - (N) 다른 pitch 선택
+    - (S) Pitch 가 stale 함 — `/immutable:prd` 로 supersede 후 다시 호출
+
+  design.step1.no_pitches_found: |
+    `{pitches_dir}` 에 활성 pitch 가 없습니다.
+
+    옵션:
+    - (A) `/immutable:prd` 로 새 pitch 작성 후 다시 호출
+    - (B) Refactor 모드로 진행 — pitch 없이 구현 (내부 작업, infra 변경 등)
+    - (C) 작업 중단
+
+  design.step1.refactor_mode_acknowledged: |
+    Refactor 모드 — pitch 없이 진행. 이 transient 노트는 plan-review-ceo 가 읽되
+    pitch-grounded 질문은 건너뜁니다.
+
+  design.step3.activation_question: |
+    Activation 정보를 확인하겠습니다 (pitch 의 Open UX questions 섹션이 비어있다면 답변 필수):
+
+    1. 어느 버전 / 언제부터 end user 에게 노출됩니까?
+    2. 출시 전 어떤 hidden path 또는 feature flag 로 접근 가능합니까? (정확한 식별자)
+    3. Live 전환 조건은 무엇입니까? (metric / approval / 일정)
+
+  design.step3.dependencies_question: |
+    Dependent features:
+
+    1. 같은 데이터 / 화면 / 서비스를 사용하는 다른 feature 가 있습니까?
+    2. 그 중 다른 브랜치에서 개발 중인 것이 있습니까?
+    3. 이 작업이 다른 feature 의 ship 일정을 막거나 / 막힙니까?
+
+  design.step3.module_question: |
+    Module 배치:
+
+    1. 어느 module / package 가 이 작업을 소유합니까? (구체적: `lib/cart/` 식)
+    2. Pitch 가 surface 하지 않는 cross-module 의존성이 있습니까?
+    3. 새 module 을 만들어야 합니까? 그렇다면 boundary contract 는?
+
+  design.step4.note_written: |
+    Design handoff note 작성 완료: `{path}`
+
+    이 노트는 다음 단계 (`/immutable:plan-review-ceo`) 가 pitch + ADRs 외에 추가로
+    참조하는 transient context 입니다. .claude/immutable/ 네임스페이스라 git 에는
+    커밋되지 않습니다.
+
+  design.step4.handoff_to_plan_review_ceo: |
+    다음 단계: `/immutable:plan-review-ceo`
+
+    리뷰 대상:
+    - Pitch:        `{pitch_path}` (spec repo)
+    - ADRs:         pitch 에 연결된 active ADRs (plan-review-ceo 가 자동 탐색)
+    - Design note:  `{handoff_note_path}` (이 단계의 출력)
+
+    Mode: `{repo_mode}` — {mode_specific_hint}
+
+  design.refuse.spec_only_repo: |
+    이 디렉토리는 spec-only 레포 (`repo_mode: two-repo-spec`) 입니다.
+
+    `/immutable:design` 은 implementation repo 에서 호출하는 스킬입니다 (pitch 가
+    이미 spec repo 에 작성되어 있는 상황). 옵션:
+
+    - (A) Implementation repo (보통 sibling `*-app`) 로 이동 후 다시 호출
+    - (B) Spec repo 작업 자체가 의도였다면 `/immutable:prd` 가 맞는 도구입니다
+
+    작업을 중단합니다.
+
+  # ==========================================================================
+  # plan-review-ceo skill (v0.6.0)
+  # ==========================================================================
+
+  prc.phase0.target_pitch_question: |
+    리뷰 대상 pitch 를 선택하세요. 활성 pitch 목록 (spec repo: `{spec_root}`):
+
+    {pitch_list}
+
+    번호 또는 path 로 선택. Refactor 모드 (pitch 없음)면 "refactor" 입력.
+
+  prc.phase0.system_audit_summary: |
+    System audit:
+    - In-flight work: {in_flight}
+    - Open PRs:       {open_prs}
+    - Pain points:    {pain_points}
+    - TODO/FIXME hotspots: {todo_hotspots}
+
+    이 plan 이 touch 할 영역에 위 항목 중 충돌하는 것이 있다면 Phase 1 에서
+    먼저 surface 합니다.
+
+  prc.phase0.landscape_findings: |
+    Landscape check (Phase 0.5 — scope expansion considered):
+    - [Layer 1] tried-and-true: {layer1}
+    - [Layer 2] popular practice: {layer2}
+    - [Layer 3] first principles: {layer3}
+    {eureka_block}
+
+  prc.phase1.scope_locked: |
+    Phase 1F decision 확정:
+      Mode:      {mode}
+      Approach:  {approach_letter} ({approach_name})
+
+    Confirmed scope:
+    {in_scope}
+
+    Out of scope (deferred or rejected):
+    {out_of_scope}
+
+    Triggers for downstream phases:
+    - Pitch supersede candidate: {pitch_trigger}
+    - ADR-authoring candidate:    {adr_trigger}
+
+    이 envelope 는 Phase 2 (11 sections) 동안 변경되지 않습니다.
+
+  prc.phase1.alternatives_required: |
+    1C-bis 는 mandatory 입니다. 최소 2개 (가능하면 3개) 의 distinct 한
+    implementation approach 가 비교되어야 mode selection (1F) 으로 갈 수 있습니다.
+    1개 alternative 만 가능한 진짜 이유가 있다면 명시적으로 surface 하세요.
+
+  prc.phase1.premise_list: |
+    PREMISES (현재 plan 이 가정하는 것들):
+    {numbered_premises}
+
+    각 premise 를 한 번에 하나씩 검증합니다. design handoff note 또는 pitch 의
+    "Premises" 섹션이 있다면 동일한 premise 를 카피해서 시작합니다.
+
+  prc.phase1.exit_to_office_hours: |
+    문제 정의가 이번 세션 안에 안정되지 않는 것 같습니다 (premise 가 흐트러지거나
+    framing 이 자주 바뀌고 있음). 이건 `/immutable:office-hours` 가 다루는 영역입니다.
+
+    옵션:
+    - (A) 지금 office-hours 실행 후 돌아오기
+    - (B) 그냥 진행 (리뷰가 얕아질 수 있음)
+
+  prc.phase1.dream_state_template: |
+    CURRENT STATE         THIS PLAN              12-MONTH IDEAL
+    {current}    --->     {delta}        --->    {target}
+
+  prc.phase1.mode_selection: |
+    Mode 선택 (1F):
+
+    1. SCOPE EXPANSION — plan 이 좋지만 더 좋아질 수 있음. 야심 있게.
+       각 expansion 은 cherry-pick ceremony 로 개별 opt-in.
+    2. SELECTIVE EXPANSION — scope 는 baseline. 가능한 cherry-pick 만 surface.
+       neutral 추천.
+    3. HOLD SCOPE — scope 가 정확함. 최대 rigor 로 리뷰. expansion 안 봄.
+    4. SCOPE REDUCTION — plan 이 overbuilt. minimal 버전 제안 후 그것을 리뷰.
+
+    추천 default: {default_mode} ({reason})
+
+  prc.phase2.section_intro_template: |
+    --- Section {n}: {section_name} ---
+    {section_objective}
+
+    이 섹션이 cover 하는 영역:
+    {scope_bullets}
+
+    Issue 는 한 번에 하나씩 surface. 모두 해결되면 다음 섹션으로 진행.
+
+  prc.phase2.section_no_issues: "Section {n}: {section_name} — No issues found."
+
+  prc.phase3.trigger_summary: |
+    Phase 3 trigger summary:
+
+    Pitch supersede candidates ({pitch_count}):
+    {pitch_candidates}
+
+    ADR-authoring candidates ({adr_count}):
+    {adr_candidates}
+
+    Transient note only ({minor_count}):
+    {minor_notes}
+
+  prc.phase3.pitch_supersede_recommendation: |
+    Pitch supersede 권장: `{pitch_path}`
+
+    원인: {reason}
+
+    실행: spec repo 로 이동 → `/immutable:prd` → `pitches/{domain}/` 에 새 파일
+    append (frontmatter `supersedes: {old_filename}` 포함). 이 PR 과 별도의
+    spec-repo PR 로 처리.
+
+  prc.phase3.adr_authoring_recommendation: |
+    ADR 작성 권장: 결정 = "{decision_summary}"
+
+    원인: {reason}
+
+    실행: app repo 에서 `/immutable:adr` → `adr/` 에 새 ADR append (frontmatter
+    `references.pitches: [{pitch_filename}]` 로 이 pitch 와 연결). 이 PR 에 같이
+    포함하거나 별도 PR 로 처리 (팀 컨벤션).
+
+  prc.phase4.verdict_question: |
+    Phase 4 verdict:
+
+    - APPROVE — 다음 단계 (`/immutable:plan-review-eng`) 로 진행. Phase 3 trigger
+      는 병렬로 처리 가능 (pitch supersede 는 spec repo PR 이라 app repo 진행을
+      막지 않음).
+    - REVISE — pitch supersede 또는 scope 변경이 선행되어야 함. 리뷰 일시정지,
+      pitch 갱신 후 재호출.
+    - REJECT — premises 가 holds 안 함 또는 scope 가 근본적으로 잘못됨.
+      `/immutable:office-hours` 부터 다시.
+
+  prc.phase4.review_note_written: |
+    Review note 작성 완료: `{path}`
+
+    이 노트에는 다음이 포함됩니다:
+    - Verdict + 한 줄 rationale
+    - Phase 1F scope envelope (mode + approach)
+    - Section 1-11 highlights
+    - Phase 3 trigger 후보 (pitch supersede, ADR authoring, transient)
+
+  prc.phase4.handoff_to_plan_review_eng: |
+    Verdict: {verdict}
+    Review note: `{path}`
+
+    {next_step_block}
+
+    Phase 3 trigger reminders:
+    {trigger_reminders}
+
+  prc.refuse.spec_only_repo: |
+    이 디렉토리는 spec-only 레포 (`repo_mode: two-repo-spec`) 입니다.
+
+    plan-review 는 implementation repo 에서 호출하는 스킬입니다. 옵션:
+    - (A) Implementation repo 로 이동 후 다시 호출
+    - (B) spec repo 작업이 의도였다면 `/immutable:prd` 가 맞는 도구
+
+    작업을 중단합니다.
+
+  prc.refuse.no_pitch: |
+    리뷰 대상 pitch 를 찾지 못했습니다.
+
+    옵션:
+    - (A) `/immutable:prd` 로 새 pitch 작성 후 다시 호출
+    - (B) Refactor 모드로 진행하려면 먼저 `/immutable:design` 을 호출해서
+      "refactor" 모드로 transient 노트를 만들고 돌아오세요
+    - (C) 작업 중단
+
+  prc.warn.no_design_note: |
+    Design handoff note (`{expected_path}`) 가 없습니다.
+
+    `/immutable:design` 을 먼저 실행하면 app-side context 가 깔끔하게 정리됩니다.
+    그래도 진행하려면 Phase 0 에서 직접 context 를 capture 해야 합니다.
+
+    - (A) 일시정지하고 `/immutable:design` 실행
+    - (B) Design note 없이 진행 (Phase 0 가 길어짐)
+
+  prc.critical.one_issue_one_question: |
+    Reminder: issue 는 한 번에 하나만 surface 합니다. 여러 issue 를 한 AskUserQuestion
+    에 묶으면 user 가 부분만 답하기 어렵고, 후속 question 들이 stale 한 context 를
+    참조하게 됩니다.
+
+  # ==========================================================================
+  # plan-review-eng skill (v0.6.0)
+  # ==========================================================================
+
+  pre.phase0.mode_ceo_grounded: |
+    Mode: ceo-grounded.
+
+    CEO 리뷰 노트: `{ceo_note_path}` (verdict: APPROVE)
+    Scope envelope (Phase 1F): {scope_summary}
+    CEO Phase 3 trigger 후보: {trigger_summary}
+
+    이 envelope 위에서 4 sections 리뷰 + worktree analysis 진행. Phase 0.3 scope
+    check 는 skip (CEO 가 이미 처리).
+
+  pre.phase0.ceo_missing_question: |
+    CEO 리뷰 노트가 발견되지 않았습니다 (`{ceo_note_path}` 부재).
+
+    옵션:
+    - (A) Standalone 모드로 진행 — eng 리뷰 단독으로 pitch + ADRs 를 리뷰. 작은
+      task, scope 가 명확한 경우, 또는 ADR 작성 중심 sprint 에 적합. Phase 0.3
+      lightweight scope check 가 활성화됩니다.
+    - (B) 일시정지하고 `/immutable:plan-review-ceo` 먼저 실행 (non-trivial work
+      에는 권장 — scope 도전 + 11 sections 리뷰가 더 강력)
+    - (C) 작업 중단
+
+  pre.phase0.standalone_acknowledged: |
+    Mode: standalone.
+
+    CEO 리뷰 없이 진행 — eng 리뷰가 이 작업의 유일한 리뷰입니다. Phase 0.3 의
+    lightweight scope check 가 mandatory 로 동작 (CEO 의 nuclear scope challenge
+    대신). Phase 3 ADR trigger 도 cross-reference 할 CEO Phase 3 가 없으니, eng
+    가 발견한 architecture 결정은 모두 surface 합니다.
+
+  pre.phase0.standalone_scope_check: |
+    Standalone scope check:
+      Files touched: {files_touched}
+      New abstractions (services/classes/modules): {new_abstractions}
+
+    Threshold: ≥ 8 files OR ≥ 2 new abstractions = standalone fast-path 보다 큼.
+    {smell_status}
+
+    {choice_block}
+
+  pre.phase0.late_changes: |
+    이 브랜치에 CEO 리뷰 노트 작성 이후 추가 commit 이 있습니다:
+
+    {commits_since_ceo}
+
+    CEO 리뷰가 보지 못한 변경입니다. eng 리뷰는 이 delta 도 cover 합니다.
+
+  pre.phase2.skip_summary: |
+    Phase 2 (worktree analysis) skip — 이유: {reason}
+
+    노트에는 "Sequential implementation, no parallelization opportunity." 로 기록.
+
+  pre.phase2.dependency_table_template: |
+    Phase 2.2 dependency table:
+
+    | Step | Modules touched | Depends on |
+    |------|----------------|------------|
+    {rows}
+
+    Module / directory 레벨로 작성 (file 단위 추측은 unreliable).
+
+  pre.phase2.parallel_lanes_template: |
+    Phase 2.3 parallel lanes:
+
+    {lanes}
+
+    동일 module 을 touch 하는 step 은 같은 lane (sequential).
+    독립 module + 의존성 없으면 별도 lane (parallel).
+
+  pre.phase2.execution_order_template: |
+    Phase 2.4 execution order:
+
+    {order_description}
+
+  pre.phase2.conflict_flag_template: |
+    ⚠️ Lane conflict: lanes {lane_a} 와 {lane_b} 모두 module `{module}` 을 touch.
+    Merge conflict 위험. sequential 실행 또는 careful coordination 필요.
+
+  pre.phase3.adr_recommendation: |
+    ADR 작성 권장: "{adr_title}"
+
+    원인 (Section {section}): {reason}
+
+    실행: app repo 에서 `/immutable:adr`. 이 ADR 은 pitch `{pitch_filename}` 을
+    참조해야 합니다 (frontmatter `references.pitches: [{pitch_filename}]`).
+
+    CEO 리뷰 Phase 3 에서 이미 flag 된 ADR 후보와 중복되면 cross-reference 만 남기고
+    중복 surface 하지 마세요.
+
+  pre.phase4.verdict_question: |
+    Phase 4 verdict (eng):
+
+    - APPROVE — 구현 → (필요하면) `/immutable:adr` → `/immutable:ship`. Phase 3
+      ADR trigger 는 구현 전/중에 처리.
+    - REVISE — code-level issue 가 plan 의 shape 에 영향. 일시정지, plan 갱신 후 재호출.
+    - REJECT — engineering 차원에서 scope 또는 approach 가 변경되어야 함. CEO 리뷰
+      또는 office-hours 로 돌아가기 권장.
+
+  pre.phase4.review_note_written: |
+    Eng review note 작성 완료: `{path}`
+
+    포함:
+    - Verdict + 한 줄 rationale
+    - Section 1-4 highlights
+    - Test Coverage Diagram (Section 3)
+    - Worktree Analysis (Phase 2 — 또는 skip rationale)
+    - ADR-authoring candidates (Phase 3)
+    - Late-changes note (CEO 리뷰 이후 commit 이 있다면)
+
+  pre.phase4.handoff_to_ship: |
+    Verdict: APPROVE
+    Eng review note: `{path}`
+
+    구현 권장 순서:
+    1. Phase 3 ADR trigger 가 있으면 먼저 `/immutable:adr` 호출 (또는 구현 도중)
+    2. 구현 진행 (Test Coverage Diagram 을 checklist 로 사용)
+    3. 모든 테스트 green 후 `/immutable:ship` 호출
+
+    ADR triggers (이번 리뷰에서 surface 됨):
+    {adr_triggers}
+
+  pre.phase4.handoff_to_revise: |
+    Verdict: {verdict}
+    Eng review note: `{path}`
+
+    {next_step_description}
+
+    {recommendation}
+
+  pre.refuse.spec_only_repo: |
+    이 디렉토리는 spec-only 레포 (`repo_mode: two-repo-spec`) 입니다.
+
+    plan-review-eng 는 implementation repo 에서 호출하는 스킬입니다.
+    Implementation repo 로 이동 후 다시 호출하세요.
+
+    작업을 중단합니다.
+
+  pre.refuse.ceo_not_approved: |
+    CEO 리뷰 ({ceo_note_path}) 가 REVISE / REJECT 상태입니다 — eng 리뷰 진행 불가.
+
+    현재 상태: {ceo_status}
+
+    CEO 가 이미 surface 한 blocker (scope 변경, pitch supersede, premise flip 등)
+    가 해결되기 전엔 eng 리뷰가 의미가 없습니다. 옵션:
+
+    - (A) CEO 리뷰의 issue 를 먼저 해결 후 `/immutable:plan-review-ceo` 다시 실행
+      해서 APPROVE 받기 (가장 일반적)
+    - (B) Pitch supersede 가 필요하다면 spec repo 에서 `/immutable:prd` 로 supersede
+      한 후 CEO 부터 재실행
+    - (C) 작업 중단
+
+    참고: CEO 리뷰 노트 자체가 "없는" 경우엔 standalone 모드로 진행 가능 (Phase
+    0.1 의 ceo_missing_question 분기 참조). 이 refusal 은 노트가 있되 verdict 가
+    안 좋은 케이스 전용입니다.
+
+  pre.refuse.no_pitch: |
+    Pitch 를 찾지 못했고, refactor 모드도 활성화되지 않았습니다.
+
+    Standalone 모드 eng 리뷰는 최소한 pitch 또는 refactor 컨텍스트가 필요합니다.
+
+    옵션:
+    - (A) `/immutable:prd` 로 새 pitch 작성 후 다시 호출
+    - (B) Refactor 모드를 의도했다면 `/immutable:design` 을 먼저 호출 (Step 1 의
+      "refactor" 옵션 선택) 해서 transient note 를 만들고 재호출
+    - (C) 작업 중단
+
+  # ==========================================================================
+  # ship skill (v0.6.0)
+  # ==========================================================================
+
+  ship.step1.mixed_concerns: |
+    Diff 검사 결과: pitch 가 다루는 영역 외의 변경이 포함되어 있습니다:
+
+    {unrelated_files}
+
+    옵션:
+    - (A) 별도 commit / PR 로 분리 후 다시 호출 (권장 — bisect-friendly)
+    - (B) 그냥 진행 (mixed PR 가 의도된 경우)
+
+  ship.step2.hygiene_issues: |
+    Commit hygiene 이슈 발견:
+
+    {issues}
+
+    옵션:
+    - (A) `git rebase -i` 로 직접 정리 후 다시 호출 (권장)
+    - (B) 그대로 진행 — 이 이슈는 verdict 에 flag 됨
+
+    이 스킬은 interactive git 작업을 대신 실행하지 않습니다.
+
+  ship.step3.notes_check: |
+    리뷰 artifact 검증:
+    - Design note:  {design_note_status}
+    - CEO note:     {ceo_note_status}
+    - Eng note:     {eng_note_status}
+    - Eng verdict:  {eng_verdict}
+
+    {action_hint}
+
+  ship.step4.build_passed: |
+    Build & test 통과 (project type: {project_types}).
+
+    실행한 명령:
+    {commands_run}
+
+    Test plan 은 eng review 의 Test Coverage Diagram 에서 가져옵니다 — Step 5 PR
+    body 의 Test plan 섹션에 자동 포함.
+
+  ship.step4.tests_failing: |
+    🛑 Tests failing — PR 작성 중단.
+
+    Failure summary:
+    {failure_output}
+
+    이 실패를 fix → 다시 commit → `/immutable:ship` 재호출. 이 스킬은 failing
+    tests 로는 PR 을 만들지 않습니다.
+
+  ship.step5.body_preview: |
+    PR body 조립 완료. 미리보기:
+
+    Title: {title}
+
+    ---
+    {body}
+    ---
+
+    옵션:
+    - (A) 이대로 PR 생성
+    - (B) Body 수정 — 어느 부분을 바꿀까요?
+    - (C) 작업 중단
+
+  ship.step6.confirm_create: |
+    `gh pr create` 를 실행하면 GitHub 에 PR 이 즉시 생성됩니다 (다른 사람이 볼 수
+    있음). 진행할까요?
+
+    Title: {title}
+    Base:  {base_branch}
+    Head:  {head_branch}
+
+    - (A) 생성
+    - (B) Body 수정 후 다시 검토
+    - (C) 취소
+
+  ship.step6.pr_created: |
+    ✅ PR 생성 완료: {pr_url}
+
+  ship.step7.cleanup_hint: |
+    PR 생성 완료: {pr_url}
+
+    Merge 후 권장 작업:
+    - Base 브랜치에서 merged commit pull
+    - Feature 브랜치 삭제 (local + remote)
+    - 구현 도중 추가 architecture 결정이 발생했다면 `/immutable:adr` 로 기록
+    - Two-repo 모드: spec repo 에 pitch supersede 가 pending 이라면 그 PR 도 생성
+      (이 PR 보다 먼저 또는 나중에 — chain ordering 강제 없음)
+
+    이 스킬은 cleanup 명령을 자동 실행하지 않습니다.
+
+  ship.refuse.spec_only_repo: |
+    이 디렉토리는 spec-only 레포 (`repo_mode: two-repo-spec`) 입니다.
+
+    `/immutable:ship` 은 implementation repo 에서 호출하는 스킬입니다.
+    Spec repo PR 은 일반 GitHub web / `gh pr create` 로 별도 처리하세요.
+
+    작업을 중단합니다.
+
+  ship.refuse.eng_not_approved: |
+    Eng 리뷰가 APPROVE 상태가 아닙니다.
+
+    Path:   `{eng_note_path}`
+    Status: {eng_status}
+
+    옵션:
+    - (A) `/immutable:plan-review-eng` 다시 실행해서 APPROVE 받기
+    - (B) 리뷰가 surface 한 issue 들을 먼저 해결
+    - (C) 작업 중단
+
+    `/immutable:ship` 은 eng APPROVE 없이는 PR 을 만들지 않습니다.
+
+  ship.refuse.dirty_tree: |
+    Working tree 가 clean 하지 않습니다:
+
+    {git_status}
+
+    옵션:
+    - (A) 변경사항을 commit 후 다시 호출
+    - (B) `git stash` 후 진행 (revert 가능)
+    - (C) 작업 중단
+
+  ship.refuse.protected_branch: |
+    현재 브랜치 `{branch}` 는 보호 브랜치 (main / master / develop) 입니다.
+
+    `/immutable:ship` 은 feature / fix / chore 브랜치에서 호출하는 스킬입니다.
+    `git switch -c feat/<task-name>` 로 작업 브랜치를 만든 후 재호출하세요.
+
+    작업을 중단합니다.
