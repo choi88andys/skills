@@ -1,8 +1,8 @@
 # immutable — Append-only SDD toolkit
 
-Single plugin hosting nine skills for Spec-Driven Development with append-only guarantees: bootstrap a starter, run a 7-step flow from problem framing through PR creation, and migrate v0.4 repos to the v0.5 profile system.
+Single plugin hosting the Spec-Driven Development toolkit with append-only guarantees: bootstrap a starter, run the 7-step flow from problem framing through PR creation, and (legacy) migrate v0.4 repos to the v0.5 profile system.
 
-**Status**: v0.6.0. Adds five new flow skills (`office-hours`, `design`, `plan-review-ceo`, `plan-review-eng`, `ship`) so the entire SDD cycle runs from this plugin alone — no external harness required. The `scripts/sdd_mode_detect.sh` helper consolidates SDD-mode detection into a single sourceable script. The init starter now adds `.claude/immutable/` to `.gitignore` for the new transient-artifact namespace. v0.5.x repos pick up the new skills immediately on install — `/immutable:prd`, `/immutable:adr`, and `/immutable:migrate` behavior is unchanged.
+**Status**: stable. The 7-step SDD cycle runs entirely from this plugin — no external harness required. `scripts/sdd_mode_detect.sh` consolidates SDD-mode detection into a sourceable helper. The init starter writes `.claude/immutable/` to `.gitignore` for transient-artifact handoff notes. See [CHANGELOG](CHANGELOG.md) for release-by-release detail.
 
 ## Skills
 
@@ -49,7 +49,7 @@ claude plugin marketplace add choi88andys/skills
 claude plugin install immutable
 ```
 
-One install enables all four skills.
+One install enables every skill listed above.
 
 ## Repository layouts
 
@@ -82,7 +82,33 @@ Full reference lives in [`SCHEMA.md`](SCHEMA.md):
 - Validation invariants 1–8 (validator coverage)
 - Migration guide v0.2 → v0.3/v0.4 → v0.5
 
-## Design principles (shared by all four skills)
+## Design heritage
+
+`immutable` is built from two layered fusions.
+
+### Layer 1 — `immutable-prd` (the artifact contract)
+
+The `immutable-prd` lineage already reconciled two opposing document traditions:
+
+- **Immutable pitch** (Basecamp Shape Up) — append-only artifact, history-as-audit-trail. Strong on accountability; silent on "what we know now."
+- **Mutable PRD** (traditional product spec) — living document, revised as understanding evolves. Strong on accuracy; weak on audit trail because revisions silently overwrite prior decisions.
+
+`immutable-prd` keeps both: pitches and ADRs are append-only, AND supersede chains carry forward — the active artifact reflects current understanding (the PRD value), while the chain preserves the full revision history (the pitch value). Accuracy AND accountability without picking a side. The directory marker `.immutable-prd/` preserves the lineage name as the system-level path identifier.
+
+### Layer 2 — gstack's transient → artifact pipeline
+
+The gstack harness contributed a **flow philosophy**: separate working state from permanent record.
+
+- **Transient** (working state): office-hours exploration, design handoff, plan-review verdicts. Gitignored under `.claude/immutable/`. Disposable; regenerable from the next round of work.
+- **Artifact** (permanent record): pitches, ADRs, PRs. Append-only, committed, audit-trail material.
+
+The flow is a pipeline that turns transient notes into artifact decisions: office-hours feeds pitch authoring, design plus plan-review notes feed the PR body, review-surfaced triggers feed ADRs. Uncertainty is absorbed in the transient layer; only resolved decisions are promoted to the artifact layer.
+
+### v0.6.0 — the unification
+
+Before v0.6.0, the plugin shipped only the artifact-authoring skills (`prd`, `adr`); the gstack pipeline lived in a separate harness layer that had to be installed and maintained alongside the plugin. v0.6.0 absorbs the gstack flow skills into the plugin so a single install ships both halves: the append-only-but-accurate artifact contract (immutable-prd lineage) AND the transient → artifact flow process (gstack lineage). The full 7-step SDD cycle now runs without any external harness dependency.
+
+## Design principles
 
 1. **Speculation is forbidden.** Unknown answers become `[미확정]` / `[TBD]` tags (locale-specific via profile) that block file generation.
 2. **Append-only is cultural, not arbitrary.** History is the audit trail; mutation is the exception (single allowed in-place change: flipping `deprecated: false → true`).
@@ -90,17 +116,9 @@ Full reference lives in [`SCHEMA.md`](SCHEMA.md):
 4. **Quality gates are strict.** Authoring skills enforce a 90% completeness gate before writing. The 90% gate refuses generation outright — no "almost good enough" path.
 5. **Configuration is data, not code.** Section headings, personas, gate criteria, and workflow prose live in profile YAML and the strings catalog. Teams override without forking the plugin.
 
-## Ship positioning (v0.6.0+)
+## Ship positioning
 
-`/immutable:ship` is intentionally **minimum-viable**. It guarantees chain integrity at PR time — verifies the eng review APPROVED, auto-includes pitch + linked ADR paths in the PR body, and guards against the common ship-time mistakes (dirty tree, failing tests, protected branch). It does NOT carry cross-session learnings capture, worktree-policy enforcement, or any team-specific telemetry.
-
-If your environment also runs an external harness with a richer ship skill (for example, gstack `/sprint:ship`), prefer that one. The two skills coexist without conflict because:
-
-- **Slash invocation**: `/immutable:ship` and `/sprint:ship` are different namespaces — neither shadows the other.
-- **Natural-language routing**: each environment's personal `UserPromptSubmit` hook decides which skill picks up phrases like "PR 만들어" / "ship it". Hooks that already point natural-language ship intent at `/sprint:ship` keep doing so; `/immutable:ship` then becomes the explicit-call fallback.
-- **Plugin-only environments** (no external harness): `/immutable:ship` is the only ship path and natural-language routing reaches it via the description's trigger phrases.
-
-This way the plugin promises a complete 7-step flow on any machine, while harness-using teams can keep their richer shipping experience without shadow conflicts.
+`/immutable:ship` is intentionally **minimum-viable**. It guarantees chain integrity at PR time — verifies the eng review APPROVED, auto-includes the pitch and linked ADR paths in the PR body, and guards against common ship-time mistakes (dirty tree, failing tests, protected branch). It does NOT carry cross-session learnings capture, worktree-policy enforcement, or team-specific telemetry. Teams that want those layers should add them as hooks or wrapper skills around the `/immutable:ship` invocation rather than maintaining a parallel ship path.
 
 ## What v0.6.0 changed (vs. v0.5.8)
 
@@ -124,10 +142,11 @@ MIT — see [LICENSE](../LICENSE) at repo root.
 
 ## Credits
 
-Pattern sources documented inside each skill's `SKILL.md` under Credits. Common sources:
+See [Design heritage](#design-heritage) above for the two-lineage origin story. Pattern sources documented inside each skill's `SKILL.md` under Credits. Common sources:
 
+- gstack (internal harness) — flow shape, adversarial review patterns, 90% gate
 - [mattpocock/skills](https://github.com/mattpocock/skills) (MIT) — `grill-me`, `domain-model`
 - [zscole/adversarial-spec](https://github.com/zscole/adversarial-spec) — PRD critique criteria
 - [alirezarezvani/claude-skills](https://github.com/alirezarezvani/claude-skills) (MIT) — `adversarial-reviewer`
 - Michael Nygard, *Documenting Architecture Decisions* (2011) — ADR template
-- Basecamp Shape Up — append-only spec framing
+- Basecamp Shape Up — append-only pitch framing

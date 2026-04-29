@@ -2,7 +2,7 @@
 
 A collection of Claude Code skills and plugins for Spec-Driven Development (SDD).
 
-The flagship plugin is [`immutable`](immutable/) — an append-only SDD toolkit. v0.6.0 covers the full 7-step flow (problem framing → pitch → app-side design → CEO-style scope review → engineering review → ADR → PR creation) using only the plugin; no external harness required.
+The flagship plugin is [`immutable`](immutable/) — an append-only SDD toolkit covering the full 7-step flow (problem framing → pitch → app-side design → CEO-style scope review → engineering review → ADR → PR creation) using only the plugin; no external harness required.
 
 ## Plugins
 
@@ -10,8 +10,7 @@ The flagship plugin is [`immutable`](immutable/) — an append-only SDD toolkit.
 |---|---|---|
 | [`immutable`](immutable/) | `/immutable:init`, `/immutable:office-hours`, `/immutable:prd`, `/immutable:design`, `/immutable:plan-review-ceo`, `/immutable:plan-review-eng`, `/immutable:adr`, `/immutable:ship`, `/immutable:migrate` | Append-only SDD — bootstrap starters, run the 7-step flow from problem framing through PR creation, and migrate v0.4 repos to the v0.5 profile system. Single plugin install. |
 
-## Quick start (v0.6.0)
-
+## Quick start
 ```sh
 # 1. Install (once per Claude Code workspace)
 claude plugin marketplace add choi88andys/skills
@@ -57,8 +56,7 @@ Six bundled starters:
 | `app-ko` / `app-en` | two-repo-app | ko / en | 3 | App repo (ADRs only) |
 | `single-ko` / `single-en` | single-repo | ko / en | 7 | Single repo (pitches + ADRs) |
 
-### `/immutable:office-hours` — premise challenge + 3 alternatives (v0.6.0)
-
+### `/immutable:office-hours` — premise challenge + 3 alternatives
 Heaviest context-gather skill in the flow. Forces premise challenge then generates ≥3 implementation approaches (Minimal viable / Ideal architecture / Creative). Output is a transient design-doc note that `/immutable:prd` consumes during Stage 1.5 Context Intake. Refuses to write code; writes only the one transient note.
 
 ```sh
@@ -79,8 +77,7 @@ Guided interview for an append-only pitch (WHAT the app should do). Walks Stage 
 
 Output: `pitches/<domain>/YYYY-MM-DD-<slug>.md` in the spec repo (or `spec/pitches/...` in single-repo mode).
 
-### `/immutable:design` — app-side context handoff (v0.6.0)
-
+### `/immutable:design` — app-side context handoff
 Lightweight bridge between pitch authoring and review. Confirms which pitch the implementation work targets, captures the app-side context the pitch couldn't include (activation status, dependent features, module placement), and writes a transient handoff note. Does NOT generate a design artifact — the pitch is the design artifact.
 
 ```sh
@@ -90,8 +87,7 @@ Lightweight bridge between pitch authoring and review. Confirms which pitch the 
 
 Output: `.claude/immutable/design/{slug}.md` (gitignored).
 
-### `/immutable:plan-review-ceo` — scope challenge + 11-section review (v0.6.0)
-
+### `/immutable:plan-review-ceo` — scope challenge + 11-section review
 Adversarial CEO-style review of the implementation plan grounded in the pitch + linked ADRs + design handoff. Phase 0 nuclear scope challenge (premise / existing-code leverage / dream-state / **mandatory alternatives** / mode selection EXPANSION/SELECTIVE/HOLD/REDUCTION). Phase 2 walks 11 sections (Architecture, Error & Rescue Map, Security, Data Flow, Code Quality, Test, Performance, Observability, Deployment, Long-Term, UX). Phase 3 surfaces pitch-supersede candidates (route to spec repo) and ADR-authoring candidates.
 
 ```sh
@@ -100,8 +96,7 @@ Adversarial CEO-style review of the implementation plan grounded in the pitch + 
 
 Output: `.claude/immutable/plan-review/{slug}-ceo.md` (gitignored) with verdict APPROVE / REVISE / REJECT.
 
-### `/immutable:plan-review-eng` — engineering review (v0.6.0)
-
+### `/immutable:plan-review-eng` — engineering review
 After CEO APPROVE, runs engineering rigor on the agreed scope. Walks 4 sections (Architecture-eng / Code Quality / Test Coverage Diagram / Performance) plus a worktree parallelization analysis (dependency table + parallel lanes + execution order + conflict flags). Surfaces ADR-authoring candidates.
 
 ```sh
@@ -121,8 +116,7 @@ Guided interview for an append-only ADR (WHY a load-bearing technical direction 
 
 Output: `adr/YYYY-MM-DD-<slug>.md` in the app repo. Each ADR MUST reference ≥1 active pitch unless `domain: _global`.
 
-### `/immutable:ship` — pre-ship verification + PR creation (v0.6.0)
-
+### `/immutable:ship` — pre-ship verification + PR creation
 Final step in the 7-step flow. Runs pre-ship checklist (branch sanity, commit hygiene), verifies review artifacts (eng note must be APPROVE), runs build + test for the auto-detected project type (Flutter / iOS / Node / Python / Rust / Go), and composes a PR body that auto-includes the pitch path + linked ADR paths + Test Coverage Diagram + deferred items from CEO Phase 3. Calls `gh pr create` only after explicit user confirmation.
 
 ```sh
@@ -133,7 +127,7 @@ Refuses with structured options when: tests fail, eng review didn't APPROVE, wor
 
 ### `/immutable:migrate` — v0.4 → v0.5 config upgrade
 
-Idempotent, zero-data-loss migration from config schema v2 to v3. Bumps `version: 2 → 3`, copies the bundled default profile into `.immutable-prd/profile.yml`, and uncomments the `profile:` pointer. Walks 4 stages: probe → plan preview → execute → verify+handoff. Never runs git. Never modifies pitches, ADRs, READMEs, or templates. Re-running on an already-migrated repo aborts cleanly.
+Idempotent, zero-data-loss migration covering both config schema (v2 → v3) and team profile field schema. Bumps `version: 2 → 3`, copies the bundled default profile into `.immutable-prd/profile.yml`, uncomments the `profile:` pointer, and structurally diffs team profile against bundled default to add only missing fields (override-preserving — existing values never modified). Walks the stages probe → plan preview → config execute → verify → profile field migration → handoff. Never runs git. Never modifies pitches, ADRs, READMEs, or templates. Re-running on an already-migrated repo aborts cleanly.
 
 ```sh
 /immutable:migrate                          # auto-detects config via walk-up
@@ -172,47 +166,6 @@ python3 immutable/scripts/validate_docs.py --strict-body      # also check pitch
 
 Coverage: frontmatter schema, supersede chain integrity, single-active-per-chain, reference existence, reference policy, domain allowlist, filename format, and (opt-in) pitch + ADR body section presence. See [`immutable/SCHEMA.md`](immutable/SCHEMA.md) for the full invariant list.
 
-## Structure
-
-```
-skills/
-├── LICENSE                                 # MIT
-├── README.md                               # this file — marketplace overview + plugin index
-├── .claude-plugin/
-│   └── marketplace.json                    # plugin marketplace manifest (v0.5.4 — 1 plugin, 4 skills)
-└── immutable/                              # the immutable plugin
-    ├── .claude-plugin/
-    │   └── plugin.json                     # per-plugin manifest (name, version, author, keywords) — v0.5.4+
-    ├── CHANGELOG.md                        # plugin release history (Keep a Changelog)
-    ├── README.md                           # plugin overview
-    ├── SCHEMA.md                           # shared schema (config v2/v3, frontmatter, references, invariants, profile, strings catalog, migration)
-    ├── init/SKILL.md                       # /immutable:init  — 7-stage bootstrap
-    ├── prd/SKILL.md                        # /immutable:prd   — pitch authoring (6 stages)
-    ├── adr/                                # /immutable:adr   — ADR authoring (5 stages)
-    │   ├── SKILL.md
-    │   ├── README.md
-    │   └── TEMPLATE.md
-    ├── migrate/SKILL.md                    # /immutable:migrate — v2 → v3 config migration (4 stages)
-    ├── strings/                            # i18n workflow prose (resolution: <locale> → en → hardcoded)
-    │   ├── strings.ko.yml                  # canonical Korean
-    │   ├── strings.en.yml                  # canonical English + fallback target
-    │   └── strings.ja.yml                  # scaffold (falls back to en)
-    ├── examples/
-    │   ├── _profiles/                      # bundled default profiles (Guided-Default tier)
-    │   │   ├── default-ko.yml
-    │   │   └── default-en.yml
-    │   ├── starter/                        # six bootstrap starters consumed by /immutable:init
-    │   │   ├── spec-{ko,en}/               # two-repo-spec
-    │   │   ├── app-{ko,en}/                # two-repo-app
-    │   │   └── single-{ko,en}/             # single-repo
-    │   ├── config.yml                      # standalone reference: two-repo-spec
-    │   ├── config-two-repo-app.yml         # standalone reference: two-repo-app
-    │   └── config-single-repo.yml          # standalone reference: single-repo
-    └── scripts/
-        ├── find_config.sh                  # walk-up config detection helper
-        └── validate_docs.py                # stand-alone validator (PR check / CI)
-```
-
 ## Migration (v0.4 → v0.5)
 
 **Zero-action path (recommended for most teams)**: install v0.5 and keep `version: 2` in your existing `.immutable-prd/config.yml`. The plugin auto-loads the default profile matching `team_language` (Korean → `default-ko.yml`, English → `default-en.yml`). Behavior is identical to v0.4. No file changes required.
@@ -241,21 +194,7 @@ Clone the repo and reference the plugin directory directly, or copy `immutable/`
 
 ## Versioning
 
-| Release | Highlights |
-|---|---|
-| v0.5.8 | **Universal structural diff** for `/immutable:migrate` Stage 5. Replaces v0.5.7's per-version recipes with a structural walk that compares team profile vs bundled default and identifies every additive difference automatically. Eliminates the class of bug where a recipe omits a newly-added field (the v0.5.7 recipe missed `sections[user_stories].structure`). Future plugin field additions are picked up without any SKILL.md update. Override preservation guarantees codified as algorithmic invariants: scalars / anonymous lists / comments / customized text never modified; only id-keyed missing entries and missing nested fields under existing entries are added. Locale parity guarantee documented (default-ko / default-en maintain identical structure modulo locale-specific values). Idempotent; teams who ran v0.5.7 migrate can re-run on v0.5.8 to pick up the missed `structure` field. |
-| v0.5.7 | **Profile field migration**. `/immutable:migrate` now handles `profile_schema` evolution alongside config v2→v3. Adds only missing fields; preserves all team overrides. Hotfix for v0.5.6 silent-skip: teams with v1 team profiles (created on plugin v0.5.0) saw the new `anti_monolith` block silently disabled. v0.5.7 also adds Stage 1.bis schema-mismatch detection in `/immutable:prd` and `/immutable:adr` — surfaces the gap immediately and falls back to bundled-default values for the in-flight run with explicit source annotation (no disk write). `gate.total` / `gate.pass_threshold` are NOT auto-bumped (override-preservation principle); Stage 6 handoff includes a manual-bump note. Idempotent; safe to re-run after every plugin update. |
-| v0.5.6 | **PRD = 1 feature/policy, not 1 domain charter.** Drops the global "single active per (domain, type)" cap — multiple active PRDs may coexist in the same domain on separate supersede chains. New 3-tier `anti_monolith` guard (hint / strong-recommend / block) keyed off `sections[user_stories].max_items` (default 3) prevents multi-feature dumping. New intents `refactor-split` (decompose oversized PRD without semantic change) and `split-from` (refactor + apply new change to one of the resulting small PRDs, in two reviewable phases). New gate criterion `concern_scope`. Stage 2 derivation policy demotes oversized active PRDs to "fact-source only, never structural template". Profile depth knobs recalibrated for per-feature model (`min_items` lowered, `max_items` added). Profile schema bumped 1→2 with v1 fallback derivation. Existing pitches and ADRs remain valid. |
-| v0.5.5 | `/immutable:init` Stage 5.4 — interactive spec_repo_path interview for `two-repo-app` mode. Scans sibling dirs for spec repo candidates, accepts any absolute/relative path, edits config.yml in place. Naming-agnostic: works identically for backend/api/server repo pairs that do not follow the `-spec` suffix convention. Deferral path preserved — users may still keep the placeholder and hand-edit later. |
-| v0.5.4 | Multi-plugin marketplace hygiene — per-plugin manifest at `immutable/.claude-plugin/plugin.json` owns version; `marketplace.json: metadata.version` removed; CHANGELOG relocated to `immutable/CHANGELOG.md`. No user-facing feature changes. |
-| v0.5.3 | Pitch authoring tightened on two axes — **shape** (`sections[user_stories].structure: per_story_grouped` default; each `### ` sub-section carries its own bullet-list normative line; ≥2 sub-sections required; enforced at Stage 6 + `--strict-body` CI) and **depth** (Stage 3 vague-word regex + inline-normative scan; 4th adversarial-review persona `quality_auditor` focused on measurable/testable criteria). Bundled profiles ship the new fields; forked v0.5.2 profiles fall back to defaults. `consolidated` preserves the v0.5.2 shape. |
-| v0.5.2 | `validate_docs.py --strict-body` extended from ADR-only to pitch + ADR. CI/hook parity with the v0.5.1 skill-side guard for teams that wire the validator into pre-commit or pipelines. Still opt-in, off by default. |
-| v0.5.1 | Stage 6 required-sections guard: `/immutable:prd` and `/immutable:adr` verify every `required: true` profile section appears as an `##` heading before writing. Skill-side, always on, covers pitch + ADR. Complements v0.5.0's opt-in `--strict-body` CI check. |
-| v0.5.0 | `/immutable:init` + `/immutable:migrate` skills, profile system, strings catalog (ko/en/ja), 6 bundled starters, profile-aware validator with `--strict-body`. v2 configs continue to work unchanged. |
-| v0.4.0 | Two-plugin layout (`immutable-prd` + `immutable`) merged into single `immutable` plugin. |
-| v0.3.0 | Dropped `design`, `tech-spec`, `status`, `supersede` companion types; ADRs relocated to app repo. |
-
-Full release history per plugin: [`immutable/CHANGELOG.md`](immutable/CHANGELOG.md).
+The plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Version is canonically declared in [`immutable/.claude-plugin/plugin.json`](immutable/.claude-plugin/plugin.json). Full release history with migration notes lives in [`immutable/CHANGELOG.md`](immutable/CHANGELOG.md) — single source of truth, no duplicate version table here.
 
 ## License
 
@@ -263,10 +202,13 @@ MIT — see [LICENSE](LICENSE).
 
 ## Acknowledgements
 
+`immutable` is built from two layered fusions: the **`immutable-prd` lineage** that reconciles append-only pitches with mutable-PRD accuracy via supersede chains (the active artifact reflects current understanding while the chain preserves full revision history), and the **gstack lineage** that contributed a transient → artifact flow pipeline (working notes feed permanent decisions; uncertainty is absorbed before promotion). The plugin README documents the full heritage at [`immutable/README.md` Design heritage](immutable/README.md#design-heritage).
+
 Individual skills cite their design-pattern sources. Common references:
 
+- gstack (internal harness) — flow shape, multi-persona adversarial review, 90% completeness gate
 - [mattpocock/skills](https://github.com/mattpocock/skills) (MIT) — `grill-me`, `domain-model`
 - [zscole/adversarial-spec](https://github.com/zscole/adversarial-spec) — PRD critique criteria
 - [alirezarezvani/claude-skills](https://github.com/alirezarezvani/claude-skills) (MIT) — `adversarial-reviewer`
 - Michael Nygard, *Documenting Architecture Decisions* (2011) — ADR template
-- Basecamp Shape Up — append-only spec framing
+- Basecamp Shape Up — append-only pitch framing

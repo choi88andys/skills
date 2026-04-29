@@ -47,7 +47,7 @@ No arguments. The skill auto-detects repo state.
 
 ---
 
-## Overall Process (5 stages, v0.5.7+)
+## Overall Process (6 stages, v0.5.7+)
 
 ```
 Stage 1: Probe              — walk-up config.yml, read version + team_language; probe profile schema if profile.yml exists
