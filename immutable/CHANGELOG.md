@@ -2,6 +2,18 @@
 
 All notable changes to the `immutable` plugin are documented in this file. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Version is canonically declared in `.claude-plugin/plugin.json`.
 
+## [0.6.2] — 2026-04-29
+
+Patch release fixing a marketplace-side registration bug.
+
+### Fixed
+
+- **5 skills missing from `marketplace.json`**. v0.6.0 added `/immutable:{ship,office-hours,design,plan-review-ceo,plan-review-eng}` as new SKILL.md folders, but `.claude-plugin/marketplace.json` `plugins[0].skills` array was not updated to register them. As a result, Claude Code's plugin loader (which uses the marketplace skills array, not directory scan) registered only the original 4 skills (`init`, `prd`, `adr`, `migrate`) for everyone who installed v0.6.0 or v0.6.1. Symptom: the Skill tool returned `Unknown skill: immutable:ship` even on a fully up-to-date install — confirmed reproducible across multiple sessions. Fix: extended the array to all 9 skills, and updated the marketplace `description` and `keywords` to match `immutable/.claude-plugin/plugin.json` (which was already accurate).
+
+### Backward compatibility
+
+- No code changes in any skill. Plugin behavior is unchanged. Users on v0.6.0 / v0.6.1 should run `claude plugin update immutable` after this release; the 5 newly-registered skills will then appear in their available-skills list at next session start.
+
 ## [0.6.1] — 2026-04-28
 
 Hotfix release patching three integration issues surfaced by static analysis after v0.6.0 shipped. All three are pre-dogfood findings — the v0.6.0 flow had not yet been exercised end-to-end on a real repo when these were caught — so v0.6.1 prevents the failures rather than reacting to them.

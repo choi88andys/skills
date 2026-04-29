@@ -9,7 +9,7 @@
   "plugins": [
     {
       "name": "immutable",
-      "description": "Append-only SDD toolkit. `/immutable:init` bootstraps a starter (six modes: spec/app/single × ko/en). `/immutable:prd` authors pitches (WHAT). `/immutable:adr` authors Architecture Decision Records (WHY). `/immutable:migrate` upgrades v0.4 repos to the v0.5 profile system (idempotent, zero-data-loss). All authoring skills enforce grill-me interview, adversarial review, and a 90% completeness gate. v0.5 introduces profile-driven section headings + zero-action migration for v2 configs.",
+      "description": "Append-only SDD toolkit. v0.6.0 ships nine skills covering the full 7-step flow: /immutable:init bootstraps a starter (spec/app/single × ko/en); /immutable:office-hours forces premise challenge plus 3 alternatives; /immutable:prd authors pitches (WHAT); /immutable:design captures app-side context; /immutable:plan-review-ceo runs scope challenge + 11-section review; /immutable:plan-review-eng runs 4-section engineering review; /immutable:adr authors Architecture Decision Records (WHY); /immutable:ship verifies and creates the PR; /immutable:migrate handles config v2→v3 AND profile field migration (override-preserving). Authoring skills enforce grill-me interview, multi-persona adversarial review, and a 90% completeness gate. The flow runs standalone — no external harness required.",
       "source": "./immutable",
       "keywords": [
         "sdd",
@@ -24,13 +24,23 @@
         "bootstrap",
         "starter",
         "migrate",
-        "profile"
+        "profile",
+        "office-hours",
+        "design",
+        "plan-review",
+        "ship",
+        "spec-driven-development"
       ],
       "skills": [
         "./init",
         "./prd",
         "./adr",
-        "./migrate"
+        "./migrate",
+        "./office-hours",
+        "./design",
+        "./plan-review-ceo",
+        "./plan-review-eng",
+        "./ship"
       ]
     }
   ]
