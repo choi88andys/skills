@@ -1,6 +1,6 @@
 ---
 name: ship
-description: Minimum-viable PR creation skill for the immutable SDD flow. Runs pre-ship checklist, verifies commit hygiene, runs build/test, composes a PR body that auto-includes pitch and linked ADR paths, then creates the PR via `gh pr create`. Refuses if the eng review did not APPROVE. Intended for standalone plugin users; teams running an external harness (e.g., gstack `sprint:ship`) may prefer that for richer features (cross-session learnings capture, worktree-policy gating). Triggers - "/immutable:ship", "PR 만들어", "배포 준비", "ship it".
+description: Minimum-viable PR creation skill for the immutable SDD flow. Runs pre-ship checklist, verifies commit hygiene, runs build/test, composes a PR body that auto-includes pitch and linked ADR paths, then creates the PR via `gh pr create`. Refuses if the eng review did not APPROVE. Stops short of cross-session learnings capture and harness-policy gating — teams that want those layers should wrap this skill rather than fork it. Triggers - "/immutable:ship", "PR 만들어", "배포 준비", "ship it".
 allowed-tools: Read, Write, Bash, Glob, Grep, AskUserQuestion
 license: MIT
 ---
@@ -19,16 +19,14 @@ work — verify eng APPROVE, ensure pitch and ADR paths land in the PR body,
 guard against shipping a dirty tree or a protected-branch commit. It does
 NOT cover:
 
-- Cross-session **learnings capture** (gstack `learnings.sh` integration)
-- Worktree policy enforcement beyond a one-line warning
-  (gstack `policy-resolve.sh` integration)
-- Status ledgers, archive workflows, or per-team telemetry
+- Cross-session **learnings capture** — wrap with a project-specific hook
+  if needed.
+- Worktree policy enforcement beyond a one-line warning — branch-write
+  guards belong in `PreToolUse` hooks, not in this skill.
+- Status ledgers, archive workflows, or per-team telemetry.
 
-Teams running the gstack harness alongside this plugin can route natural
-language ("PR 만들어", "ship it") to `/sprint:ship` via their personal
-`UserPromptSubmit` hook — `/sprint:ship` includes the learnings + policy
-features. The two skills coexist without conflict; `/immutable:ship` exists
-so plugin-only environments still have a complete 7-step path.
+Teams that want those layers should add them as hooks or wrapper skills
+around the `/immutable:ship` invocation rather than fork the skill.
 
 The skill expects:
 

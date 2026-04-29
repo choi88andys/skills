@@ -2,6 +2,29 @@
 
 All notable changes to the `immutable` plugin are documented in this file. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Version is canonically declared in `.claude-plugin/plugin.json`.
 
+## [0.6.3] — 2026-04-29
+
+Documentation polish release. No skill behavior change; metadata and prose only.
+
+### Added
+
+- **`Design heritage` section** in `immutable/README.md` documenting the two layered fusions that produced the plugin: (1) the `immutable-prd` lineage that reconciles append-only pitch (Shape Up) with mutable-PRD accuracy via supersede chains, so the active artifact reflects current understanding while the chain preserves full revision history; (2) the gstack lineage that contributed a transient → artifact flow pipeline where working notes (office-hours, design, plan-review) feed permanent artifact decisions (pitches, ADRs, PRs). v0.6.0 unified both heritages into a standalone toolkit. Top-level README `Acknowledgements` now points to this section.
+
+### Changed
+
+- **Plugin description** in `marketplace.json` and `plugin.json` rewritten count-free and version-pin-free. Skill names retained as stable identifiers; "v0.6.0 ships nine skills" enumeration removed. Both manifest descriptions kept byte-equal.
+- **Top-level README** lost two high-drift surfaces: the `## Structure` directory tree (GitHub repo browsing covers the same need) and the `## Versioning` table (CHANGELOG is canonical; the table was a duplicate that already missed v0.6.0/v0.6.1/v0.6.2 rows). Versioning section is now a one-line CHANGELOG pointer.
+- **`/immutable:ship` Ship positioning narrative** in `immutable/README.md` shrunk to the minimum-viable policy statement, dropping the now-obsolete `/sprint:ship` coexistence comparison. The upstream `/sprint:ship` skill was retired in `claude-dotfiles` commit `4bd69d8` (2026-04-28); `/immutable:ship` is now the canonical SDD ship path. `ship/SKILL.md` description and body updated to match — cross-references replaced with hook/wrapper guidance for teams that want cross-session learnings or harness-policy layers.
+- **Hardcoded skill counts and version pins** trimmed across READMEs ("nine skills", "(v0.6.0)" parentheticals, "Walks 6 stages") to reduce drift surface. Heritage-section v0.6.0 references and CHANGELOG-style historical anchors retained intentionally — they document when a feature was introduced rather than asserting current status.
+
+### Fixed
+
+- **`migrate/SKILL.md` Overall Process heading** said "(5 stages, v0.5.7+)" while the body enumerated Stage 1 through Stage 6. v0.5.7 inserted Stage 5 (Profile field migration) and renumbered the body but the heading count was missed. Corrected to "(6 stages, v0.5.7+)".
+
+### Backward compatibility
+
+- No skill behavior change. Plugin manifests still register the same 9 skills under the same slash names. Users on v0.6.2 see only documentation improvements after `claude plugin update immutable`.
+
 ## [0.6.2] — 2026-04-29
 
 Patch release fixing a marketplace-side registration bug.
