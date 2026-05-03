@@ -17,7 +17,7 @@ for single-repo) is the canonical design artifact. This skill is the
 3. Write a transient note that the plan-review skills will read.
 
 **HARD GATE**: this skill does NOT write a design artifact. The pitch is the
-design artifact. Writing a `.claude/sprint/design-*.md` (legacy convention)
+design artifact. Writing any `design-*.md` outside `.claude/immutable/design/`
 would create drift. Phase 4 of this skill writes only one transient note at
 `.claude/immutable/design/{slug}.md`.
 
@@ -235,6 +235,17 @@ it now and render with the captured values:
 
 Use the Write tool to land the rendered handoff at `$OUT`. Verify the file
 exists. Render `design.step4.note_written` with the path.
+
+After the localized confirmation, emit a single machine-parseable marker line
+on its own line. The marker format is `DESIGN_NOTE_WRITTEN: <path>` — exactly
+this prefix (English literal regardless of `team_language`), one space, then
+the value of `$OUT` (e.g.,
+`DESIGN_NOTE_WRITTEN: .claude/immutable/design/cart-checkout.md`).
+
+Downstream consumers (auditors, follow-up skills, CI checks) grep for
+`^DESIGN_NOTE_WRITTEN: ` to verify this skill (not a manual write-around)
+produced the note. Absence of the marker is a tell that the note was composed
+outside the skill.
 
 ### 4.4 Recommend next skill
 
