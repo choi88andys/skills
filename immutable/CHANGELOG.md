@@ -2,6 +2,22 @@
 
 All notable changes to the `immutable` plugin are documented in this file. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Version is canonically declared in `.claude-plugin/plugin.json`.
 
+## [0.6.4] — 2026-05-03
+
+Documentation polish + downstream-verification marker on `/immutable:design`. No interactive behavior change.
+
+### Added
+
+- **`DESIGN_NOTE_WRITTEN: <path>` marker emit** in `immutable/design/SKILL.md` Step 4.3. After the localized confirmation, the skill now emits a single machine-parseable marker line (English literal regardless of `team_language`) carrying the path of the just-written design note. Downstream consumers — auditors, follow-up skills, CI checks — can `grep ^DESIGN_NOTE_WRITTEN: ` to verify the design note was produced by this skill rather than composed manually outside it. Absence of the marker is a tell that the note bypassed the skill's pitch-confirmation / context-capture / template-rendering pipeline.
+
+### Changed
+
+- **HARD GATE wording in `immutable/design/SKILL.md`** dropped the `.claude/sprint/design-*.md (legacy convention)` reference. The migration to `.claude/immutable/design/{slug}.md` is complete on consumer projects and any codebase still using the legacy path is on a pre-v0.5 plugin version anyway. The legacy mention now misdirects more than it protects, so the gate is restated as "Writing any `design-*.md` outside `.claude/immutable/design/` would create drift" — same intent, no stale path leaked into reader context.
+
+### Backward compatibility
+
+- No interactive behavior change in any skill. The marker emit is additive — sessions that previously parsed only the localized confirmation continue to work; sessions that opt to grep the new marker gain a verification signal. Plugin manifests still register the same 9 skills under the same slash names. Users on v0.6.3 should run `claude plugin update immutable` to pick up the doc cleanup and start emitting the marker.
+
 ## [0.6.3] — 2026-04-29
 
 Documentation polish release. No skill behavior change; metadata and prose only.
