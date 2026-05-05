@@ -345,21 +345,29 @@ Plus shared `common.*` keys.
 
 ## Log learning to project memory (mandatory final step)
 
-Before returning control to the user (success **or** abort), append one learning entry to the project store. Best-effort — if `${CLAUDE_PLUGIN_ROOT}/scripts/learnings.sh` is unavailable, skip silently and never block the flow.
+Before returning control to the user (success **or** abort), append one learning entry to the project store. Best-effort — if `${CLAUDE_PLUGIN_ROOT}/scripts/learnings.sh` is unavailable, the guard exits silently and never blocks the flow.
+
+Pick ONE branch below based on outcome and substitute the placeholders (`<pitch-basename>`, `<N>`, `<reason>`, etc.) with concrete values before running. The branch name (`$BRANCH`) keys the success entry — it is stable across the cycle and known before `gh pr create` runs.
 
 ```bash
-SLUG=$(basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9_-]/-/g')
 LH="${CLAUDE_PLUGIN_ROOT}/scripts/learnings.sh"
-```
+[ -x "$LH" ] || exit 0
+SLUG=$(basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9_-]/-/g')
+BRANCH=$(git branch --show-current 2>/dev/null || echo "unknown")
 
-**On success** (PR created): `TYPE=tool`, `SOURCE=observed`, `KEY=ship-pr<number>-${SLUG}` (e.g. `ship-pr42-skills`), `INSIGHT="PR #<n> {pitch-basename}; ADRs: <comma-separated paths or 'none'>; build/test: <ok | issues=...>"` (≤200 chars, no credentials), `CONF=7`.
+# === On success (PR created) ===
+TYPE=tool; SOURCE=observed; CONF=7
+KEY="ship-${BRANCH}-${SLUG}"
+INSIGHT="PR <pitch-basename>; ADRs: <comma-separated paths or 'none'>; build/test: <ok | issues=...>"
 
-**On abort / refusal** (eng-not-approved, dirty tree, protected branch, tests failing, user-cancel before `gh pr create`): `TYPE=pitfall`, `SOURCE=observed`, `KEY=ship-aborted-${SLUG}`, `INSIGHT="Aborted at Step <N>: <reason in one sentence>"`, `CONF=6`.
+# === On abort / refusal (eng-not-approved, dirty tree, protected branch, tests failing, user-cancel before gh pr create) ===
+# TYPE=pitfall; SOURCE=observed; CONF=6
+# KEY="ship-aborted-${BRANCH}-${SLUG}"
+# INSIGHT="Aborted at Step <N>: <reason in one sentence>"
 
-```bash
 "$LH" log "$(jq -nc --arg skill "immutable-ship" --arg type "$TYPE" --arg key "$KEY" \
   --arg insight "$INSIGHT" --arg src "$SOURCE" --argjson conf "$CONF" \
-  '{skill:$skill,type:$type,key:$key,insight:$insight,confidence:$conf,source:$src}')" 2>/dev/null || true
+  '{skill:$skill,type:$type,key:$key,insight:$insight,confidence:$conf,source:$src}' 2>/dev/null)" || true
 ```
 
 ---

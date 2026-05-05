@@ -478,23 +478,33 @@ For REVISE / REJECT:
 
 ## Log learning to project memory (mandatory final step)
 
-Before returning control to the user (any verdict **or** abort), append one learning entry to the project store. Best-effort — if `${CLAUDE_PLUGIN_ROOT}/scripts/learnings.sh` is unavailable, skip silently and never block the flow.
+Before returning control to the user (any verdict **or** abort), append one learning entry to the project store. Best-effort — if `${CLAUDE_PLUGIN_ROOT}/scripts/learnings.sh` is unavailable, the guard exits silently and never blocks the flow.
+
+Pick ONE branch below based on verdict/outcome and substitute the placeholders (`<pitch-basename>`, `<N>`, `<reason>`, etc.) with concrete values before running. For refactor mode (no pitch), use the literal `internal` for `<pitch-basename>` so the KEY remains grep-stable.
 
 ```bash
-SLUG=$(basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9_-]/-/g')
 LH="${CLAUDE_PLUGIN_ROOT}/scripts/learnings.sh"
-```
+[ -x "$LH" ] || exit 0
+SLUG=$(basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9_-]/-/g')
 
-**On APPROVE verdict**: `TYPE=pattern`, `SOURCE=observed`, `KEY=eng-${SLUG}-<pitch-basename>`, `INSIGHT="Architecture=<one phrase>; worktree=<single|multi-N|N/A>; main risks=<comma-separated, ≤3>"` (≤200 chars), `CONF=7`.
+# === On APPROVE verdict ===
+TYPE=pattern; SOURCE=observed; CONF=7
+KEY="eng-${SLUG}-<pitch-basename>"   # refactor mode → eng-${SLUG}-internal
+INSIGHT="Architecture=<one phrase>; worktree=<single|multi-N|N/A>; main risks=<comma-separated, ≤3>"
 
-**On REVISE / REJECT verdict**: `TYPE=pitfall`, `SOURCE=observed`, `KEY=eng-blocked-${SLUG}-<pitch-basename>`, `INSIGHT="Blocked: <reason in one sentence>"`, `CONF=6`.
+# === On REVISE / REJECT verdict ===
+# TYPE=pitfall; SOURCE=observed; CONF=6
+# KEY="eng-blocked-${SLUG}-<pitch-basename>"
+# INSIGHT="Blocked: <reason in one sentence>"
 
-**On abort** (user cancels mid-review, ceo-not-approved refusal in ceo-grounded mode, etc.): `TYPE=pitfall`, `SOURCE=observed`, `KEY=plan-review-eng-aborted-${SLUG}`, `INSIGHT="Aborted at Phase <N>: <reason>"`, `CONF=6`.
+# === On abort (user cancels mid-review, ceo-not-approved refusal in ceo-grounded mode, etc.) ===
+# TYPE=pitfall; SOURCE=observed; CONF=6
+# KEY="plan-review-eng-aborted-${SLUG}"
+# INSIGHT="Aborted at Phase <N>: <reason>"
 
-```bash
 "$LH" log "$(jq -nc --arg skill "immutable-plan-review-eng" --arg type "$TYPE" --arg key "$KEY" \
   --arg insight "$INSIGHT" --arg src "$SOURCE" --argjson conf "$CONF" \
-  '{skill:$skill,type:$type,key:$key,insight:$insight,confidence:$conf,source:$src}')" 2>/dev/null || true
+  '{skill:$skill,type:$type,key:$key,insight:$insight,confidence:$conf,source:$src}' 2>/dev/null)" || true
 ```
 
 ---
