@@ -278,6 +278,36 @@ Plus shared `common.*` keys: `common.refuse_legacy_mode`,
 
 ---
 
+## Log learning to project memory (mandatory final step)
+
+Before returning control to the user (success **or** abort), append one learning entry to the project store. Best-effort — if `${CLAUDE_PLUGIN_ROOT}/scripts/learnings.sh` is unavailable, the guard exits silently and never blocks the flow.
+
+Pick ONE branch below based on outcome and substitute the placeholders (`<pitch-basename>`, `<N>`, `<reason>`, etc.) with concrete values before running. For refactor mode (no pitch), use the literal `internal` for `<pitch-basename>` so the KEY remains grep-stable.
+
+```bash
+LH="${CLAUDE_PLUGIN_ROOT}/scripts/learnings.sh"
+[ -x "$LH" ] || exit 0
+SLUG=$("$LH" slug)
+
+# === On success (transient note written) ===
+TYPE=pattern; SOURCE=observed; CONF=7
+KEY="design-${SLUG}-<pitch-basename>"   # e.g. design-skills-feature-x; refactor mode → design-${SLUG}-internal
+INSIGHT="<one sentence summarising app-side context decisions: activation, dependencies, module — pick what matters most; ≤200 chars, no credentials>"
+FILES='[".claude/immutable/design/<feature-slug>.md"]'
+
+# === On abort (user cancels at Step 1 pitch picker, refuses Step 3 questions, etc.) ===
+# TYPE=pitfall; SOURCE=observed; CONF=6
+# KEY="design-aborted-${SLUG}"
+# INSIGHT="Aborted at Step <N>: <reason>"
+# FILES='[]'
+
+"$LH" log "$(jq -nc --arg skill "immutable-design" --arg type "$TYPE" --arg key "$KEY" \
+  --arg insight "$INSIGHT" --arg src "$SOURCE" --argjson conf "$CONF" --argjson files "$FILES" \
+  '{skill:$skill,type:$type,key:$key,insight:$insight,confidence:$conf,source:$src,files:$files}' 2>/dev/null)" || true
+```
+
+---
+
 ## Important rules
 
 - **Pitch is the design artifact.** Do not write a `design-*.md` outside
