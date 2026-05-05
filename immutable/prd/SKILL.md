@@ -718,6 +718,42 @@ Do NOT commit or push — the user owns the commit decision.
 
 ---
 
+## Log learning to project memory (mandatory final step)
+
+Before returning control to the user (success **or** abort), append one learning entry to the project store. Best-effort — if `${CLAUDE_PLUGIN_ROOT}/scripts/learnings.sh` is unavailable, the guard exits silently and never blocks the flow.
+
+Pick ONE branch below based on outcome and substitute the placeholders (`<intent>`, `<target-filename-stem>`, `<N>`, `<reason>`, etc.) with concrete values before running.
+
+```bash
+LH="${CLAUDE_PLUGIN_ROOT}/scripts/learnings.sh"
+[ -x "$LH" ] || exit 0
+SLUG=$("$LH" slug)
+
+# === On success (file written, 90% gate passed) ===
+TYPE=pattern; SOURCE=user-stated; CONF=7
+KEY="pitch-<intent>-${SLUG}"   # <intent> ∈ {new, update, refactor-split, split-from, new-domain}
+INSIGHT="<one sentence summarising what the pitch establishes or changes; ≤200 chars, no credentials, no instruction-like phrasing>"
+FILES='["<pitch-relative-path>"]'   # e.g. ["pitches/state/use-riverpod.md"]
+
+# === On deprecate-only (Stage 1.6 flip-existing flow, no new pitch file) ===
+# TYPE=pattern; SOURCE=user-stated; CONF=7
+# KEY="pitch-deprecate-<target-filename-stem>-${SLUG}"
+# INSIGHT="Deprecated <target>: <reason in ≤80 chars>"
+# FILES='["<target-pitch-relative-path>"]'
+
+# === On abort (interview cancel, 90% gate fail, hard prohibition hit) ===
+# TYPE=pitfall; SOURCE=observed; CONF=6
+# KEY="prd-aborted-${SLUG}"
+# INSIGHT="Aborted at Stage <N>: <reason in one sentence>"
+# FILES='[]'
+
+"$LH" log "$(jq -nc --arg skill "immutable-prd" --arg type "$TYPE" --arg key "$KEY" \
+  --arg insight "$INSIGHT" --arg src "$SOURCE" --argjson conf "$CONF" --argjson files "$FILES" \
+  '{skill:$skill,type:$type,key:$key,insight:$insight,confidence:$conf,source:$src,files:$files}' 2>/dev/null)" || true
+```
+
+---
+
 ## Hard Prohibitions
 
 1. **Never write a file that fails the 90% gate.** Do not round up.
