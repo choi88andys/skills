@@ -124,13 +124,14 @@ cmd_log() {
     exit 1
   fi
 
-  # Atomic append: copy → append → rename (prevents corruption on kill)
-  local tmpfile="$file.tmp.$$"
-  if [ -f "$file" ]; then
-    cp "$file" "$tmpfile"
-  fi
-  printf '%s\n' "$enriched" | jq -c '.' >> "$tmpfile"
-  mv -f "$tmpfile" "$file"
+  # POSIX-atomic append: O_APPEND writes shorter than PIPE_BUF (4 KiB on
+  # Linux, ≥512 by POSIX) are atomic against concurrent O_APPEND writers,
+  # which is the workload here (parallel-pod cycles emit log entries
+  # near-simultaneously per CHANGELOG v0.6.5). Entries are ~300-500 bytes,
+  # well under PIPE_BUF. The previous cp→append→rename pattern was
+  # kill-safe but introduced lost-update for concurrent writers — last
+  # mv wins, earlier writer's entry silently dropped.
+  printf '%s\n' "$enriched" | jq -c '.' >> "$file"
 
   local count
   count=$(wc -l < "$file" | tr -d ' ')
