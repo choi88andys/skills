@@ -2,6 +2,34 @@
 
 All notable changes to the `immutable` plugin are documented in this file. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Version is canonically declared in `.claude-plugin/plugin.json`.
 
+## [0.7.0] — 2026-05-05
+
+Cross-session learnings integration. Every interactive skill now appends a structured outcome entry to a shared project memory store on completion or abort, so future skill invocations and `/common:learn` queries can surface prior decisions, blockers, and cancellation reasons across sessions.
+
+### Added
+
+- **`immutable/scripts/learnings.sh`** — vendored jq+bash helper that appends to `~/.gstack/projects/<slug>/learnings.jsonl` (canonical gstack store path). Subcommands: `search [--type T] [--limit N] [--key K]`, `log '<json>'`, `prune [--dry-run]`, `path`. Schema: `{skill, type, key, insight, confidence, source, ts, branch, commit, files}`. Type set: `pattern | pitfall | preference | architecture | tool`. Source set: `observed | user-stated | inferred | cross-model`. The plugin remains standalone — no `~/.claude-dotfiles/` dependency — but the on-disk store is shared with the harness's `/common:learn` skill, which now points at the same path.
+
+- **`## Log learning to project memory (mandatory final step)` section** appended to every interactive SKILL.md (`prd`, `design`, `plan-review-ceo`, `plan-review-eng`, `adr`, `ship`). Each skill emits exactly one entry per invocation, on success **or** abort/blocked outcomes. Per-skill mapping:
+  - `prd` → `pattern` (success, source `user-stated`) / `pitfall` (abort, source `observed`).
+  - `design` → `pattern` (success, source `observed`) / `pitfall` (abort).
+  - `plan-review-ceo` → `pattern` on APPROVE (key `scope-<slug>-<pitch>`) / `pitfall` on REVISE/REJECT/abort (key `scope-blocked-...` or `plan-review-ceo-aborted-...`), source `observed`.
+  - `plan-review-eng` → mirrors CEO with `eng-` key prefix; insight enumerates architecture / worktree / risks.
+  - `adr` → `architecture` (success, source `user-stated`); insight format **inlines the revisit trigger** as `"Decision: X. Revisit when: Y."` so future "what triggers re-visiting X?" queries surface the trigger via substring match on `insight`.
+  - `ship` → `tool` (success, key `ship-pr<n>-<slug>`, insight enumerates PR + ADRs + build/test outcome).
+
+- **Cancel-as-information policy.** Aborts (interview cancel, 90% gate fail, hard prohibition hit, refusal verdicts) are logged as `pitfall` entries — the cycle's "what was attempted and why it stopped" carries forward as much value as success captures.
+
+### Changed
+
+- **Six SKILL.md files** gained the `Log learning` final-step section, positioned just before the existing `Hard Prohibitions` / `Critical rules` / `Strings catalog` reference blocks so the linear-flow reader sees it as the last step of the main flow. Best-effort by design — if `${CLAUDE_PLUGIN_ROOT}/scripts/learnings.sh` is unavailable, the call is silently skipped (`2>/dev/null || true`); logging never blocks the flow.
+
+### Backward compatibility
+
+- **Forward-compatible.** Sessions on v0.6.x continue to operate without learnings emission — the absence of `${CLAUDE_PLUGIN_ROOT}/scripts/learnings.sh` is gracefully handled. Sessions that pick up v0.7.0 begin accumulating entries from the next skill invocation; no migration of historical sessions needed.
+- **Store path is shared with the harness.** Both the plugin's vendored helper and the harness's `bin/learnings.sh` now point at `~/.gstack/projects/<slug>/learnings.jsonl`; `/common:learn` and `/immutable:*` skills read the same store. Two on-disk copies of the helper exist (plugin-vendored + harness-local). Drift is currently zero (byte-identical) and consolidation is deferred — see `Deferred features` for the path.
+- **Deferred features** (slated for follow-up cycles): prompt-injection filter on `insight`, time-based confidence decay on `observed`/`inferred` sources, cross-project search with trust gate, contradiction detection during prune. These mirror the gstack canonical (`garrytan/gstack` 4d2c8d9) Bun-based feature set; the plugin's jq+bash vendor adopts the schema and slug convention now and can graduate to the canonical implementation when Bun becomes a project-wide dependency.
+
 ## [0.6.5] — 2026-05-05
 
 Plan-review skill contract clarification + machine-readable routing directive. Fixes a description-driven drift surface where peer Claude sessions misread `plan-review-ceo`'s frontmatter as requiring ADRs to exist before review.
