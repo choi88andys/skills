@@ -425,7 +425,7 @@ Pick ONE branch below based on verdict/outcome and substitute the placeholders (
 ```bash
 LH="${CLAUDE_PLUGIN_ROOT}/scripts/learnings.sh"
 [ -x "$LH" ] || exit 0
-SLUG=$(basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9_-]/-/g')
+SLUG=$("$LH" slug)
 
 # === On APPROVE / APPROVE-WITH-CONDITIONS verdict ===
 TYPE=pattern; SOURCE=observed; CONF=7

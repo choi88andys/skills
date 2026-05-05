@@ -9,12 +9,40 @@
 #   log    '{"skill":...,"type":...,...}'           Append a learning
 #   prune  [--dry-run]                              Flag stale entries (referenced files deleted)
 #   path                                            Print the learnings file path
+#   slug                                            Print the canonical project slug
 set -euo pipefail
 
 GSTACK_HOME="${GSTACK_HOME:-$HOME/.gstack}"
 
-# --- Derive project slug from git repo or cwd ---
+# --- Derive canonical project slug ---
+# Prefer the SDD spec repo's directory basename when sdd_mode_detect.sh
+# resolves IMMUTABLE_PRD_SPEC_CONFIG. Both spec and app sides of two-repo-app
+# mode resolve to the same identity, so the learnings store is one shared
+# per-project space rather than one per repo. Fall back to git toplevel
+# basename for non-SDD invocations.
 get_slug() {
+  local spec_root=""
+
+  if [ -n "${IMMUTABLE_PRD_SPEC_CONFIG:-}" ] && [ -f "$IMMUTABLE_PRD_SPEC_CONFIG" ]; then
+    spec_root=$(dirname "$(dirname "$IMMUTABLE_PRD_SPEC_CONFIG")")
+  elif [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "${CLAUDE_PLUGIN_ROOT}/scripts/sdd_mode_detect.sh" ]; then
+    # Source under relaxed shell options in a subshell — extracts the var
+    # only, sdd_mode_detect.sh stdout (diagnostic echoes) is suppressed.
+    spec_root=$(
+      set +eu
+      # shellcheck disable=SC1091
+      . "${CLAUDE_PLUGIN_ROOT}/scripts/sdd_mode_detect.sh" >/dev/null 2>&1
+      if [ -n "${IMMUTABLE_PRD_SPEC_CONFIG:-}" ] && [ -f "$IMMUTABLE_PRD_SPEC_CONFIG" ]; then
+        dirname "$(dirname "$IMMUTABLE_PRD_SPEC_CONFIG")"
+      fi
+    )
+  fi
+
+  if [ -n "$spec_root" ]; then
+    basename "$spec_root" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9_-]/-/g'
+    return
+  fi
+
   local toplevel
   toplevel=$(git rev-parse --show-toplevel 2>/dev/null || true)
   if [ -n "$toplevel" ]; then
@@ -221,6 +249,7 @@ case "${1:-help}" in
   log)     shift; cmd_log "${1:-}" ;;
   prune)   shift; cmd_prune "${1:-}" ;;
   path)    cmd_path ;;
+  slug)    get_slug ;;
   help|--help|-h)
     echo "Usage: learnings.sh <command> [args]"
     echo ""
@@ -229,6 +258,7 @@ case "${1:-help}" in
     echo "  log    '{\"skill\":...,\"type\":...,...}'        Append a learning"
     echo "  prune  [--dry-run]                             Flag stale entries"
     echo "  path                                           Print learnings file path"
+    echo "  slug                                           Print canonical project slug"
     ;;
   *)
     echo "Unknown command: $1" >&2

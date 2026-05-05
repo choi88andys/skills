@@ -386,7 +386,7 @@ Pick ONE branch below based on outcome and substitute the placeholders (`<adr-fi
 ```bash
 LH="${CLAUDE_PLUGIN_ROOT}/scripts/learnings.sh"
 [ -x "$LH" ] || exit 0
-SLUG=$(basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9_-]/-/g')
+SLUG=$("$LH" slug)
 
 # === On success (file written, 90% gate passed) ===
 TYPE=architecture; SOURCE=user-stated; CONF=7
