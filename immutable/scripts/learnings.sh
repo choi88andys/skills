@@ -69,11 +69,24 @@ cmd_search() {
   local filter_key=""
   local include_stale=false
 
+  # Each value-bearing flag guards $# before shifting so a missing value
+  # produces a flag-named diagnostic rather than aborting on
+  # "$1: unbound variable" under set -u (cryptic, points at an internal
+  # assignment line instead of the user's typo).
   while [ $# -gt 0 ]; do
     case "$1" in
-      --limit)         shift; limit="$1" ;;
-      --type)          shift; filter_type="$1" ;;
-      --key)           shift; filter_key="$1" ;;
+      --limit)
+        [ $# -ge 2 ] || { echo "--limit requires a value" >&2; exit 1; }
+        shift; limit="$1"
+        ;;
+      --type)
+        [ $# -ge 2 ] || { echo "--type requires a value" >&2; exit 1; }
+        shift; filter_type="$1"
+        ;;
+      --key)
+        [ $# -ge 2 ] || { echo "--key requires a value" >&2; exit 1; }
+        shift; filter_key="$1"
+        ;;
       --include-stale) include_stale=true ;;
       *) echo "Unknown search arg: $1" >&2; exit 1 ;;
     esac
@@ -88,33 +101,25 @@ cmd_search() {
     exit 0
   fi
 
-  # Dedup: for each key+type combo, keep the last (newest) entry
-  # Then apply filters and limit
-  local jq_filter='.'
-
-  if [ -n "$filter_type" ]; then
-    jq_filter="$jq_filter | select(.type == \"$filter_type\")"
-  fi
-  if [ -n "$filter_key" ]; then
-    jq_filter="$jq_filter | select(.key | test(\"$filter_key\"; \"i\"))"
-  fi
-
   # Stale filter runs BEFORE group_by so a stale row that is the newest in
   # its (key, type) bucket cannot mask an earlier active row via map(last).
   local stale_pred='select((.stale // false) == false)'
   [ "$include_stale" = true ] && stale_pred='.'
 
-  # Read all lines, drop stale (unless --include-stale), group by key+type,
-  # keep last of each group, apply filters
-  jq -s "
+  # User-supplied filters go via --arg / --argjson (NOT raw jq string
+  # concatenation) so quotes, regex metacharacters, or jq syntax in the
+  # values can't corrupt the filter program. Previously a user typing
+  # --key 'foo"bar' produced a malformed jq program; the trailing
+  # 2>/dev/null || echo "LEARNINGS: 0 (parse error)" then masked the
+  # parse error as a misleading "no results".
+  jq -s --arg t "$filter_type" --arg k "$filter_key" --argjson lim "$limit" "
     map($stale_pred)
     | group_by([.key, .type])
     | map(last)
-    | map($jq_filter)
-    | flatten
+    | map(select((\$t == \"\" or .type == \$t) and (\$k == \"\" or (.key | test(\$k; \"i\")))))
     | sort_by(.ts)
     | reverse
-    | .[:$limit]
+    | .[0:\$lim]
     | .[]
   " "$file" 2>/dev/null || echo "LEARNINGS: 0 (parse error)"
 }
