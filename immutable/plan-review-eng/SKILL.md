@@ -16,10 +16,12 @@ runs in two modes:
   decision) and Phase 3 trigger list, and skips its own scope check (already
   done by CEO).
 - **standalone** — no CEO note exists. The eng review is the only review
-  for this work. It reviews the pitch + linked ADRs + (optional) design
-  handoff note directly, runs a lightweight scope check (Phase 0.3) in
-  place of the CEO's nuclear scope challenge, and produces ADR-authoring
-  triggers from its own findings.
+  for this work. It reviews the pitch (required) and the design handoff
+  note (recommended; warns if absent). Pre-existing linked ADRs are
+  referenced if present but are NOT a prerequisite. Runs a lightweight
+  scope check (Phase 0.3) in place of the CEO's nuclear scope challenge,
+  and produces ADR-authoring triggers from its own findings as an OUTPUT
+  (Phase 3), never consumed as input.
 
 Standalone mode exists for small, clear-scope tasks where the full CEO
 review is overkill: quick architecture decisions, follow-up PRs to
@@ -406,6 +408,35 @@ Verdict: **APPROVE**              ← markdown bold around the word
 
 Place the verdict line as the first or second non-blank line of the note.
 
+**Next line — REQUIRED format**
+
+The review note MUST end with a `Next:` line on its own line at column 0,
+placed as the LAST non-blank line of the note. This is the machine-readable
+routing directive consumed by downstream sessions (notably
+`/immutable:ship`). It is the SOURCE OF TRUTH for whether the ADR step
+runs — eliminates the ambiguity that "(if any)" wording left to
+interpretation. Downstream sessions follow the directive verbatim; they
+do NOT re-decide.
+
+For APPROVE — choose ONE based on Phase 3 ADR-trigger count:
+- 0 triggers (skip ADR step entirely):
+  `Next: implement → /immutable:ship`
+- 1 trigger:
+  `Next: /immutable:adr <slug> → implement → /immutable:ship`
+- N triggers:
+  `Next: /immutable:adr <slug-1> → /immutable:adr <slug-2> → ... → implement → /immutable:ship`
+
+For REVISE:
+- `Next: /immutable:plan-review-eng <slug>` (re-enter eng after plan fixes)
+- If the blocker requires CEO-level scope re-evaluation, write
+  `Next: /immutable:plan-review-ceo <slug>` instead.
+
+For REJECT:
+- `Next: /immutable:office-hours <slug>` (full rethink)
+
+Same column-0 rule as Verdict — markdown bold, heading, list-marker, or
+indent prefixes break the grep (`grep -E '^Next:[[:space:]]+'`).
+
 ### 4.3 Handoff
 
 Render via `pre.phase4.handoff_to_ship` (APPROVE) or
@@ -413,13 +444,19 @@ Render via `pre.phase4.handoff_to_ship` (APPROVE) or
 
 For APPROVE:
 - Path to the eng review note (`$OUT`)
-- ADR triggers (paths in app repo where ADRs should land)
-- Recommendation: "Implement → run `/immutable:adr` for each architecture
-  decision (if any) → run `/immutable:ship` when implementation is complete."
+- ADR triggers list — explicitly empty `[]` if Phase 3 found none, or a
+  list of `<slug>: <one-line decision summary>` entries
+- The `Next:` directive (verbatim from Phase 4.2 — see "Next line"). The
+  directive encodes whether the ADR step runs: empty trigger list routes
+  straight to `/immutable:ship`; non-empty routes through `/immutable:adr`
+  for each before shipping. Downstream sessions follow it without
+  re-deciding.
 
 For REVISE / REJECT:
-- Recommendation: rerun `/immutable:plan-review-ceo` or
-  `/immutable:office-hours` based on which sub-phase surfaced the blocker.
+- The `Next:` directive (verbatim from Phase 4.2). Routes to
+  `/immutable:plan-review-ceo` or `/immutable:plan-review-eng` rerun for
+  REVISE; `/immutable:office-hours` for REJECT.
+- Recommendation prose explaining which sub-phase surfaced the blocker.
 
 ---
 
