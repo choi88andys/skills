@@ -733,20 +733,23 @@ SLUG=$("$LH" slug)
 TYPE=pattern; SOURCE=user-stated; CONF=7
 KEY="pitch-<intent>-${SLUG}"   # <intent> ∈ {new, update, refactor-split, split-from, new-domain}
 INSIGHT="<one sentence summarising what the pitch establishes or changes; ≤200 chars, no credentials, no instruction-like phrasing>"
+FILES='["<pitch-relative-path>"]'   # e.g. ["pitches/state/use-riverpod.md"]
 
 # === On deprecate-only (Stage 1.6 flip-existing flow, no new pitch file) ===
 # TYPE=pattern; SOURCE=user-stated; CONF=7
 # KEY="pitch-deprecate-<target-filename-stem>-${SLUG}"
 # INSIGHT="Deprecated <target>: <reason in ≤80 chars>"
+# FILES='["<target-pitch-relative-path>"]'
 
 # === On abort (interview cancel, 90% gate fail, hard prohibition hit) ===
 # TYPE=pitfall; SOURCE=observed; CONF=6
 # KEY="prd-aborted-${SLUG}"
 # INSIGHT="Aborted at Stage <N>: <reason in one sentence>"
+# FILES='[]'
 
 "$LH" log "$(jq -nc --arg skill "immutable-prd" --arg type "$TYPE" --arg key "$KEY" \
-  --arg insight "$INSIGHT" --arg src "$SOURCE" --argjson conf "$CONF" \
-  '{skill:$skill,type:$type,key:$key,insight:$insight,confidence:$conf,source:$src}' 2>/dev/null)" || true
+  --arg insight "$INSIGHT" --arg src "$SOURCE" --argjson conf "$CONF" --argjson files "$FILES" \
+  '{skill:$skill,type:$type,key:$key,insight:$insight,confidence:$conf,source:$src,files:$files}' 2>/dev/null)" || true
 ```
 
 ---

@@ -491,20 +491,23 @@ SLUG=$("$LH" slug)
 TYPE=pattern; SOURCE=observed; CONF=7
 KEY="eng-${SLUG}-<pitch-basename>"   # refactor mode → eng-${SLUG}-internal
 INSIGHT="Architecture=<one phrase>; worktree=<single|multi-N|N/A>; main risks=<comma-separated, ≤3>"
+FILES='[".claude/immutable/plan-review/<feature-slug>-eng.md"]'
 
 # === On REVISE / REJECT verdict ===
 # TYPE=pitfall; SOURCE=observed; CONF=6
 # KEY="eng-blocked-${SLUG}-<pitch-basename>"
 # INSIGHT="Blocked: <reason in one sentence>"
+# FILES='[".claude/immutable/plan-review/<feature-slug>-eng.md"]'
 
 # === On abort (user cancels mid-review, ceo-not-approved refusal in ceo-grounded mode, etc.) ===
 # TYPE=pitfall; SOURCE=observed; CONF=6
 # KEY="plan-review-eng-aborted-${SLUG}"
 # INSIGHT="Aborted at Phase <N>: <reason>"
+# FILES='[]'
 
 "$LH" log "$(jq -nc --arg skill "immutable-plan-review-eng" --arg type "$TYPE" --arg key "$KEY" \
-  --arg insight "$INSIGHT" --arg src "$SOURCE" --argjson conf "$CONF" \
-  '{skill:$skill,type:$type,key:$key,insight:$insight,confidence:$conf,source:$src}' 2>/dev/null)" || true
+  --arg insight "$INSIGHT" --arg src "$SOURCE" --argjson conf "$CONF" --argjson files "$FILES" \
+  '{skill:$skill,type:$type,key:$key,insight:$insight,confidence:$conf,source:$src,files:$files}' 2>/dev/null)" || true
 ```
 
 ---

@@ -5,7 +5,9 @@
 # Each line: {"ts","skill","type","key","insight","confidence","source","branch","commit","files":[]}
 #
 # Subcommands:
-#   search [--type TYPE] [--limit N] [--key KEY]   Search learnings (latest per key+type)
+#   search [--type TYPE] [--limit N] [--key KEY] [--include-stale]
+#                                                   Search learnings (latest per key+type;
+#                                                   hides stale entries unless --include-stale)
 #   log    '{"skill":...,"type":...,...}'           Append a learning
 #   prune  [--dry-run]                              Flag stale entries (referenced files deleted)
 #   path                                            Print the learnings file path
@@ -65,12 +67,14 @@ cmd_search() {
   local limit=10
   local filter_type=""
   local filter_key=""
+  local include_stale=false
 
   while [ $# -gt 0 ]; do
     case "$1" in
-      --limit)  shift; limit="$1" ;;
-      --type)   shift; filter_type="$1" ;;
-      --key)    shift; filter_key="$1" ;;
+      --limit)         shift; limit="$1" ;;
+      --type)          shift; filter_type="$1" ;;
+      --key)           shift; filter_key="$1" ;;
+      --include-stale) include_stale=true ;;
       *) echo "Unknown search arg: $1" >&2; exit 1 ;;
     esac
     shift
@@ -95,9 +99,16 @@ cmd_search() {
     jq_filter="$jq_filter | select(.key | test(\"$filter_key\"; \"i\"))"
   fi
 
-  # Read all lines, group by key+type, keep last of each group, apply filters
+  # Stale filter runs BEFORE group_by so a stale row that is the newest in
+  # its (key, type) bucket cannot mask an earlier active row via map(last).
+  local stale_pred='select((.stale // false) == false)'
+  [ "$include_stale" = true ] && stale_pred='.'
+
+  # Read all lines, drop stale (unless --include-stale), group by key+type,
+  # keep last of each group, apply filters
   jq -s "
-    group_by([.key, .type])
+    map($stale_pred)
+    | group_by([.key, .type])
     | map(last)
     | map($jq_filter)
     | flatten
@@ -130,13 +141,14 @@ cmd_log() {
   branch=$(git branch --show-current 2>/dev/null || echo "unknown")
   commit=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 
-  # Merge defaults (entry values take precedence)
+  # Merge defaults (entry values take precedence). files defaults to []
+  # so prune can iterate uniformly even when the writer didn't pass --argjson files.
   local enriched
   enriched=$(printf '%s' "$entry" | jq \
     --arg ts "$ts" \
     --arg branch "$branch" \
     --arg commit "$commit" \
-    '. + {ts: (.ts // $ts), branch: (.branch // $branch), commit: (.commit // $commit)}')
+    '. + {ts: (.ts // $ts), branch: (.branch // $branch), commit: (.commit // $commit), files: (.files // [])}')
 
   # Validate required fields
   local missing=""
@@ -254,7 +266,8 @@ case "${1:-help}" in
     echo "Usage: learnings.sh <command> [args]"
     echo ""
     echo "Commands:"
-    echo "  search [--type TYPE] [--limit N] [--key KEY]  Query learnings"
+    echo "  search [--type TYPE] [--limit N] [--key KEY] [--include-stale]"
+    echo "                                                  Query learnings (hides stale)"
     echo "  log    '{\"skill\":...,\"type\":...,...}'        Append a learning"
     echo "  prune  [--dry-run]                             Flag stale entries"
     echo "  path                                           Print learnings file path"

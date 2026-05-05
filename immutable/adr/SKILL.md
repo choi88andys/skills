@@ -392,20 +392,23 @@ SLUG=$("$LH" slug)
 TYPE=architecture; SOURCE=user-stated; CONF=7
 KEY="adr-<adr-filename-stem>-${SLUG}"   # e.g. adr-2026-05-05-auth-strategy-skills
 INSIGHT="Decision: <≤80 chars>. Revisit when: <≤80 chars>."
+FILES='["<adr-relative-path>"]'   # e.g. ["adr/2026-05-05-auth-strategy.md"]
 
 # === On deprecate-only (Stage 1.6 flip-existing flow, no new ADR file) ===
 # TYPE=architecture; SOURCE=user-stated; CONF=7
 # KEY="adr-deprecate-<target-filename-stem>-${SLUG}"
 # INSIGHT="Deprecated <target>: <reason in ≤80 chars>"
+# FILES='["<target-relative-path>"]'
 
 # === On abort (interview cancel, 90% gate fail, hard prohibition hit) ===
 # TYPE=pitfall; SOURCE=observed; CONF=6
 # KEY="adr-aborted-stage<N>-${SLUG}"
 # INSIGHT="Aborted at Stage <N>: <reason>"
+# FILES='[]'
 
 "$LH" log "$(jq -nc --arg skill "immutable-adr" --arg type "$TYPE" --arg key "$KEY" \
-  --arg insight "$INSIGHT" --arg src "$SOURCE" --argjson conf "$CONF" \
-  '{skill:$skill,type:$type,key:$key,insight:$insight,confidence:$conf,source:$src}' 2>/dev/null)" || true
+  --arg insight "$INSIGHT" --arg src "$SOURCE" --argjson conf "$CONF" --argjson files "$FILES" \
+  '{skill:$skill,type:$type,key:$key,insight:$insight,confidence:$conf,source:$src,files:$files}' 2>/dev/null)" || true
 ```
 
 ---
