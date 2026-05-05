@@ -278,6 +278,27 @@ Plus shared `common.*` keys: `common.refuse_legacy_mode`,
 
 ---
 
+## Log learning to project memory (mandatory final step)
+
+Before returning control to the user (success **or** abort), append one learning entry to the project store. Best-effort — if `${CLAUDE_PLUGIN_ROOT}/scripts/learnings.sh` is unavailable, skip silently and never block the flow.
+
+```bash
+SLUG=$(basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9_-]/-/g')
+LH="${CLAUDE_PLUGIN_ROOT}/scripts/learnings.sh"
+```
+
+**On success** (transient note written): `TYPE=pattern`, `SOURCE=observed`, `KEY=design-${SLUG}-<pitch-basename>` (e.g. `design-skills-feature-x`), `INSIGHT` = one sentence summarising the app-side context decisions captured (activation, dependencies, module — pick what matters most; ≤200 chars, no credentials), `CONF=7`.
+
+**On abort** (user cancels at Step 1 pitch picker, refuses Step 3 questions, etc.): `TYPE=pitfall`, `SOURCE=observed`, `KEY=design-aborted-${SLUG}`, `INSIGHT="Aborted at Step <N>: <reason>"`, `CONF=6`.
+
+```bash
+"$LH" log "$(jq -nc --arg skill "immutable-design" --arg type "$TYPE" --arg key "$KEY" \
+  --arg insight "$INSIGHT" --arg src "$SOURCE" --argjson conf "$CONF" \
+  '{skill:$skill,type:$type,key:$key,insight:$insight,confidence:$conf,source:$src}')" 2>/dev/null || true
+```
+
+---
+
 ## Important rules
 
 - **Pitch is the design artifact.** Do not write a `design-*.md` outside

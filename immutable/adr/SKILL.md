@@ -377,6 +377,27 @@ Emit commit instructions (GitHub GUI / CLI), do NOT commit.
 
 ---
 
+## Log learning to project memory (mandatory final step)
+
+Before returning control to the user (success **or** abort), append one learning entry to the project store. Best-effort — if `${CLAUDE_PLUGIN_ROOT}/scripts/learnings.sh` is unavailable, skip silently and never block the flow.
+
+```bash
+SLUG=$(basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9_-]/-/g')
+LH="${CLAUDE_PLUGIN_ROOT}/scripts/learnings.sh"
+```
+
+**On success** (file written, 90% gate passed): `TYPE=architecture`, `SOURCE=user-stated`, `KEY=adr-<adr-id>-${SLUG}` (e.g. `adr-007-auth-strategy-skills`), `INSIGHT` format **must inline the revisit trigger** so future "what triggers re-visiting X?" queries surface it via substring match: `"Decision: <decision in ≤80 chars>. Revisit when: <trigger in ≤80 chars>."` Use the same wording the ADR's Consequences / Revisit triggers branch uses, condensed. `CONF=7`.
+
+**On abort** (interview cancel, 90% gate fail, hard prohibition hit): `TYPE=pitfall`, `SOURCE=observed`, `KEY=adr-aborted-<adr-id>-${SLUG}` (use `unknown` for `<adr-id>` if not yet assigned), `INSIGHT="Aborted at Stage <N>: <reason>"`, `CONF=6`.
+
+```bash
+"$LH" log "$(jq -nc --arg skill "immutable-adr" --arg type "$TYPE" --arg key "$KEY" \
+  --arg insight "$INSIGHT" --arg src "$SOURCE" --argjson conf "$CONF" \
+  '{skill:$skill,type:$type,key:$key,insight:$insight,confidence:$conf,source:$src}')" 2>/dev/null || true
+```
+
+---
+
 ## Hard Prohibitions
 
 1. Never write a file that fails the 90% gate.

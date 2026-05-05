@@ -416,6 +416,29 @@ Render via `prc.phase4.handoff_to_plan_review_eng`:
 
 ---
 
+## Log learning to project memory (mandatory final step)
+
+Before returning control to the user (any verdict **or** abort), append one learning entry to the project store. Best-effort — if `${CLAUDE_PLUGIN_ROOT}/scripts/learnings.sh` is unavailable, skip silently and never block the flow.
+
+```bash
+SLUG=$(basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9_-]/-/g')
+LH="${CLAUDE_PLUGIN_ROOT}/scripts/learnings.sh"
+```
+
+**On APPROVE / APPROVE-WITH-CONDITIONS verdict**: `TYPE=pattern`, `SOURCE=observed`, `KEY=scope-${SLUG}-<pitch-basename>`, `INSIGHT="Mode=<EXPANSION|SELECTIVE|HOLD|REDUCTION>; <one sentence on key scope decisions or conditions>"`, `CONF=7`.
+
+**On REVISE / REJECT verdict**: `TYPE=pitfall`, `SOURCE=observed`, `KEY=scope-blocked-${SLUG}-<pitch-basename>`, `INSIGHT="Blocked at Phase <N>: <reason>"`, `CONF=6`.
+
+**On abort** (user cancels mid-review, refuses Phase 1 alternatives, etc.): `TYPE=pitfall`, `SOURCE=observed`, `KEY=plan-review-ceo-aborted-${SLUG}`, `INSIGHT="Aborted at Phase <N>: <reason>"`, `CONF=6`.
+
+```bash
+"$LH" log "$(jq -nc --arg skill "immutable-plan-review-ceo" --arg type "$TYPE" --arg key "$KEY" \
+  --arg insight "$INSIGHT" --arg src "$SOURCE" --argjson conf "$CONF" \
+  '{skill:$skill,type:$type,key:$key,insight:$insight,confidence:$conf,source:$src}')" 2>/dev/null || true
+```
+
+---
+
 ## Strings catalog key anchors
 
 | Key | Used in |
