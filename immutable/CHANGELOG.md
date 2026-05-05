@@ -8,7 +8,13 @@ Cross-session learnings integration. Every interactive skill now appends a struc
 
 ### Added
 
-- **`immutable/scripts/learnings.sh`** — vendored jq+bash helper that appends to `~/.gstack/projects/<slug>/learnings.jsonl` (canonical gstack store path). Subcommands: `search [--type T] [--limit N] [--key K]`, `log '<json>'`, `prune [--dry-run]`, `path`. Schema: `{skill, type, key, insight, confidence, source, ts, branch, commit, files}`. Type set: `pattern | pitfall | preference | architecture | tool`. Source set: `observed | user-stated | inferred | cross-model`. The plugin remains standalone — no `~/.claude-dotfiles/` dependency — but the on-disk store is shared with the harness's `/common:learn` skill, which now points at the same path.
+- **`immutable/scripts/learnings.sh`** — vendored jq+bash helper that appends to `~/.gstack/projects/<slug>/learnings.jsonl` (canonical gstack store path). Subcommands: `search [--type T] [--limit N] [--key K] [--include-stale]`, `log '<json>'`, `prune [--dry-run]`, `path`, `slug`. Schema: `{skill, type, key, insight, confidence, source, ts, branch, commit, files}`. Type set: `pattern | pitfall | preference | architecture | tool`. Source set: `observed | user-stated | inferred | cross-model`. The plugin remains standalone — no `~/.claude-dotfiles/` dependency — but the on-disk store is shared with the harness's `/common:learn` skill, which now points at the same path.
+
+- **Canonical project slug.** The store path's `<slug>` derives from the SDD spec repo's directory basename via `IMMUTABLE_PRD_SPEC_CONFIG` (sourced from `sdd_mode_detect.sh` when not pre-set in the env), falling back to git toplevel basename. Two-repo-app mode resolves spec and app sides to the same slug, so the learnings store is one shared per-project space rather than one per repo. Calls into `learnings.sh slug` from SKILL.md log blocks ensure helper and writers agree on a single identity.
+
+- **POSIX-atomic appends + concurrent-writer safety.** `cmd_log` uses `O_APPEND` for the append step; entries (~300-500 bytes) are well under PIPE_BUF, so concurrent `learnings.sh log` invocations from parallel-pod cycles never lose entries.
+
+- **Prune + stale dedup.** `cmd_log` defaults `files: []` so every entry has a uniform schema. `cmd_prune` flags entries whose referenced files no longer exist with `stale: true`. `cmd_search` drops stale rows BEFORE `group_by` (so a stale row that is the newest in its key+type bucket cannot mask earlier active rows), and exposes `--include-stale` for forensic queries.
 
 - **`## Log learning to project memory (mandatory final step)` section** appended to every interactive SKILL.md (`prd`, `design`, `plan-review-ceo`, `plan-review-eng`, `adr`, `ship`). Each skill emits exactly one entry per invocation, on success **or** abort/blocked outcomes. Per-skill mapping:
   - `prd` → `pattern` (success, source `user-stated`) / `pitfall` (abort, source `observed`).
@@ -16,7 +22,7 @@ Cross-session learnings integration. Every interactive skill now appends a struc
   - `plan-review-ceo` → `pattern` on APPROVE (key `scope-<slug>-<pitch>`) / `pitfall` on REVISE/REJECT/abort (key `scope-blocked-...` or `plan-review-ceo-aborted-...`), source `observed`.
   - `plan-review-eng` → mirrors CEO with `eng-` key prefix; insight enumerates architecture / worktree / risks.
   - `adr` → `architecture` (success, source `user-stated`); insight format **inlines the revisit trigger** as `"Decision: X. Revisit when: Y."` so future "what triggers re-visiting X?" queries surface the trigger via substring match on `insight`.
-  - `ship` → `tool` (success, key `ship-pr<n>-<slug>`, insight enumerates PR + ADRs + build/test outcome).
+  - `ship` → `tool` (success, key `ship-<branch>-<slug>`, insight enumerates pitch + ADRs + build/test outcome). Branch name is stable across the cycle and known before `gh pr create` runs, so it keys without depending on PR number capture.
 
 - **Cancel-as-information policy.** Aborts (interview cancel, 90% gate fail, hard prohibition hit, refusal verdicts) are logged as `pitfall` entries — the cycle's "what was attempted and why it stopped" carries forward as much value as success captures.
 
