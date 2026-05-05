@@ -1,6 +1,6 @@
 ---
 name: plan-review-ceo
-description: Adversarial CEO-style review of the implementation plan grounded in the pitch + linked ADRs + design handoff note. Walks Phase 0 nuclear scope challenge (premise / existing-code leverage / dream-state / mandatory alternatives / mode selection) and 11 review sections. Surfaces pitch-supersede triggers and ADR-authoring triggers. Triggers - "/immutable:plan-review-ceo", "CEO 리뷰", "스코프 검토", "plan review scope".
+description: Adversarial CEO-style review of the implementation plan grounded in the pitch and design handoff note. Pre-existing linked ADRs are referenced if present but are NOT a prerequisite — ADR-authoring triggers are surfaced as an OUTPUT of this review (Phase 3.2), not consumed as input. Walks Phase 0 nuclear scope challenge (premise / existing-code leverage / dream-state / mandatory alternatives / mode selection) and 11 review sections. Surfaces pitch-supersede and ADR-authoring triggers. Triggers - "/immutable:plan-review-ceo", "CEO 리뷰", "스코프 검토", "plan review scope".
 allowed-tools: Read, Write, Bash, Glob, Grep, AskUserQuestion, WebSearch
 license: MIT
 ---
@@ -11,15 +11,21 @@ This is the heavier of the two plan-review skills. It runs scope challenge
 first (Phase 0), then walks 11 review sections that catch silent failures,
 weak rollout posture, and architectural debt before code lands.
 
-The skill expects three review targets:
+The skill expects:
 
-1. **Pitch** — in the spec repo (`pitches/<domain>/...md`) or single-repo
-   pitches subtree. The canonical WHAT.
-2. **Linked ADRs** — files in the app repo's `adr/` directory whose
-   frontmatter `references.pitches:` matches this pitch. The recorded WHY.
-3. **Design handoff note** — `.claude/immutable/design/{slug}.md` written
-   by the previous `/immutable:design` skill. Captures app-side context
-   the pitch could not include.
+1. **Pitch** (required) — in the spec repo (`pitches/<domain>/...md`) or
+   single-repo pitches subtree. The canonical WHAT.
+2. **Design handoff note** (recommended; warns if absent) —
+   `.claude/immutable/design/{slug}.md` written by the previous
+   `/immutable:design` skill. Captures app-side context the pitch could
+   not include.
+3. **Linked ADRs** (optional context, NOT a prerequisite) — files in the
+   app repo's `adr/` directory whose frontmatter `references.pitches:`
+   matches this pitch. The recorded WHY for *pre-existing* decisions.
+   ADRs do NOT need to exist before this review runs. When present, they
+   are read for context. When absent, that is normal — review may surface
+   NEW ADR-authoring triggers (Phase 3.2) which are an OUTPUT, never an
+   input precondition.
 
 Output: an inline review (questions + recommendations) plus a transient
 review-note at `.claude/immutable/plan-review/{slug}-ceo.md` capturing the
@@ -359,19 +365,40 @@ Verdict: **APPROVE**              ← markdown bold around the word
 Place the verdict line as the first or second non-blank line of the note
 so a casual reader sees it without scrolling.
 
+**Next line — REQUIRED format**
+
+The review note MUST also include a `Next:` line on its own line at
+column 0, placed as the LAST non-blank line of the note. This is the
+machine-readable routing directive consumed by downstream sessions —
+removes ambiguity about which skill runs next. Format depends on the
+verdict:
+
+- APPROVE → `Next: /immutable:plan-review-eng`
+- REVISE  → `Next: /immutable:prd <slug>` (pitch supersede authoring)
+- REJECT  → `Next: /immutable:office-hours <slug>` (full rethink)
+
+ADR-authoring triggers surfaced in Phase 3.2 are NOT routed from this
+note — they are advisory candidates for the eng review to merge with its
+own findings. The authoritative ADR routing directive lives in the eng
+review's `Next:` line.
+
+Same column-0 rule as Verdict — markdown bold, heading, list-marker, or
+indent prefixes break the grep (`grep -E '^Next:[[:space:]]+'`).
+
 ### 4.3 Handoff
 
 Render via `prc.phase4.handoff_to_plan_review_eng`:
 
 - Verdict
 - Path to the review note (`$OUT`)
-- Recommendation: "Run `/immutable:plan-review-eng` next when ready" (only
-  if APPROVE)
-- Trigger reminders (any from Phase 3.1 / 3.2)
-
-For REVISE / REJECT, recommend the appropriate upstream skill instead
-(`/immutable:prd` for pitch supersede, `/immutable:office-hours` for full
-rethink).
+- The `Next:` directive (verbatim from the review note's last line — see
+  Phase 4.2). This is the authoritative routing instruction; downstream
+  sessions follow it without re-deciding.
+- Trigger reminders (any from Phase 3.1 / 3.2) — surfaced as candidates
+  for the eng review to merge with its own findings. ADR-authoring
+  triggers here are advisory; the actual ADR routing decision lives in
+  the eng review's own `Next:` directive (which sees the union of CEO
+  triggers + eng-specific triggers).
 
 ---
 

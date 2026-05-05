@@ -2,6 +2,33 @@
 
 All notable changes to the `immutable` plugin are documented in this file. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Version is canonically declared in `.claude-plugin/plugin.json`.
 
+## [0.6.5] — 2026-05-05
+
+Plan-review skill contract clarification + machine-readable routing directive. Fixes a description-driven drift surface where peer Claude sessions misread `plan-review-ceo`'s frontmatter as requiring ADRs to exist before review.
+
+### Fixed
+
+- **`plan-review-ceo` description framed ADRs as a mandatory input.** The previous frontmatter "grounded in the pitch + linked ADRs + design handoff note" placed three artifacts in syntactically equal grounding position, causing some Claude sessions reading only the description (which the harness loads automatically into the system prompt) to interpret ADRs as a co-equal prerequisite alongside pitch and design note. Observed in the wild: workers authored `/immutable:adr` upfront before `/immutable:design`, contradicting the plugin's intended reactive ADR flow (where Phase 3.2 surfaces ADR triggers as an OUTPUT, not an input). Fix rewords the description to make pitch (required) and design note (recommended) the actual inputs, and explicitly states that ADRs are referenced only if pre-existing — never required. Same fix applied to `plan-review-eng`'s standalone-mode body description.
+- **Body wording — "three review targets" implied uniformity.** `plan-review-ceo` body listed pitch / linked ADRs / design handoff note as three review targets without marking optionality. Updated to a required / recommended / optional ladder with an explicit "ADRs do NOT need to exist before this review runs" callout.
+
+### Added
+
+- **`Next:` line spec in Phase 4.2** of both `plan-review-ceo` and `plan-review-eng` review notes. Column-0, grep-safe (`grep -E '^Next:[[:space:]]+'`), placed as the LAST non-blank line of the note. Encodes the machine-readable routing directive consumed by downstream sessions:
+  - `plan-review-ceo` `Next:` routes to `/immutable:plan-review-eng` on APPROVE, `/immutable:prd <slug>` on REVISE (pitch supersede), or `/immutable:office-hours <slug>` on REJECT.
+  - `plan-review-eng` `Next:` is the SOURCE OF TRUTH for whether the ADR step runs. APPROVE with 0 Phase 3 triggers writes `Next: implement → /immutable:ship` (skip ADR entirely); APPROVE with N triggers writes `Next: /immutable:adr <slug-1> → /immutable:adr <slug-2> → … → implement → /immutable:ship`. REVISE / REJECT route back to the appropriate upstream skill.
+
+  Eliminates the ambiguity that v0.6.4's "(if any)" wording left to downstream re-interpretation. The directive is now authoritative; downstream sessions follow it verbatim without re-deciding.
+
+### Changed
+
+- **Phase 4.3 handoff sections** of both `plan-review-{ceo,eng}/SKILL.md` updated to surface the new `Next:` directive as the authoritative routing instruction. Trigger reminders are framed as candidates for the eng review to merge with its own findings — the actual ADR routing decision lives in the eng review's `Next:` directive, which sees the union of CEO + eng-specific triggers.
+
+### Backward compatibility
+
+- **Forward-compatible by design.** Sessions on v0.6.4 that don't grep the new `Next:` line continue to work — the existing `Verdict:` line is unchanged in format, and downstream consumers of v0.6.4 (`plan-review-eng` mode routing, `/immutable:ship` precondition check) keep using `^Verdict:[[:space:]]+APPROVE` as before. The `Next:` line is purely additive.
+- Sessions that opt to read `Next:` gain unambiguous routing — particularly valuable for parallel-pod cycles where multiple workers run plan-review concurrently and downstream auditors need to verify which next step each pod is taking.
+- Users on v0.6.4 should `claude plugin update immutable` to pick up the description fix and the new directive. No migration required for in-flight cycles.
+
 ## [0.6.4] — 2026-05-03
 
 Documentation polish + downstream-verification marker on `/immutable:design`. No interactive behavior change.
