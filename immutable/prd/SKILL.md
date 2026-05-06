@@ -386,12 +386,19 @@ If the user replies with a negative/empty response (e.g., `없음`, `none`, `no`
 
 #### Branch A — Background and Problem
 
-Ask about:
-- Why is this pitch needed? (user request / business decision / existing bug / compliance)
-- What is the current state? (nothing / partial / exists differently)
-- What specific gap does this pitch close?
+This section captures the **product/service-level** problem the requirement solves — NOT the document's own creation rationale.
 
-**Completion criterion**: a third party can understand "why this pitch is needed" in ≤3 sentences.
+Ask about:
+- What user or business problem does this requirement solve? (user pain, business goal, policy/compliance need)
+- For whom, and what are they trying to accomplish? (user role, scenario, current friction)
+- Why is this the right product-level approach to that problem? (decision basis, key trade-offs)
+
+**Reject signals (loop back, do not advance)**:
+- Answer describes the document's own existence — "PRD didn't exist", "aligning spec with code", "v1 → v2 changelog", "this is the retro-spec for current behavior". These are document meta, not product problems. Re-ask: "Set the document framing aside — what user or business pain does the underlying requirement address, and why this answer?"
+- Answer is only sub-pitch positioning — "this is sub-pitch 1 of 4 in domain X, sibling pitches are Y/Z". Positioning may appear as a single scope-setting clause inside the answer, but not as the whole answer.
+- Answer is generic restatement of the title — restating "this pitch defines the checkout screen" without naming a problem.
+
+**Completion criterion**: a third party can summarize the **user/business problem** this requirement solves in ≤3 sentences. Document-existence rationale alone fails this branch.
 
 #### Branch B — User Stories (Given/When/Then)
 
@@ -555,7 +562,7 @@ The criteria list is sourced from `profile.gate.criteria[]` (id-keyed). Defaults
 
 | # | Criterion id | Pass Condition |
 |---|---|---|
-| 1 | `background_clear` | Third party can summarize intent in ≤3 lines; no `<profile.gate.unresolved_tag>` tags remain |
+| 1 | `background_clear` | Third party can summarize the **user/business problem** this requirement solves in ≤3 lines; no `<profile.gate.unresolved_tag>` tags remain. Answers covering only document-existence rationale (PRD missing / code-spec alignment / changelog) fail this criterion. |
 | 2 | `gwt_minimum` | happy path GWT ≥1 AND alternate/error GWT ≥1 (kind check, not count) |
 | 3 | `normative_minimum` | At least 3 bracketed statements across the body |
 | 4 | `edge_cases_minimum` | At least 1 row with explicit handling |

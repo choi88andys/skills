@@ -2,6 +2,28 @@
 
 All notable changes to the `immutable` plugin are documented in this file. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Version is canonically declared in `.claude-plugin/plugin.json`.
 
+## [0.7.1] — 2026-05-06
+
+`/immutable:prd` Branch A and gate criterion 1 sharpened so §"배경과 문제" content is unambiguously product/service-level — the user/business problem the requirement solves, not the document's own creation rationale.
+
+### Fixed
+
+- **§"배경과 문제" interview drift.** Branch A's prior question set ("Why is this pitch needed?", "What is the current state?", "What specific gap does this pitch close?") was ambiguous between product-level intent and document-level meta. Observed in the wild on real pitch repos: §"배경과 문제" accumulated retro-spec rationale ("PRD didn't exist", "code-spec alignment", sub-pitch positioning) instead of user/business problem statements, leaving future readers without a product-level decision basis. Branch A questions are now anchored to the user/business problem — "what user or business problem does this requirement solve", "for whom and what scenario", "why is this the right product-level approach" — and three explicit reject signals loop the interview back when the answer is document-existence rationale, sub-pitch positioning only, or a generic title restatement.
+- **Gate criterion 1 (`background_clear`) wording.** Both `default-ko.yml` and `default-en.yml` previously asked the gate to verify a third party can summarize "intent" / "왜 필요한지" — the same ambiguity. Reworded to require summary of the **user/business problem this requirement solves**, with an explicit rule that document-existence rationale (PRD missing / code-spec alignment / changelog) does not count as a product-level problem statement and fails this criterion.
+
+### Changed
+
+- **`immutable/prd/SKILL.md` Stage 2 Branch A** — question framing rewritten to product-level only; reject-signal block added with three anti-patterns; completion criterion tightened to require user/business problem summary.
+- **`immutable/prd/SKILL.md` Stage 5 gate table** — row 1 (`background_clear`) updated to match the profile's revised pass condition.
+- **`immutable/examples/_profiles/default-ko.yml`** — `sections[id=background].description` and `gate.criteria[id=background_clear].pass_condition` rewritten with product-level framing + anti-example list.
+- **`immutable/examples/_profiles/default-en.yml`** — parity for English-locale teams.
+
+### Backward compatibility
+
+- **Existing pitches unaffected.** The append-only contract is preserved — previously written pitches with document-level §"배경과 문제" content remain valid. The gate change applies only to new in-flight pitches authored via `/immutable:prd` after upgrade.
+- **Profile schema unchanged** — no field additions, no schema bump. Teams with custom forks of `default-{ko,en}.yml` keep their overrides intact; only the bundled defaults change. To inherit the sharper wording, copy the new `description` / `pass_condition` strings into the team profile.
+- **No migration required.** v0.7.1 is a copy/prompt sharpening release on the same v0.7.0 schema.
+
 ## [0.7.0] — 2026-05-05
 
 Cross-session learnings integration. Every interactive skill now appends a structured outcome entry to a shared project memory store on completion or abort, so future skill invocations and `/common:learn` queries can surface prior decisions, blockers, and cancellation reasons across sessions.
