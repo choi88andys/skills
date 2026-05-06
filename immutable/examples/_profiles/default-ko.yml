@@ -53,7 +53,7 @@ sections:
     heading: "배경과 문제"
     required: true
     min_items: 1
-    description: "제3자가 3줄 이내로 '왜 필요한지'를 요약할 수 있어야 한다."
+    description: "제3자가 3줄 이내로 '이 요구사항이 사용자·비즈니스에게 어떤 문제를 해결하는지'를 요약할 수 있어야 한다. 다루는 대상은 제품·서비스 레벨의 문제와 의사결정 근거 — 문서 자체의 작성 사유(예: 'PRD가 부재했다', '코드와 spec을 정합화한다', '문서 변경 내역')는 본 섹션이 아니다."
   - id: user_stories
     heading: "사용자 스토리 및 수용 조건"
     required: true
@@ -156,7 +156,7 @@ gate:
   criteria:
     - id: background_clear
       label: "배경 명확"
-      pass_condition: "제3자가 3줄 이내로 의도를 요약할 수 있고 [미확정] 태그가 남아있지 않다"
+      pass_condition: "제3자가 3줄 이내로 '이 요구사항이 해결하는 사용자·비즈니스 문제'를 요약할 수 있고 [미확정] 태그가 남아있지 않다. 문서 작성 사유(PRD 부재·정합화·변경 내역)만 적힌 답은 product-level 문제 진술로 인정되지 않으며 fail 처리한다"
     - id: gwt_minimum
       label: "GWT 2종류 이상 (happy + alternate)"
       pass_condition: "happy path GWT ≥1 AND alternate/error GWT ≥1 (총 합 ≥2). 종류 검사이지 갯수 검사 아님 — 단일 happy path만 있는 PRD는 fail"
