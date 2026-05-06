@@ -30,7 +30,7 @@ sections:
     heading: "Background and Problem"
     required: true
     min_items: 1
-    description: "A third party can summarize intent in ≤3 lines."
+    description: "A third party can summarize, in ≤3 lines, the user/business problem this requirement solves. Subject is the product/service-level problem and the decision basis — NOT the document's own creation rationale (e.g., 'PRD didn't exist', 'aligning code with spec', 'changelog')."
   - id: user_stories
     heading: "User Stories and Acceptance Criteria"
     required: true
@@ -118,7 +118,7 @@ gate:
   criteria:
     - id: background_clear
       label: "Background clear"
-      pass_condition: "Third party can summarize intent in ≤3 lines; no [TBD] tags remain."
+      pass_condition: "Third party can summarize, in ≤3 lines, the user/business problem this requirement solves; no [TBD] tags remain. Answers covering only document-existence rationale (PRD missing / code-spec alignment / changelog) do NOT count as a product-level problem statement and fail this criterion."
     - id: gwt_minimum
       label: "≥2 GWT kinds (happy + alternate)"
       pass_condition: "happy path GWT ≥1 AND alternate/error GWT ≥1 (sum ≥2). Kind check, not count — a PRD with only a single happy path fails."
