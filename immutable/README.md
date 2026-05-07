@@ -69,6 +69,14 @@ Standalone reference configs in [`examples/`](examples/):
 
 The directory name `.immutable-prd/` is retained for back-compat with the SDD_MODE_DETECT bash snippet — it's the system-level path marker, distinct from the plugin name.
 
+## Pipeline manifest for orchestrators
+
+`pipeline.yaml` at the plugin root declares the canonical phase chain, hard dependencies, and verdict-routing contracts for `flows.pitch_to_ship`. Orchestrators (e.g., a local `/lead` skill, future cross-plugin schedulers) parse it to learn the phase order WITHOUT hard-coding immutable-specific knowledge — they read `hard_dependencies` to respect ordering at dispatch time, so workers do not hit in-skill gates.
+
+The skills themselves enforce their own preconditions at invocation time (refusal or explicit AskUserQuestion warn). The manifest is the orchestration-time signal layered ON TOP — read by tools BEFORE dispatching a worker, complementing the worker-time gates inside each skill.
+
+Schema is `schema_version: 1`. Other plugins adopting the same shape get orchestration compatibility for free.
+
 ## Schema, profile, strings catalog, validator
 
 Full reference lives in [`SCHEMA.md`](SCHEMA.md):

@@ -2,6 +2,36 @@
 
 All notable changes to the `immutable` plugin are documented in this file. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Version is canonically declared in `.claude-plugin/plugin.json`.
 
+## [0.7.2] — 2026-05-07
+
+Design-handoff-note guidance hardened across plan-review skills + declarative pipeline manifest. Eliminates the recurring orchestration-time defect where lead sessions skipped `/immutable:design` between `/immutable:prd` APPROVE and `/immutable:plan-review-ceo`, producing degraded reviews without app-side context grounding. Fix is layered: descriptions tightened (orchestration-time signal lead reads at dispatch decision), declarative pipeline manifest added (orchestrator-facing source-of-truth for phase chain + hard dependencies), and body-level explicit 3-way warn replaces silent-skip (worker-time signal when the skill is already invoked).
+
+### Fixed
+
+- **`plan-review-ceo` Phase 0.1 silent-skip surface.** Prior versions checked for the design handoff note and rendered `prc.warn.no_design_note` only as informational text — execution flowed forward whether the user "saw" the warn or not, and worker contexts that skipped past the warn produced reviews missing app-side grounding (module placement, activation status, dependent features). Phase 0.1 now surfaces the warn via AskUserQuestion as the **first** Phase 0 user interaction, with three explicit branches (A pause + run `/immutable:design`, B proceed degraded with `degraded: no_design_note` recorded in the Phase 4.2 review note, C abort). Silent-skip is no longer a path. Same gate added to `plan-review-eng` Phase 0.2 — applies in both ceo-grounded and standalone modes (ceo-grounded because the user may have taken option B upstream and can revisit it before eng locks in; standalone because no upstream gate exists).
+- **`plan-review-ceo` description framing.** v0.6.5 already corrected the ADR portion ("grounded in" → required pitch + recommended design + optional pre-existing ADRs). v0.7.2 sharpens the design portion without escalating it to required: the design handoff note is now framed as an **expected input** (warn-on-absence, NOT hard-refused) with the canonical path inline (`.claude/immutable/design/{slug}.md`), and the description names the AskUserQuestion 3-way explicitly so lead sessions reading only the description (auto-loaded into the system prompt at dispatch time) see the dependency without misreading it as enforced. Same fix applied to `plan-review-eng` description for both ceo-grounded and standalone modes. The contract level remains warn — option B (proceed degraded) is always available; the skill never hard-refuses on a missing design note.
+- **Slug-derivation drift between writer and reader.** `/immutable:design` Phase 4.1 derives `FEATURE_SLUG` from `git branch --show-current | tr '/' '-'` with optional env override. Plan-review-ceo Phase 0.1 previously did not compute the slug at all, leaving the design-note path discovery implicit. v0.7.2 adds explicit slug computation in plan-review-ceo Phase 0.1 mirroring the writer's derivation — both sides reference the same `FEATURE_SLUG` semantics, so the contract holds.
+
+### Added
+
+- **`pipeline.yaml`** at plugin root — declarative manifest for `flows.pitch_to_ship` with phases, `dependencies` (per-entry `enforcement: refuse | warn-3way`, mode-keyed for `plan-review-eng`), `soft_dependencies`, `exit_verdicts` (verdict line regex + routing directive line regex + routing targets per verdict), and `skill_output_markers` (e.g., `DESIGN_NOTE_WRITTEN:`). The `enforcement` field per entry tells orchestrators which dependencies hard-block (refuse) vs which surface a warn-3way (silent-skip forbidden but proceed-degraded available). Orchestrators (a local `/lead` skill, cross-plugin schedulers) parse this BEFORE dispatching a worker, layering an orchestration-time signal on top of the worker-time gates inside each skill. Schema is `schema_version: 1`; other plugins adopting the same shape get orchestration compatibility automatically — no immutable-specific terms beyond the `plugin:` field.
+- **`pre.warn.no_design_note` strings catalog key** in `strings.{en,ko}.yml` for the new plan-review-eng Phase 0.2 warn (parallel to the existing `prc.warn.no_design_note` for plan-review-ceo). Includes a `{mode_context_hint}` placeholder so the message can adapt for ceo-grounded vs standalone callers.
+- **README "Pipeline manifest for orchestrators" section** (above "Schema, profile, strings catalog, validator") explaining the manifest's role as an orchestration-time signal layered on top of in-skill gates.
+
+### Changed
+
+- **`prc.warn.no_design_note` wording** rewritten in `strings.{en,ko}.yml` to: (a) name the degraded-mode consequence concretely (Sections 1, 9, 10 weakened), (b) require recording `degraded: no_design_note` in the review note's scope-context section when option B is chosen, (c) add option C (abort), (d) state explicitly "silent-skip is not allowed". Same shape applied to the new `pre.warn.no_design_note` (sections 1 + 4 + worktree analysis named as the weakened areas).
+- **`immutable/plan-review-ceo/SKILL.md`** — frontmatter description, Preconditions #4, and Phase 0.1 design-note-check block all rewritten to match the explicit-3-way-warn contract.
+- **`immutable/plan-review-eng/SKILL.md`** — frontmatter description, Phase 0.1 ceo-grounded mode commentary, Phase 0.2 design-note-check block, and strings catalog table all rewritten.
+
+### Backward compatibility
+
+- **All flows that already include `/immutable:design`** are unaffected — the gate is silent-pass when the file exists.
+- **Flows that skipped design intentionally** (rare; small refactors, very-early-cycle exploration) now hit the warn explicitly and can choose option B (proceed degraded) — same effective behavior as the prior silent-skip, but the choice is now recorded in the review note's scope-context section so downstream consumers (`/immutable:plan-review-eng`, `/immutable:ship`) see the constraint. No existing flow is hard-blocked.
+- **Strings catalog forks**: teams that customized `prc.warn.no_design_note` keep their override (catalog resolution prefers team profile). To inherit the sharper wording + new option C, copy the new value from `strings.{en,ko}.yml`. The new `pre.warn.no_design_note` key lands in the bundled defaults; teams without a fork get it automatically.
+- **`pipeline.yaml` is purely additive** — no consumer is required to read it. Existing orchestrators that hard-code phase chains continue to work unchanged. Adoption is opt-in.
+- **No migration required.** v0.7.2 is a guidance + manifest release on the same v0.7.0 schema. Profile schema unchanged.
+
 ## [0.7.1] — 2026-05-06
 
 `/immutable:prd` Branch A and gate criterion 1 sharpened so §"배경과 문제" content is unambiguously product/service-level — the user/business problem the requirement solves, not the document's own creation rationale.

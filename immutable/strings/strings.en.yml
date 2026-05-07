@@ -1049,13 +1049,27 @@ strings:
     - (C) Abort
 
   prc.warn.no_design_note: |
-    No design handoff note found at `{expected_path}`.
+    ⚠ Design handoff note missing — `{expected_path}`.
 
-    Running `/immutable:design` first captures app-side context cleanly. To
-    proceed without it, Phase 0 will need to gather that context manually.
+    This note is the app-side context (module placement, activation status,
+    dependent features) written by `/immutable:design`. It is the CEO
+    review's grounding input. Without it, the 11-section review runs in
+    **degraded mode** — codebase hidden paths, module boundaries, and
+    dependent features are unknown to the reviewer, weakening Sections
+    1, 9, and 10 (architecture / rollout / long-term trajectory).
 
-    - (A) Pause and run `/immutable:design`
-    - (B) Proceed without the note (Phase 0 grows)
+    Choices (silent-skip is not allowed):
+
+    - (A) **Pause and run `/immutable:design <slug>` first** (recommended)
+        Write the design note, then re-invoke this skill. The 11-section
+        review then runs with proper app-side grounding.
+
+    - (B) Proceed in degraded mode
+        Record `degraded: no_design_note` in the Phase 4.2 review note's
+        scope-context section. The section reviews proceed but downstream
+        consumers (eng review, ship) see the missing-context constraint.
+
+    - (C) Abort
 
   prc.critical.one_issue_one_question: |
     Reminder: surface one issue at a time. Batching multiple issues into a
@@ -1115,6 +1129,34 @@ strings:
     {commits_since_ceo}
 
     The CEO review didn't see these. The eng review will cover this delta too.
+
+  pre.warn.no_design_note: |
+    ⚠ Design handoff note missing — `{expected_path}`.
+
+    This note is the app-side context (module placement, activation status,
+    dependent features) written by `/immutable:design`. It is the eng
+    review's grounding input. Without it, the 4-section review runs in
+    **degraded mode** — code placement and dependent modules are unknown,
+    weakening Sections 1 (Architecture) and 4 (Performance), and the
+    worktree analysis loses its module-level basis.
+
+    Mode: `{review_mode}` — in ceo-grounded mode the CEO review already
+    surfaced the same warn upstream, and the user may have taken option B
+    there (this re-prompt lets them revisit before eng locks in). In
+    standalone mode there is no upstream gate, so this prompt is the
+    first decision point.
+
+    Choices (silent-skip is not allowed):
+
+    - (A) **Pause and run `/immutable:design <slug>` first** (recommended)
+        Write the design note, then re-invoke this skill.
+
+    - (B) Proceed in degraded mode
+        Record `degraded: no_design_note` in the Phase 4.2 review note's
+        scope-context section. Sections proceed but downstream consumers
+        (ship) see the missing-context constraint.
+
+    - (C) Abort
 
   pre.phase2.skip_summary: |
     Phase 2 (worktree analysis) skipped — reason: {reason}
