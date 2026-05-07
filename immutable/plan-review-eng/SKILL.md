@@ -1,6 +1,6 @@
 ---
 name: plan-review-eng
-description: Engineering-perspective review of the implementation plan. Walks 4 sections (Architecture, Code Quality, Test Coverage, Performance) with a worktree-parallelization analysis and surfaces ADR-authoring triggers. Runs in two modes - "ceo-grounded" (when /immutable:plan-review-ceo APPROVED first; uses the CEO scope envelope) and "standalone" (no CEO note; reviews pitch directly with a built-in lightweight scope check). Triggers - "/immutable:plan-review-eng", "ENG 리뷰", "엔지니어 리뷰", "engineering review".
+description: Engineering-perspective review of the implementation plan. Walks 4 sections (Architecture, Code Quality, Test Coverage, Performance) with a worktree-parallelization analysis and surfaces ADR-authoring triggers. Runs in two modes - "ceo-grounded" (when /immutable:plan-review-ceo APPROVED first; uses the CEO scope envelope) and "standalone" (no CEO note; reviews pitch directly with a built-in lightweight scope check). The design handoff note at `.claude/immutable/design/{slug}.md` written by `/immutable:design` is an expected input in BOTH modes (warn-on-absence, NOT hard-refused) — absence triggers an explicit AskUserQuestion 3-way (pause+run-design / proceed-degraded / abort) so the user owns the choice consciously. In ceo-grounded mode plan-review-ceo prompts the same warn upstream; the eng re-prompt lets the user revisit option B before eng locks in. Triggers - "/immutable:plan-review-eng", "ENG 리뷰", "엔지니어 리뷰", "engineering review".
 allowed-tools: Read, Write, Bash, Glob, Grep, AskUserQuestion
 license: MIT
 ---
@@ -136,6 +136,12 @@ Branch on `$REVIEW_MODE`:
   note path. Read the CEO note end-to-end. Capture the Phase 1F scope
   envelope and the Phase 3 trigger list. Skip Phase 0.3 (complexity check
   is the CEO's responsibility in this mode).
+  Note: in ceo-grounded mode the CEO already prompted the design-note
+  warn at its own Phase 0.1, so by the time eng runs the user has already
+  made the design-note decision once. Phase 0.2 (below) STILL re-checks
+  for the file before reading — if the user took the "proceed degraded"
+  branch upstream, eng surfaces the same warn so the user can revisit
+  the choice before the eng review locks in.
 - **`ceo-blocked`** — refuse with `pre.refuse.ceo_not_approved`. The CEO
   surfaced blockers; eng review on a known-blocked plan is wasted work.
 - **`ceo-missing`** — ask via `pre.phase0.ceo_missing_question`:
@@ -157,15 +163,49 @@ Same set in both modes:
   mode, OR copied from the CEO note in ceo-grounded mode.
 - **Linked ADRs** — files in the app repo's `adr/` directory whose
   frontmatter `references.pitches:` matches the pitch filename.
-- **Design handoff note** — `.claude/immutable/design/{slug}.md` if a prior
-  `/immutable:design` ran; optional in both modes (warn but proceed in
-  standalone mode if absent).
+- **Design handoff note** — `.claude/immutable/design/{slug}.md`,
+  expected input in BOTH modes (warn-on-absence, NOT hard-refused).
+  Absence triggers an explicit 3-way warn (see "Design note check"
+  below) so the user owns the decision rather than the skill
+  silent-skipping app-side context.
 
 In **ceo-grounded** mode, prefer reading paths from the CEO note rather
 than re-discovering them — keeps the two reviews consistent.
 
 In **standalone** mode, if no pitch is reachable AND the user is not in
 refactor mode, refuse with `pre.refuse.no_pitch`.
+
+**Design note check (expected input — explicit warn, not silent-skip;
+NOT hard-refused).** After the routing above, compute the canonical
+path and check existence:
+
+```bash
+DESIGN_NOTE=".claude/immutable/design/${FEATURE_SLUG}.md"
+echo "DESIGN_NOTE=$DESIGN_NOTE"
+```
+
+`FEATURE_SLUG` comes from Phase 0.1 (already computed for the CEO-note
+grep) and mirrors `/immutable:design` Phase 4.1's derivation. The
+contract is the path; writer/reader drift breaks the gate.
+
+- File exists → read it end-to-end. Section reviews use it as app-side
+  grounding (module placement, activation status, dependent features).
+- File missing → surface `pre.warn.no_design_note` via AskUserQuestion
+  before any section review work. Substitute `{expected_path}` with
+  `$DESIGN_NOTE` and `{review_mode}` with `$REVIEW_MODE` (computed in
+  Phase 0.1). Three branches only:
+  - (A) Pause and run `/immutable:design <slug>` — recommended.
+  - (B) Proceed in degraded mode — section reviews lose app-side
+    grounding; record `degraded: no_design_note` in the Phase 4.2 review
+    note's scope-context section.
+  - (C) Abort.
+
+Do **not** silent-skip or invent a placeholder note. The
+warn-with-explicit-choice is the gate. This applies in both
+ceo-grounded and standalone modes — in ceo-grounded mode the user may
+have already answered upstream at the CEO's Phase 0.1, but the
+re-prompt here is still necessary because the user can revisit "proceed
+degraded" before eng locks in.
 
 ### 0.3 Lightweight scope check (standalone mode only)
 
@@ -521,6 +561,7 @@ FILES='[".claude/immutable/plan-review/<feature-slug>-eng.md"]'
 | `pre.phase0.standalone_acknowledged` | Phase 0.1 (standalone mode entered) |
 | `pre.phase0.standalone_scope_check` | Phase 0.3 (standalone scope smell) |
 | `pre.phase0.late_changes` | Phase 0.4 (ceo-grounded only) |
+| `pre.warn.no_design_note` | Phase 0.2 (design note missing — both modes) |
 | `pre.phase2.skip_summary` | Phase 2.1 |
 | `pre.phase2.dependency_table_template` | Phase 2.2 |
 | `pre.phase2.parallel_lanes_template` | Phase 2.3 |
