@@ -1,0 +1,171 @@
+# pipeline.yaml — declarative phase chain for the immutable SDD plugin.
+#
+# PURPOSE
+#   Plugin-agnostic manifest that orchestrators (e.g., a local /lead skill,
+#   future cross-plugin schedulers) can parse to learn this plugin's
+#   canonical phase chain and hard dependencies WITHOUT hard-coding
+#   immutable-specific knowledge.
+#
+#   Skills themselves enforce their own preconditions at invocation time.
+#   This manifest is the orchestration-time signal — read by tools BEFORE
+#   dispatching a worker, so the dispatch decision can respect declared
+#   dependencies (e.g., "do not dispatch a worker to /immutable:plan-review-ceo
+#   before /immutable:design has run").
+#
+# SCHEMA STABILITY
+#   schema_version: 1 — fields below are the authoritative shape. Future
+#   revisions bump the version; consumers should warn or fall back when
+#   they encounter a schema_version they don't recognize.
+#
+# CONSUMERS
+#   - Local /lead:design (orchestrator brief authoring) reads `flows` +
+#     `dependencies` to render the canonical phase chain to the user
+#     before dispatch.
+#   - CI / pre-flight checks may grep `routing_directives` to validate
+#     that downstream skills can still parse Verdict / Next directives.
+#   - Other plugins may adopt the same schema if they want orchestration
+#     compatibility — the schema does not embed immutable-specific terms
+#     beyond the `plugin:` field.
+
+schema_version: 1
+plugin: immutable
+
+flows:
+  pitch_to_ship:
+    description: |
+      Standard SDD flow from problem framing through PR creation. Two-repo
+      layouts split the chain across spec / app repos (see plugin README's
+      "7-step flow" section); this manifest models the conceptual chain
+      regardless of layout.
+
+    phases:
+      - id: office-hours
+        skill: /immutable:office-hours
+        required: false
+        purpose: "premise challenge + ≥3 alternatives — when problem is fuzzy"
+        writes:
+          - .claude/immutable/office-hours/{slug}.md  # transient
+
+      - id: prd
+        skill: /immutable:prd
+        required: true
+        purpose: "pitch authoring (WHAT) — append-only with supersede chain"
+        writes:
+          - pitches/<domain>/<file>.md  # permanent artifact (spec or single-repo)
+
+      - id: design
+        skill: /immutable:design
+        required: true
+        purpose: "app-side context capture for downstream plan-review skills"
+        writes:
+          - .claude/immutable/design/{slug}.md  # transient — canonical contract
+
+      - id: plan-review-ceo
+        skill: /immutable:plan-review-ceo
+        required: true
+        purpose: "scope challenge (Phase 1) + 11-section adversarial review"
+        writes:
+          - .claude/immutable/plan-review/{slug}-ceo.md  # transient
+
+      - id: plan-review-eng
+        skill: /immutable:plan-review-eng
+        required: true
+        purpose: "engineering review (4 sections) + worktree analysis"
+        writes:
+          - .claude/immutable/plan-review/{slug}-eng.md  # transient
+
+      - id: adr
+        skill: /immutable:adr
+        required: false
+        condition: |
+          Conditional: number of invocations equals the count of ADR-authoring
+          triggers surfaced by plan-review-eng Phase 3 (which sees the union of
+          CEO Phase 3.2 triggers + eng-specific triggers). Zero triggers ⇒ skip
+          entirely. The eng review's `Next:` directive is the source of truth
+          for whether and how many times this phase runs.
+        purpose: "architecture decision records (WHY) — append-only"
+        writes:
+          - adr/<file>.md  # permanent artifact (app or single-repo)
+
+      - id: implement
+        skill: null  # no plugin skill — user implements the plan
+        required: true
+        purpose: "actual code changes per the approved plan"
+
+      - id: ship
+        skill: /immutable:ship
+        required: true
+        purpose: "PR creation referencing pitch + linked ADRs"
+
+    # Dependencies the skills surface explicitly to the user when violated.
+    # Enforcement level is per-skill, NOT uniformly hard — see the
+    # `enforcement:` field below for each entry. Orchestrators reading this
+    # manifest should respect the ordering at dispatch time so workers do not
+    # hit the in-skill warn / refusal mid-flow.
+    #
+    # Enforcement levels (set by skill body):
+    #   - refuse: skill aborts on absence of the dependency (hard gate).
+    #   - warn-3way: skill renders an explicit AskUserQuestion 3-way
+    #     (pause+run-dep / proceed-degraded / abort). Silent-skip forbidden.
+    #     User can choose proceed-degraded; the skill records the degraded
+    #     state in its review note for downstream consumers to see.
+    #
+    # Dependency list semantics:
+    #   - List form: every listed phase must precede the keyed phase.
+    #   - Map form (mode-keyed): the keyed phase has multiple operating modes;
+    #     each mode lists its own dependencies. Consumers pick the relevant
+    #     mode based on the worker's intended invocation.
+    dependencies:
+      design:
+        deps:           [prd]
+        enforcement:    refuse   # /immutable:design refuses without a pitch (or refactor opt-in)
+      plan-review-ceo:
+        deps:           [design]
+        enforcement:    warn-3way  # explicit 3-way warn on missing design note
+      plan-review-eng:
+        ceo-grounded:
+          deps:         [plan-review-ceo]
+          enforcement:  refuse   # CEO not in APPROVE state ⇒ pre.refuse.ceo_not_approved
+        standalone:
+          deps:         [design]
+          enforcement:  warn-3way  # explicit 3-way warn on missing design note
+      adr:
+        deps:           [plan-review-eng]
+        enforcement:    refuse   # /immutable:adr expects a reviewed plan to reference
+      ship:
+        deps:           [plan-review-eng, implement]
+        enforcement:    refuse   # /immutable:ship refuses without eng APPROVE
+
+    # Soft (recommended-but-not-blocking) dependencies. Orchestrators MAY
+    # surface these as suggestions; skills do not refuse without them.
+    soft_dependencies:
+      prd:              [office-hours]  # premise challenge before authoring
+
+    # Phases whose verdict-bearing review notes feed downstream routing.
+    # Each entry names the verdict line format and the routing-directive line
+    # that orchestrators / downstream skills grep.
+    exit_verdicts:
+      plan-review-ceo:
+        verdicts:        [APPROVE, REVISE, REJECT]
+        verdict_line:    '^Verdict:[[:space:]]+(APPROVE|REVISE|REJECT)'
+        routing_line:    '^Next:[[:space:]]+'
+        routing_targets:
+          APPROVE:       /immutable:plan-review-eng
+          REVISE:        /immutable:prd  # pitch supersede
+          REJECT:        /immutable:office-hours
+      plan-review-eng:
+        verdicts:        [APPROVE, REVISE, REJECT]
+        verdict_line:    '^Verdict:[[:space:]]+(APPROVE|REVISE|REJECT)'
+        routing_line:    '^Next:[[:space:]]+'
+        routing_targets:
+          APPROVE:       implement → /immutable:ship  # with optional /immutable:adr loop
+          REVISE:        /immutable:plan-review-eng OR /immutable:plan-review-ceo
+          REJECT:        /immutable:office-hours
+
+    # Markers that downstream consumers grep to verify a phase's output
+    # was produced by the canonical skill (not hand-composed outside it).
+    skill_output_markers:
+      design:
+        line:            '^DESIGN_NOTE_WRITTEN:[[:space:]]+'
+        emitted_at:      "design Phase 4.3"
+        purpose:         "verify the design note came from /immutable:design"

@@ -1,6 +1,6 @@
 ---
 name: plan-review-ceo
-description: Adversarial CEO-style review of the implementation plan grounded in the pitch and design handoff note. Pre-existing linked ADRs are referenced if present but are NOT a prerequisite — ADR-authoring triggers are surfaced as an OUTPUT of this review (Phase 3.2), not consumed as input. Walks Phase 0 nuclear scope challenge (premise / existing-code leverage / dream-state / mandatory alternatives / mode selection) and 11 review sections. Surfaces pitch-supersede and ADR-authoring triggers. Triggers - "/immutable:plan-review-ceo", "CEO 리뷰", "스코프 검토", "plan review scope".
+description: Adversarial CEO-style review of the implementation plan. Inputs - pitch (required, refuses on absence) AND design handoff note at `.claude/immutable/design/{slug}.md` written by `/immutable:design` (expected, warn-on-absence — NOT hard-refused; absence triggers an explicit AskUserQuestion 3-way pause+run-design / proceed-degraded / abort so the user owns the choice consciously rather than the skill silent-skipping app-side context). Pre-existing linked ADRs are referenced if present but are NOT a prerequisite — ADR-authoring triggers are surfaced as an OUTPUT of this review (Phase 3.2), not consumed as input. Walks Phase 0 nuclear scope challenge (premise / existing-code leverage / dream-state / mandatory alternatives / mode selection) and 11 review sections. Surfaces pitch-supersede and ADR-authoring triggers. Triggers - "/immutable:plan-review-ceo", "CEO 리뷰", "스코프 검토", "plan review scope".
 allowed-tools: Read, Write, Bash, Glob, Grep, AskUserQuestion, WebSearch
 license: MIT
 ---
@@ -15,10 +15,15 @@ The skill expects:
 
 1. **Pitch** (required) — in the spec repo (`pitches/<domain>/...md`) or
    single-repo pitches subtree. The canonical WHAT.
-2. **Design handoff note** (recommended; warns if absent) —
-   `.claude/immutable/design/{slug}.md` written by the previous
-   `/immutable:design` skill. Captures app-side context the pitch could
-   not include.
+2. **Design handoff note** (expected input, warn-on-absence — NOT
+   hard-refused) — `.claude/immutable/design/{slug}.md` written by the
+   previous `/immutable:design` skill. Captures app-side context the
+   pitch could not include. If missing, Phase 0.1 surfaces
+   `prc.warn.no_design_note` with three choices (A pause + run design,
+   B proceed degraded, C abort) so the user makes an explicit decision —
+   the skill never silent-skips this input, but never hard-refuses
+   either. Path is fixed by the downstream contract documented in
+   `/immutable:design` Phase 4.1; the review note grep depends on it.
 3. **Linked ADRs** (optional context, NOT a prerequisite) — files in the
    app repo's `adr/` directory whose frontmatter `references.pitches:`
    matches this pitch. The recorded WHY for *pre-existing* decisions.
@@ -67,9 +72,16 @@ Per-string fallback: primary catalog → `strings.en.yml` (with
 3. A pitch is reachable (single-repo or via `IMMUTABLE_PRD_SPEC_CONFIG`
    resolution). If no pitch and the user is not in refactor mode, refuse with
    `prc.refuse.no_pitch`.
-4. Optional: a design handoff note at `.claude/immutable/design/{slug}.md`
-   from a prior `/immutable:design` run. If absent, surface
-   `prc.warn.no_design_note` and ask whether to proceed without it.
+4. **Expected input — design handoff note** at
+   `.claude/immutable/design/{slug}.md` from a prior `/immutable:design`
+   run (warn-on-absence, NOT hard-refused). The path is the canonical
+   contract written by `/immutable:design` Phase 4.1 (also marked by the
+   `DESIGN_NOTE_WRITTEN:` line that skill emits). Phase 0.1 surfaces
+   `prc.warn.no_design_note` with three explicit choices
+   (pause+run-design / proceed-degraded / abort) — the user owns the
+   decision. Silent-skip is forbidden, but the user can choose option B
+   to proceed without design context (degraded mode recorded in the
+   review note).
 
 ## SDD mode detection
 
@@ -138,8 +150,38 @@ as picker options.
 After the pitch is selected, scan `ADR_DIR` for ADRs whose frontmatter
 `references.pitches:` matches the selected pitch. List them.
 
-If a design handoff note exists at `.claude/immutable/design/{slug}.md`,
-read it. If not, render `prc.warn.no_design_note`.
+**Design handoff note check (expected input — explicit warn, not
+silent-skip; NOT hard-refused).** Compute the canonical path and check
+existence:
+
+```bash
+FEATURE_SLUG="${FEATURE_SLUG:-$(git branch --show-current 2>/dev/null \
+  | tr '/' '-' || echo "no-branch")}"
+DESIGN_NOTE=".claude/immutable/design/${FEATURE_SLUG}.md"
+echo "DESIGN_NOTE=$DESIGN_NOTE"
+```
+
+The slug derivation **must mirror** `/immutable:design` Phase 4.1
+(`FEATURE_SLUG` env override → branch name with `/` → `-`). The
+downstream contract is the path; drift between writer and reader breaks
+the gate.
+
+- If the file exists, read it end-to-end. The review uses it as
+  app-side grounding alongside the pitch.
+- If the file does NOT exist, surface `prc.warn.no_design_note` via
+  AskUserQuestion as the **first** Phase 0.1 user interaction (before
+  any other review work). Substitute `{expected_path}` with
+  `$DESIGN_NOTE`. The three choices are the only acceptable branches:
+  - (A) Pause and run `/immutable:design <slug>` — recommended; the
+    review re-enters cleanly after design captures app-side context.
+  - (B) Proceed in degraded mode — the section reviews lose app-side
+    grounding (module placement, activation status, dependent features
+    are all unknown to the reviewer). Record `degraded: no_design_note`
+    in the Phase 4.2 review note's scope-context section.
+  - (C) Abort.
+
+Do **not** invent a fake design note or silent-skip the question. The
+warn-with-explicit-choice is the gate; the user owns the decision.
 
 ### 0.2 System audit
 
