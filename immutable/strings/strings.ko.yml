@@ -338,6 +338,14 @@ strings:
 
     {cli_steps}
 
+    다음 단계: `/immutable:design <slug>`
+
+    Pitch 등록이 끝나면 `/immutable:design`이 pitch에 담을 수 없는 app-side
+    컨텍스트(모듈 배치, 활성 상태, 의존 기능 등)를 포착해 plan-review skill들이
+    읽을 transient 노트로 기록합니다. ADR 작성은 reactive 흐름 —
+    `/immutable:plan-review-eng` Phase 3에서 ADR-authoring trigger가 review의
+    OUTPUT으로 surface되며, pitch 직후 입력으로 미리 작성하지 않습니다.
+
   prd.stage6.deprecated_line: "- (update인 경우) `{old_file_path}` — deprecated: true로 플립됨"
 
   prd.stage6.missing_required_section: |
