@@ -310,6 +310,15 @@ strings:
 
     {cli_steps}
 
+    Next step: `/immutable:design <slug>`
+
+    Once the pitch is registered, `/immutable:design` captures the app-side
+    context the pitch could not include (module placement, activation status,
+    dependent features) and writes a transient note for the plan-review
+    skills. ADR authoring is reactive — `/immutable:plan-review-eng` Phase 3
+    surfaces ADR-authoring triggers as an OUTPUT of review, NOT an input
+    authored upfront after the pitch.
+
   prd.stage6.deprecated_line: "- (on update) `{old_file_path}` — flipped to deprecated: true"
 
   prd.stage6.missing_required_section: |

@@ -2,6 +2,29 @@
 
 All notable changes to the `immutable` plugin are documented in this file. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Version is canonically declared in `.claude-plugin/plugin.json`.
 
+## [0.7.3] — 2026-05-16
+
+Closes the emitting end of the `prd → adr (upfront, wrong)` anti-pattern that v0.6.5 partially fixed on the receiving end. `/immutable:prd` Stage 6 handoff now anchors the next step explicitly to `/immutable:design`, with a one-paragraph clarifier framing ADR authoring as reactive (an OUTPUT of `/immutable:plan-review-eng` Phase 3, not an input authored upfront after the pitch). ADR's standalone-callable status (init handoffs as a peer entry point, plan-review-eng standalone-mode quick-ADR path) is preserved — the fix is scoped to the orchestrated `pitch_to_ship` flow, where prd-into-design is the canonical transition.
+
+### Fixed
+
+- **`/immutable:prd` Stage 6 handoff missing next-step anchor.** Prior versions of `prd.stage6.handoff` (`strings.{en,ko}.yml`) rendered only the new file path + GitHub web / CLI registration steps. The string had no line pointing to `/immutable:design` as the canonical next skill in the `pitch_to_ship` flow. Sessions completing `/immutable:prd` were left without an in-skill anchor and inferred the next step from nearby signals — init handoffs that surface ADR as a peer entry point (intended for fresh-repo bootstrap), the plan-review-eng standalone mode's small-task/quick-ADR documentation, and the general visibility of ADR in plugin descriptions — all of which biased toward `prd → adr` as the next move. v0.6.5 already documented this exact anti-pattern in its CHANGELOG entry ("Observed in the wild: workers authored `/immutable:adr` upfront before `/immutable:design`") and corrected `/immutable:plan-review-ceo`'s description to stop framing ADRs as a co-equal prerequisite. v0.7.3 closes the emitting end: `prd.stage6.handoff` now ends with `Next step: /immutable:design <slug>` plus a clarifier paragraph stating ADR authoring is reactive (surfaced by plan-review-eng Phase 3 as an OUTPUT, never authored upfront after the pitch). The clarifier is the load-bearing part — it directly contradicts the inference that was causing the misordering.
+
+### Changed
+
+- **`strings/strings.en.yml` and `strings/strings.ko.yml`** — `prd.stage6.handoff` extended with a `Next step:` line plus a clarifier paragraph. The registration steps (`{github_web_steps}` / `{cli_steps}`) are preserved unchanged above the new block.
+- **`immutable/prd/SKILL.md`** Stage 6 Handoff output section — documents the next-step anchor contract and its rationale so future SKILL.md readers (and translators adding new locales) understand why the next-step block exists and must not be dropped during catalog maintenance.
+
+### Out of scope (intentional)
+
+- **`/immutable:adr` preconditions remain unchanged.** ADR is intentionally callable standalone — supported by `init.stage7.handoff_*` (surfacing ADR as a peer entry point alongside pitch in fresh-repo bootstrap) and by `/immutable:plan-review-eng` standalone mode (quick-ADR path for small tasks where the full CEO review is overkill, documented in v0.6.0 CHANGELOG). Pipeline.yaml's `dependencies.adr.deps=[plan-review-eng]` applies only to the orchestrated `pitch_to_ship` flow; adding a hard refusal in the skill body would break the intentional standalone path. The misordering this release addresses is upstream — the prd handoff needs to point reliably to design, not the adr skill needing to refuse.
+
+### Backward compatibility
+
+- **All existing flows are unaffected.** The change is additive — registration steps still render unchanged, and the new next-step block appears below them. Users who were already invoking `/immutable:design` next see no functional change; users who were inferring `/immutable:adr` next now see the explicit anchor and clarifier.
+- **Strings catalog forks**: teams that customized `prd.stage6.handoff` keep their override (catalog resolution prefers team profile). To inherit the next-step anchor, copy the new block from `strings.{en,ko}.yml`. Teams without a fork get it automatically.
+- **No migration required.** v0.7.3 is a catalog + documentation release on the same v0.7.0 schema. Profile schema unchanged.
+
 ## [0.7.2] — 2026-05-07
 
 Design-handoff-note guidance hardened across plan-review skills + declarative pipeline manifest. Eliminates the recurring orchestration-time defect where lead sessions skipped `/immutable:design` between `/immutable:prd` APPROVE and `/immutable:plan-review-ceo`, producing degraded reviews without app-side context grounding. Fix is layered: descriptions tightened (orchestration-time signal lead reads at dispatch decision), declarative pipeline manifest added (orchestrator-facing source-of-truth for phase chain + hard dependencies), and body-level explicit 3-way warn replaces silent-skip (worker-time signal when the skill is already invoked).

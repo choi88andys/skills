@@ -721,6 +721,8 @@ After writing, emit a handoff message by rendering `prd.stage6.handoff` with:
 - `{github_web_steps}` — render `common.handoff.github_web_steps`
 - `{cli_steps}` — render `common.handoff.cli_steps`
 
+The rendered `prd.stage6.handoff` includes a **Next step** block pointing to `/immutable:design <slug>` plus a one-paragraph clarifier stating that ADR authoring is reactive (surfaced by `/immutable:plan-review-eng` Phase 3 as an OUTPUT, not authored upfront after the pitch). This anchor exists because the canonical pitch → design transition has no orchestrator-level enforcement — without it, callers reading only nearby signals (init handoffs that surface ADR as a peer entry point, CHANGELOG mentions of standalone ADR usage) tend to infer prd → adr as the next step. v0.6.5 already corrected the receiving end (`/immutable:plan-review-ceo` description); v0.7.3 closes the emitting end by adding the next-step anchor here.
+
 Do NOT commit or push — the user owns the commit decision.
 
 ---
