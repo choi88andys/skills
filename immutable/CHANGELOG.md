@@ -2,6 +2,27 @@
 
 All notable changes to the `immutable` plugin are documented in this file. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Version is canonically declared in `.claude-plugin/plugin.json`.
 
+## [0.7.4] — 2026-06-19
+
+Adds an optional verdict auto-advance hook to `/immutable:plan-review-eng` and `/immutable:plan-review-ceo`. Both skills can now skip the Phase 4 verdict `AskUserQuestion` and auto-select `APPROVE` on a clean review — but ONLY when an external verdict-autonomy engine is installed AND its policy promotes the per-skill gate to `live`. The hook is thin, additive, and a strict no-op for every existing user: with no engine on `PATH` (and no `$TM_VERDICT_GATE`), the gate resolves to `ask` and the question renders exactly as before. The two-layer split is deliberate — the generic autonomy engine lives outside this plugin (in the operator's harness/dotfiles); this repo carries only the thin in-skill hook that calls it when present.
+
+### Added
+
+- **Autonomy gate block** in `plan-review-{eng,ceo}/SKILL.md` Phase 4.1, before the verdict `AskUserQuestion`. A self-contained bash block resolves the gate via `$TM_VERDICT_GATE` or `command -v tm-verdict-gate.sh`; absent → `GATE_DECISION=ask` → renders the question unchanged. On `proceed` (reached only under `live` policy + a clean APPROVE) the skill skips the question, sets `APPROVE`, and emits the auto-advanced banner. Gate predicate: `APPROVE ∧ issues==0` for ceo; `APPROVE ∧ issues==0 ∧ adr_triggers==0` for eng (ceo has no ADR-form gate, so `--adr-triggers` is omitted).
+- **Autonomy receipt block** in the same skills' Phase 4.2, before `### 4.3 Handoff`. When the question WAS rendered (no auto-advance), the block records the human's actual verdict via `--human-pick` so an autonomy engine's measurement loop can learn — the keypress is the label. No-op without the gate; skipped when auto-advanced (the gate writes that receipt itself).
+- **`pre.phase4.auto_advanced` and `prc.phase4.auto_advanced`** banner strings in `strings/strings.en.yml`, rendered only when a verdict auto-advances under `live` policy.
+
+### Backward compatibility
+
+- **Zero change for existing users.** No engine on `PATH` → both gate blocks resolve to `ask` and the verdict `AskUserQuestion` renders exactly as in v0.7.3. Each bash block is self-contained (re-resolves the gate inline) because Claude Code runs every skill `bash` block in a fresh shell — env vars do not persist between blocks.
+- **Safe even WITH an engine installed.** The reference engine ships a `shadow` default policy, so nothing auto-advances until a gate is earned-promoted to `live` out-of-band. The hook is safe on-by-default.
+- **`ship/SKILL.md` untouched.** Its independent `^Verdict: APPROVE` gate stays a separate human-gated step; auto-advance only advances the REVIEW verdict, never ship.
+- **No migration required.** v0.7.4 is a catalog + skill-body release on the same v0.7.0 schema. Profile schema unchanged.
+
+### Known follow-up
+
+- **Korean banner strings deferred.** `pre.phase4.auto_advanced` / `prc.phase4.auto_advanced` are en-only this release; the strings system falls back to en for a missing ko key and the banner only renders under opt-in `live` policy, so no user sees a missing string. ko translations plus the `english-guard` exemption for `**/strings/*.yml` are tracked as a follow-up.
+
 ## [0.7.3] — 2026-05-16
 
 Closes the emitting end of the `prd → adr (upfront, wrong)` anti-pattern that v0.6.5 partially fixed on the receiving end. `/immutable:prd` Stage 6 handoff now anchors the next step explicitly to `/immutable:design`, with a one-paragraph clarifier framing ADR authoring as reactive (an OUTPUT of `/immutable:plan-review-eng` Phase 3, not an input authored upfront after the pitch). ADR's standalone-callable status (init handoffs as a peer entry point, plan-review-eng standalone-mode quick-ADR path) is preserved — the fix is scoped to the orchestrated `pitch_to_ship` flow, where prd-into-design is the canonical transition.
