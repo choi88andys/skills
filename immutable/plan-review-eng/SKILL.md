@@ -386,6 +386,30 @@ The skill surfaces candidates with rationale; it does not auto-author.
 
 ### 4.1 Verdict
 
+**Autonomy gate (optional — purely additive; no-op unless a verdict-autonomy engine is
+installed).** Default for everyone: no gate → falls straight through to the normal
+AskUserQuestion below, unchanged. Run this ONE self-contained block (shell state does not
+persist between blocks, so it resolves everything inline):
+```bash
+# Substitute the three facts from your Section 1-4 results before running:
+RECOMMENDED_VERDICT=APPROVE       # APPROVE only if every section recorded "No issues found"; else REVISE/REJECT
+ISSUE_COUNT=0                     # unresolved issues across sections (0 for a clean APPROVE)
+ADR_TRIGGER_COUNT=0              # Phase 3 ADR-authoring trigger count
+GATE="${TM_VERDICT_GATE:-$(command -v tm-verdict-gate.sh 2>/dev/null)}"
+GATE_DECISION=ask
+if [ -n "$GATE" ] && [ -x "$GATE" ]; then
+  GATE_DECISION="$("$GATE" immutable-plan-review-eng \
+    --verdict "$RECOMMENDED_VERDICT" --issues "$ISSUE_COUNT" \
+    --adr-triggers "$ADR_TRIGGER_COUNT" --cwd "$(pwd)" 2>/dev/null || echo ask)"
+fi
+echo "GATE_DECISION=$GATE_DECISION"
+```
+- `proceed` → SKIP the AskUserQuestion, set the verdict to `APPROVE`, emit the
+  `pre.phase4.auto_advanced` banner, and continue to 4.2. (Reached only under `live`
+  autonomy on a clean APPROVE; the gate writes its own audit receipt.)
+- anything else (`ask` / `shadow` / no gate) → render the AskUserQuestion below exactly as
+  before, and remember the human's chosen verdict for the receipt in 4.2.
+
 Render via AskUserQuestion using `pre.phase4.verdict_question`:
 
 - **APPROVE** — proceed to implementation, then `/immutable:ship`. Run
@@ -476,6 +500,21 @@ For REJECT:
 
 Same column-0 rule as Verdict — markdown bold, heading, list-marker, or
 indent prefixes break the grep (`grep -E '^Next:[[:space:]]+'`).
+
+**Autonomy receipt (optional — no-op unless the gate is installed).** If you rendered the
+AskUserQuestion in 4.1 (i.e. did NOT auto-advance), record the human's actual choice so the
+autonomy engine's measurement loop can learn — the keypress IS the label, no separate step.
+Skip if you auto-advanced (the gate already wrote that receipt). Self-contained block
+(re-resolves the gate; substitute the same three facts from 4.1 + the human's pick):
+```bash
+GATE="${TM_VERDICT_GATE:-$(command -v tm-verdict-gate.sh 2>/dev/null)}"
+if [ -n "$GATE" ] && [ -x "$GATE" ]; then
+  "$GATE" immutable-plan-review-eng \
+    --verdict APPROVE --issues 0 --adr-triggers 0 \
+    --cwd "$(pwd)" --human-pick "REPLACE_WITH_HUMAN_PICK" \
+    >/dev/null 2>&1 || true   # REPLACE_WITH_HUMAN_PICK = APPROVE|REVISE|REJECT the human chose
+fi
+```
 
 ### 4.3 Handoff
 

@@ -1020,6 +1020,14 @@ strings:
     - REJECT — premises do not hold OR scope is fundamentally wrong.
       Recommend going back to `/immutable:office-hours`.
 
+  prc.phase4.auto_advanced: |
+    Phase 4 verdict (ceo): AUTO-ADVANCED → APPROVE.
+
+    Autonomy policy is `live` for `immutable-plan-review-ceo` and this review is
+    clean (APPROVE, 0 unresolved issues), so the verdict was auto-selected without
+    the usual AskUserQuestion. An audit receipt was written. Ship stays a separate,
+    human-gated step — only the review verdict advanced.
+
   prc.phase4.review_note_written: |
     Review note written: `{path}`
 
@@ -1219,6 +1227,14 @@ strings:
       plan is updated.
     - REJECT — eng concerns require scope or approach change. Recommend
       returning to plan-review-ceo or office-hours.
+
+  pre.phase4.auto_advanced: |
+    Phase 4 verdict (eng): AUTO-ADVANCED → APPROVE.
+
+    Autonomy policy is `live` for `immutable-plan-review-eng` and this review is
+    clean (APPROVE, 0 unresolved issues, 0 ADR triggers), so the verdict was
+    auto-selected without the usual AskUserQuestion. An audit receipt was written.
+    Ship stays a separate, human-gated step — only the review verdict advanced.
 
   pre.phase4.review_note_written: |
     Eng review note written: `{path}`
