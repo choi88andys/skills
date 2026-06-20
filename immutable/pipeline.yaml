@@ -1,8 +1,8 @@
 # pipeline.yaml — declarative phase chain for the immutable SDD plugin.
 #
 # PURPOSE
-#   Plugin-agnostic manifest that orchestrators (e.g., a local /lead skill,
-#   future cross-plugin schedulers) can parse to learn this plugin's
+#   Plugin-agnostic manifest that orchestrators (a dispatcher / brief author,
+#   or a future cross-plugin scheduler) can parse to learn this plugin's
 #   canonical phase chain and hard dependencies WITHOUT hard-coding
 #   immutable-specific knowledge.
 #
@@ -18,9 +18,8 @@
 #   they encounter a schema_version they don't recognize.
 #
 # CONSUMERS
-#   - Local /lead:design (orchestrator brief authoring) reads `flows` +
-#     `dependencies` to render the canonical phase chain to the user
-#     before dispatch.
+#   - An orchestrator / brief author reads `flows` + `dependencies` to
+#     render the canonical phase chain to the user before dispatch.
 #   - CI / pre-flight checks may grep `routing_directives` to validate
 #     that downstream skills can still parse Verdict / Next directives.
 #   - Other plugins may adopt the same schema if they want orchestration
