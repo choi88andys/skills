@@ -2,6 +2,26 @@
 
 All notable changes to the `immutable` plugin are documented in this file. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Version is canonically declared in `.claude-plugin/plugin.json`.
 
+## [0.7.5] — 2026-06-20
+
+Fixes the `adr-placement` misinference at two layers prior releases left open. (1) `/immutable:adr`'s frontmatter description carried no flow-position anchor, so a session sketching the whole pipeline UPFRONT (before running `/immutable:prd`) inferred `prd → adr` from the description alone — a case the v0.7.3 prd-handoff anchor does not reach, since that anchor only fires once a session reaches `/immutable:prd` Stage 6. (2) `pipeline.yaml` declared `dependencies.adr.enforcement: refuse`, but per the manifest's own schema `refuse` means the skill body aborts — and `/immutable:adr` has no such precondition (it is standalone-callable by design). The mislabel means any orchestrator honoring `dependencies` at `refuse`-level would hard-block standalone ADR authoring — re-creating at the orchestration layer the standalone-breaking refusal that v0.7.3 deliberately kept OUT of the skill body.
+
+### Fixed
+
+- **`/immutable:adr` description had no flow-position anchor.** Added one clause: in the orchestrated flow ADRs are authored reactively (only after `/immutable:plan-review-eng` Phase 3 surfaces an ADR-authoring trigger, never upfront after the pitch), while remaining standalone-callable for out-of-flow decisions. The description is what an agent reads FIRST when modeling the flow; every other skill touching ADR-ordering was already anchored (plan-review descriptions in #9 / v0.6.5, prd Stage 6 handoff in v0.7.3) — adr's own description was the remaining gap, and the only one covering the upfront whole-flow-planning case (the prd Stage 6 anchor fires too late for a session that pre-plans the entire chain).
+- **`pipeline.yaml dependencies.adr.enforcement: refuse` misdescribed a standalone-callable skill.** This manifest's own schema documents `enforcement: refuse` as "the skill body aborts on absence of the dependency", but `/immutable:adr` carries no plan-review precondition — it is standalone-callable by design (the init-handoff peer entry point and the plan-review-eng standalone quick-ADR path both reach it without a prior review). So the entry was internally false: any orchestrator that honors the `dependencies` map at `refuse`-level would abort a standalone `/immutable:adr` dispatch whenever the `{slug}-eng.md` review note was absent — contradicting the intentional standalone path documented in v0.7.3 "Out of scope (intentional)". Moved `adr` from `dependencies` to `soft_dependencies` (`[plan-review-eng]`): a phase absent from `dependencies` resolves to `enforcement: none`, so no orchestrator hard-blocks it, while the canonical in-flow ordering remains carried by `exit_verdicts.plan-review-eng` `Next:`-directive routing (no signal lost).
+
+### Changed
+
+- **`immutable/adr/SKILL.md`** — frontmatter description gains one reactive/standalone clause.
+- **`immutable/pipeline.yaml`** — `adr` moved from `dependencies` (was `enforcement: refuse`) to `soft_dependencies`, with a block comment recording the advisory-only / must-not-hard-block semantics and why it moved.
+
+### Backward compatibility
+
+- **No skill-body change.** `/immutable:adr` never carried a plan-review precondition and still doesn't; v0.7.5 only corrects how the manifest *describes* it. Direct `/immutable:adr` invocation was always unaffected — only an orchestrator that consumed the manifest's `refuse`-level `dependencies` entry would have wrongly blocked a standalone ADR dispatch, and that path is now fixed.
+- **In-flow dispatch unchanged.** In the full `pitch_to_ship` flow, adr is still reached after plan-review-eng via the eng review's `Next:` directive; removing the refuse-level prereq does not change that ordering, only removes the false hard-block on the standalone path.
+- **No migration required.** v0.7.5 is a manifest + description release on the same v0.7.0 schema. Profile schema unchanged.
+
 ## [0.7.4] — 2026-06-19
 
 Adds an optional verdict auto-advance hook to `/immutable:plan-review-eng` and `/immutable:plan-review-ceo`. Both skills can now skip the Phase 4 verdict `AskUserQuestion` and auto-select `APPROVE` on a clean review — but ONLY when an external verdict-autonomy engine is installed AND its policy promotes the per-skill gate to `live`. The hook is thin, additive, and a strict no-op for every existing user: with no engine on `PATH` (and no `$TM_VERDICT_GATE`), the gate resolves to `ask` and the question renders exactly as before. The two-layer split is deliberate — the generic autonomy engine lives outside this plugin (in the operator's harness/dotfiles); this repo carries only the thin in-skill hook that calls it when present.

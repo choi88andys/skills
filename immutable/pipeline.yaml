@@ -129,9 +129,6 @@ flows:
         standalone:
           deps:         [design]
           enforcement:  warn-3way  # explicit 3-way warn on missing design note
-      adr:
-        deps:           [plan-review-eng]
-        enforcement:    refuse   # /immutable:adr expects a reviewed plan to reference
       ship:
         deps:           [plan-review-eng, implement]
         enforcement:    refuse   # /immutable:ship refuses without eng APPROVE
@@ -140,6 +137,15 @@ flows:
     # surface these as suggestions; skills do not refuse without them.
     soft_dependencies:
       prd:              [office-hours]  # premise challenge before authoring
+      # adr follows plan-review-eng in the pitch_to_ship flow via the eng review's
+      # Next: directive, but is standalone-callable (init-handoff peer entry point,
+      # plan-review-eng standalone quick-ADR path) — so the dependency is ADVISORY,
+      # not a gate. It lived under `dependencies` with enforcement:refuse through
+      # v0.7.4, which misdescribed the skill: per this manifest's own schema `refuse`
+      # means the skill body aborts, but /immutable:adr has no such precondition, so
+      # any orchestrator honoring `dependencies` at refuse-level would wrongly block
+      # standalone ADR authoring. Moved here in v0.7.5 (see CHANGELOG 0.7.5).
+      adr:              [plan-review-eng]
 
     # Phases whose verdict-bearing review notes feed downstream routing.
     # Each entry names the verdict line format and the routing-directive line
