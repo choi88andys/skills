@@ -71,7 +71,7 @@ The directory name `.immutable-prd/` is retained for back-compat with the SDD_MO
 
 ## Pipeline manifest for orchestrators
 
-`pipeline.yaml` at the plugin root declares the canonical phase chain, hard dependencies, and verdict-routing contracts for `flows.pitch_to_ship`. Orchestrators (e.g., a local `/lead` skill, future cross-plugin schedulers) parse it to learn the phase order WITHOUT hard-coding immutable-specific knowledge — they read `hard_dependencies` to respect ordering at dispatch time, so workers do not hit in-skill gates.
+`pipeline.yaml` at the plugin root declares the canonical phase chain, hard dependencies, and verdict-routing contracts for `flows.pitch_to_ship`. Orchestrators (e.g., a dispatcher or future cross-plugin scheduler) parse it to learn the phase order WITHOUT hard-coding immutable-specific knowledge — they read `dependencies` to respect ordering at dispatch time, so workers do not hit in-skill gates.
 
 The skills themselves enforce their own preconditions at invocation time (refusal or explicit AskUserQuestion warn). The manifest is the orchestration-time signal layered ON TOP — read by tools BEFORE dispatching a worker, complementing the worker-time gates inside each skill.
 
