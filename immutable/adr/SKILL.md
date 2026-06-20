@@ -1,6 +1,6 @@
 ---
 name: adr
-description: Guided authoring for append-only Architecture Decision Records (ADRs) in an immutable SDD repo. Conducts a focused interview (context, decision, consequences, alternatives), runs multi-persona adversarial review, and writes the ADR only when a 90% completeness gate passes. Use when a team makes a load-bearing technical direction that future engineers must understand. Triggers - "/immutable:adr", "ADR 작성", "아키텍처 결정 기록", "architectural decision".
+description: Guided authoring for append-only Architecture Decision Records (ADRs) in an immutable SDD repo. Conducts a focused interview (context, decision, consequences, alternatives), runs multi-persona adversarial review, and writes the ADR only when a 90% completeness gate passes. Use when a team makes a load-bearing technical direction that future engineers must understand. In the orchestrated SDD flow, ADRs are authored reactively — only after /immutable:plan-review-eng Phase 3 surfaces an ADR-authoring trigger, never upfront right after the pitch; the skill is also callable standalone to record an out-of-flow decision. Triggers - "/immutable:adr", "ADR 작성", "아키텍처 결정 기록", "architectural decision".
 allowed-tools: Read, Write, Edit, Bash, Glob, Grep, WebFetch
 license: MIT
 ---
