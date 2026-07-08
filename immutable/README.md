@@ -10,7 +10,7 @@ Single plugin hosting the Spec-Driven Development toolkit with append-only guara
 |---|---|---|---|
 | [`init/`](init/) | `/immutable:init` | Bootstrap a starter (six modes: spec / app / single × ko / en) | Writes only into the user's CWD; never overwrites |
 | [`office-hours/`](office-hours/) | `/immutable:office-hours` | Premise challenge + ≥3 alternatives + transient design-doc note | Writes one transient note under `.claude/immutable/office-hours/` (gitignored) |
-| [`prd/`](prd/) | `/immutable:prd` | WHAT — product pitches (6-stage interview, 3 personas, 7-criterion gate) | Append-only + supersede |
+| [`prd/`](prd/) | `/immutable:prd` | WHAT — product pitches (6-stage interview, 4 personas, 8-criterion gate) | Append-only + supersede |
 | [`design/`](design/) | `/immutable:design` | App-side context handoff (lightweight; pitch is the design artifact) | Writes one transient handoff note (gitignored) |
 | [`plan-review-ceo/`](plan-review-ceo/) | `/immutable:plan-review-ceo` | Scope challenge + 11-section adversarial review of pitch + linked ADRs | Writes one transient review note (gitignored) |
 | [`plan-review-eng/`](plan-review-eng/) | `/immutable:plan-review-eng` | 4-section engineering review (architecture / code / test / perf) + worktree analysis | Writes one transient review note (gitignored) |

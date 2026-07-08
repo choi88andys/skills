@@ -114,6 +114,13 @@ flows:
     #   - Map form (mode-keyed): the keyed phase has multiple operating modes;
     #     each mode lists its own dependencies. Consumers pick the relevant
     #     mode based on the worker's intended invocation.
+    #   - Nested map form (mode + per-dependency-keyed): only when a single
+    #     mode's dependencies span different enforcement levels (so one
+    #     scalar `enforcement:` for the mode would misstate one of them).
+    #     The mode key holds a map of dependency-name -> {deps, enforcement}
+    #     instead of one flat {deps, enforcement} pair. Current sole
+    #     instance: plan-review-eng.ceo-grounded (plan-review-ceo=refuse,
+    #     design=warn-3way).
     dependencies:
       design:
         deps:           [prd]
@@ -123,8 +130,15 @@ flows:
         enforcement:    warn-3way  # explicit 3-way warn on missing design note
       plan-review-eng:
         ceo-grounded:
-          deps:         [plan-review-ceo]
-          enforcement:  refuse   # CEO not in APPROVE state ⇒ pre.refuse.ceo_not_approved
+          plan-review-ceo:
+            deps:         [plan-review-ceo]
+            enforcement:  refuse   # CEO not in APPROVE state ⇒ pre.refuse.ceo_not_approved
+          design:
+            deps:         [design]
+            enforcement:  warn-3way  # re-checked independently in eng Phase 0.2 even though
+                                      # CEO already prompted the same warn upstream at its own
+                                      # Phase 0.1 — lets the user revisit "proceed degraded"
+                                      # before eng locks in (SKILL.md Phase 0.2; CHANGELOG v0.7.2)
         standalone:
           deps:         [design]
           enforcement:  warn-3way  # explicit 3-way warn on missing design note
