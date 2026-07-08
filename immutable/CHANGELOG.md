@@ -2,6 +2,35 @@
 
 All notable changes to the `immutable` plugin are documented in this file. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Version is canonically declared in `.claude-plugin/plugin.json`.
 
+## [0.7.6] — 2026-07-08
+
+Cross-file consistency sweep across the plugin's own source (not end-user pitch/ADR artifacts) — an audited pass over frontmatter descriptions, `pipeline.yaml`, `README.md` (root + plugin), `SCHEMA.md`, the strings catalog, and cross-skill shared contracts, catching several more instances of the same drift class fixed once already in v0.7.5: docs and manifests describing a skill's behavior in a way that has since fallen out of sync with what the skill body actually does. Nine confirmed fixes across 8 files; every fix below was independently re-verified against the current on-disk state of both sides of the claimed inconsistency before being applied.
+
+### Fixed
+
+- **`pipeline.yaml` under-declared `plan-review-eng`'s ceo-grounded dependencies.** The `ceo-grounded` mode's manifest entry listed only `plan-review-ceo` (`enforcement: refuse`), but the skill's own frontmatter description states the design handoff note is an expected input "in BOTH modes" (warn-on-absence) — plan-review-eng independently re-checks it in its own Phase 0.2 even when CEO already prompted the same warn upstream. Introduced a "nested map form" (mode + per-dependency-keyed) in the manifest's dependency-list schema, for the case where a single mode's dependencies span different enforcement levels, and used it to add the missing `design: warn-3way` entry alongside `plan-review-ceo: refuse`.
+- **`SCHEMA.md`'s canonical profile-schema template was stuck at `profile_schema: 1`** while both bundled default profiles (`default-en.yml`, `default-ko.yml`) have declared `profile_schema: 2` since v0.5.6, and the template was missing every field that bump added: `sections[].max_items` / `structure` (user-stories anti-monolith cap), a top-level `vague_words:` block (Stage 3 vague-word detection, consumed by `prd/SKILL.md`), a top-level `anti_monolith:` block, and an `adr.anti_monolith:` block. All four are genuinely read by skill bodies today; the schema doc's example had simply never caught up. Added all four plus the version bump.
+- **`adr/SKILL.md` hardcoded the ADR reference-policy exception to `domain: _global`** in six places (profile-fields table, Stage 1.4, Stage 3 Branch F, Stage 5 gate criterion 6, frontmatter template comment, Hard Prohibition 5), while `SCHEMA.md` invariant 5 and `scripts/validate_docs.py` already generalize the exception to "domain is declared `adr_only` in `profile.domain_allowlist.reserved_domains`" (bundled defaults mark only `_global` this way, but teams may add others). Generalized all six mentions to match, and added the missing `adr.anti_monolith.tiers` row to the profile-fields-consumed table.
+- **`strings.ko.yml` was missing both `prc.phase4.auto_advanced` and `pre.phase4.auto_advanced`** — the verdict-auto-advance banners added in v0.7.4, present in `strings.en.yml` and referenced by `plan-review-ceo/SKILL.md` and `plan-review-eng/SKILL.md` respectively. Korean-language teams (the `team_language` default) hitting the `live`-autonomy auto-advance path would have silently fallen back to the English banner via the strings-catalog fallback chain. Added both keys with Korean translations matching the English original's meaning.
+- **`design/SKILL.md` and `plan-review-ceo/SKILL.md` descriptions didn't mention the pitch-less "refactor mode" path** that both skills already implement in their bodies (`plan-review-ceo/SKILL.md` lines 73/211/503/512) — an agent reasoning only from frontmatter would have concluded a pitch is unconditionally required. Extended both descriptions to name the exception.
+- **Root `README.md` had four stale factual claims**: the "Existing v0.5.x repos... unchanged" sentence was written for the v0.6.0 upgrade and never updated for later releases that did change `/immutable:prd`'s interview and `/immutable:adr`'s description; `/immutable:prd`'s gate was still described as "7 criteria" (bumped to 8 in v0.5.6); `/immutable:plan-review-eng` was described in single-mode prose though it has run in two modes since v0.7.2; and the bundled-starter file-count table (5/3/7) undercounted by one each (6/4/8) since the `.gitignore` added to every starter in v0.6.0.
+- **`immutable/README.md`'s skill table still said "3 personas, 7-criterion gate"** for `/immutable:prd` — the same stale gate-criteria count as above.
+
+### Changed
+
+- **`immutable/pipeline.yaml`** — new "nested map form" documented in the dependency-list-semantics comment block; `plan-review-eng.ceo-grounded` restructured to use it.
+- **`immutable/SCHEMA.md`** — canonical profile-schema template bumped to `profile_schema: 2` with the four new fields/blocks described above.
+- **`immutable/adr/SKILL.md`** — six reference-policy mentions generalized from hardcoded `_global` to the profile-driven `adr_only` mechanism; profile-fields table gained an `adr.anti_monolith` row.
+- **`immutable/strings/strings.ko.yml`** — two new keys (`prc.phase4.auto_advanced`, `pre.phase4.auto_advanced`).
+- **`immutable/design/SKILL.md`, `immutable/plan-review-ceo/SKILL.md`** — frontmatter descriptions each gain a refactor-mode clause.
+- **`README.md`, `immutable/README.md`** — four and one stale claims corrected respectively.
+
+### Backward compatibility
+
+- **No skill-body logic changed.** Every fix in this release corrects a description, comment, doc, manifest entry, or missing catalog string to match behavior the skill bodies already had — no `/immutable:*` skill behaves differently after this release.
+- **`pipeline.yaml`'s new nested-map dependency form is additive and used in exactly one entry** (`plan-review-eng.ceo-grounded`); every other entry keeps its existing flat or mode-keyed shape unchanged.
+- **No migration required.** v0.7.6 is a docs + manifest + strings-catalog release. The bundled profiles already declared `profile_schema: 2`; this release only brings `SCHEMA.md`'s documentation example in line with what was already shipped.
+
 ## [0.7.5] — 2026-06-20
 
 Fixes the `adr-placement` misinference at two layers prior releases left open. (1) `/immutable:adr`'s frontmatter description carried no flow-position anchor, so a session sketching the whole pipeline UPFRONT (before running `/immutable:prd`) inferred `prd → adr` from the description alone — a case the v0.7.3 prd-handoff anchor does not reach, since that anchor only fires once a session reaches `/immutable:prd` Stage 6. (2) `pipeline.yaml` declared `dependencies.adr.enforcement: refuse`, but per the manifest's own schema `refuse` means the skill body aborts — and `/immutable:adr` has no such precondition (it is standalone-callable by design). The mislabel means any orchestrator honoring `dependencies` at `refuse`-level would hard-block standalone ADR authoring — re-creating at the orchestration layer the standalone-breaking refusal that v0.7.3 deliberately kept OUT of the skill body.

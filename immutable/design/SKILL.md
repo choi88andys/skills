@@ -1,6 +1,6 @@
 ---
 name: design
-description: Lightweight pre-implementation skill for the immutable SDD flow. After a pitch is authored (in spec or single repo), this skill confirms which pitch is being implemented, captures app-side context the pitch lacks, and writes a transient context note for the plan-review skills. Does NOT generate a design artifact — the pitch is the design artifact in immutable-prd mode. Triggers - "/immutable:design", "디자인 단계", "pitch 확인", "구현 준비".
+description: Lightweight pre-implementation skill for the immutable SDD flow. After a pitch is authored (in spec or single repo) or the user explicitly opts into a no-pitch refactor/internal-work path, this skill confirms which pitch is being implemented (or acknowledges the no-pitch path), captures app-side context the pitch lacks, and writes a transient context note for the plan-review skills. Does NOT generate a design artifact — the pitch is the design artifact in immutable-prd mode. Triggers - "/immutable:design", "디자인 단계", "pitch 확인", "구현 준비".
 allowed-tools: Read, Write, Bash, Glob, Grep, AskUserQuestion
 license: MIT
 ---

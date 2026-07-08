@@ -339,7 +339,7 @@ v0.4 embedded Korean section headings, 7-criterion gate, 3-persona list, and ide
 
 ```yaml
 # Profile schema revision. Bumped on breaking changes to the keys below.
-profile_schema: 1
+profile_schema: 2
 
 # Locale matching strings/strings.<locale>.yml (enabled in v0.6+ via S3).
 locale: ko | en | ja | …
@@ -354,6 +354,8 @@ sections:
     heading: "<user-facing heading>"
     required: true | false
     min_items: <int>              # minimum blocks/rows for 90% gate credit
+    max_items: <int>  # optional, user_stories only — anti-monolith sub-section cap (v0.5.6+)
+    structure: per_story_grouped | consolidated  # optional, user_stories only (v0.5.3+)
     description: "<interview hint + gate pass condition>"
   # …
 
@@ -388,6 +390,13 @@ identifier_patterns:
     regex: '<PCRE>'
     hint: "<reviewer message>"
 
+# Vague-word detection (Stage 3). On hit, Stage 3 warns and loops back for
+# concrete criteria.
+vague_words:
+  - id: <name>
+    regex: '<PCRE>'
+    hint: "<reviewer message>"
+
 # Filename / slug conventions.
 naming:
   filename_pattern: '<regex>'
@@ -405,6 +414,15 @@ feature_flag:
   states: [deployed, hidden, …]
   default_initial: <state>
   required_fields: [key, states, initial_state, fallback_ux]
+
+# Anti-monolith escalation tiers (Stage 1.2/1.3/5). OR semantics — exceeding
+# either metric in a tier trips it.
+anti_monolith:
+  enabled: true | false
+  tiers:
+    L1: { action: hint,             sub_sections: <int>, normative_lines: <int> }
+    L2: { action: strong_recommend, sub_sections: <int>, normative_lines: <int> }
+    L3: { action: block,            sub_sections: <int>, normative_lines: <int> }
 
 # Domain allowlist policy (points at `pitches/README.md`).
 domain_allowlist:
@@ -433,6 +451,12 @@ adr:
     reject_on_unresolved: true
     unresolved_tag: "<locale literal>"
     criteria: [ … ]
+  anti_monolith:                          # ADR anti-monolith escalation tiers
+    enabled: true | false
+    tiers:
+      L1: { action: hint,             alternatives_count: <int>, consequences_count: <int> }
+      L2: { action: strong_recommend, alternatives_count: <int>, consequences_count: <int> }
+      L3: { action: block,            alternatives_count: <int>, consequences_count: <int> }
 ```
 
 **v0.5 consumption scope**: `/immutable:adr` reads `adr.sections[].heading` for body assembly. `adr.personas` and `adr.gate` are populated for forward compatibility — skill text still references them inline in v0.5 to keep the diff minimal. S3+ shifts the inline strings into a strings catalog and lets profiles fully drive personas/gate.
