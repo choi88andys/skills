@@ -35,7 +35,7 @@ mkdir my-spec && cd my-spec
 /immutable:migrate
 ```
 
-`/immutable:init` is the recommended entry for new repos; it copies one of six bundled starters (spec / app / single × ko / en) and emits the next-step git commands. Existing v0.5.x repos pick up the new flow skills immediately on install — `/immutable:prd`, `/immutable:adr`, and `/immutable:migrate` behavior is unchanged.
+`/immutable:init` is the recommended entry for new repos; it copies one of six bundled starters (spec / app / single × ko / en) and emits the next-step git commands. Existing v0.5.x repos picked up the new flow skills immediately on install when upgrading to v0.6.0 — `/immutable:prd`, `/immutable:adr`, and `/immutable:migrate` behavior was unchanged at that point, though subsequent releases (see CHANGELOG) have since refined `/immutable:prd`'s interview and `/immutable:adr`'s description.
 
 ## Skills
 
@@ -52,9 +52,9 @@ Six bundled starters:
 
 | Starter | Mode | Language | Files | Purpose |
 |---|---|---|---|---|
-| `spec-ko` / `spec-en` | two-repo-spec | ko / en | 5 | Spec repo (pitches only) |
-| `app-ko` / `app-en` | two-repo-app | ko / en | 3 | App repo (ADRs only) |
-| `single-ko` / `single-en` | single-repo | ko / en | 7 | Single repo (pitches + ADRs) |
+| `spec-ko` / `spec-en` | two-repo-spec | ko / en | 6 | Spec repo (pitches only) |
+| `app-ko` / `app-en` | two-repo-app | ko / en | 4 | App repo (ADRs only) |
+| `single-ko` / `single-en` | single-repo | ko / en | 8 | Single repo (pitches + ADRs) |
 
 ### `/immutable:office-hours` — premise challenge + 3 alternatives
 Heaviest context-gather skill in the flow. Forces premise challenge then generates ≥3 implementation approaches (Minimal viable / Ideal architecture / Creative). Output is a transient design-doc note that `/immutable:prd` consumes during Stage 1.5 Context Intake. Refuses to write code; writes only the one transient note.
@@ -68,7 +68,7 @@ Output: `.claude/immutable/office-hours/{slug}.md` (gitignored).
 
 ### `/immutable:prd` — pitch authoring
 
-Guided interview for an append-only pitch (WHAT the app should do). Walks Stage 1 intent routing → optional Stage 1.5 context intake → Stage 2 grill-me interview (Background, User Stories with Given/When/Then, normative keywords, edge cases, no-gos, optional feature flag) → Stage 3 domain-language check → Stage 4 three-persona adversarial review → Stage 5 90% completeness gate (7 criteria) → Stage 6 file generation. Refuses to write the file unless the gate passes.
+Guided interview for an append-only pitch (WHAT the app should do). Walks Stage 1 intent routing → optional Stage 1.5 context intake → Stage 2 grill-me interview (Background, User Stories with Given/When/Then, normative keywords, edge cases, no-gos, optional feature flag) → Stage 3 domain-language check → Stage 4 three-persona adversarial review → Stage 5 90% completeness gate (8 criteria) → Stage 6 file generation. Refuses to write the file unless the gate passes.
 
 ```sh
 /immutable:prd                              # interactive
@@ -97,7 +97,7 @@ Adversarial CEO-style review of the implementation plan grounded in the pitch + 
 Output: `.claude/immutable/plan-review/{slug}-ceo.md` (gitignored) with verdict APPROVE / REVISE / REJECT.
 
 ### `/immutable:plan-review-eng` — engineering review
-After CEO APPROVE, runs engineering rigor on the agreed scope. Walks 4 sections (Architecture-eng / Code Quality / Test Coverage Diagram / Performance) plus a worktree parallelization analysis (dependency table + parallel lanes + execution order + conflict flags). Surfaces ADR-authoring candidates.
+Runs engineering rigor on the agreed scope in one of two modes: "ceo-grounded" (after CEO APPROVE, using the CEO scope envelope) or "standalone" (no prior CEO review; reviews the pitch directly with a built-in lightweight scope check). Walks 4 sections (Architecture-eng / Code Quality / Test Coverage Diagram / Performance) plus a worktree parallelization analysis (dependency table + parallel lanes + execution order + conflict flags). Surfaces ADR-authoring candidates.
 
 ```sh
 /immutable:plan-review-eng

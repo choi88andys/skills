@@ -48,6 +48,7 @@ The skill is **profile-aware** in v0.5. ADR-specific tunables — body sections,
 | `adr.personas[].name` / `question` / `checks` | Stage 4 adversarial review (data SSoT; v0.5 prose stays inline) |
 | `naming.filename_pattern` / `slug_case` / `forbidden_slug_patterns` | Stage 6 filename validation (shared with pitch) |
 | `domain_allowlist.source` / `reserved_domains` | Stage 1 domain check (`_global` reserved here) |
+| `adr.anti_monolith.tiers.{L1,L2,L3}` (v0.5.6+) | Stage 1.2 pre-check tier classification (alternatives_count / consequences_count) of existing ADRs; Stage 5 in-flight draft evaluation. Skips with a note if the block is missing in both team and bundled profile. |
 
 Profile-owned strings (ADR section headings, persona names, gate criteria) render from the active profile. Stage prompts, refusal messages, and the consequences sub-headings (positive / negative / cost-of-adoption) are sourced from the strings catalog per the "Strings catalog & locale" section above.
 
@@ -135,7 +136,7 @@ Surface the classification to the user during Stage 1.5 confirmation. L3 ADRs ca
 Ask which scope the ADR covers by rendering `adr.stage1.scope_question` (no substitutions).
 
 - Scope `(1)` → `domain: <name>`, `references.pitches` must include ≥1 active pitch in that domain.
-- Scope `(2)` → `domain: _global`, `references.pitches` may be empty. Require a written scope statement in the body. **Multiple coexisting `_global` ADRs are valid (v0.5.6+)** — each captures a distinct cross-cutting decision (e.g., "use ApiResult sealed", "use Equatable+Freezed mix", "Use case mandatory") on its own supersede chain.
+- Scope `(2)` → `domain: _global`, `references.pitches` may be empty (per `profile.domain_allowlist.reserved_domains[].adr_only`; the bundled default profiles mark only `_global` this way). Require a written scope statement in the body. **Multiple coexisting `_global` ADRs are valid (v0.5.6+)** — each captures a distinct cross-cutting decision (e.g., "use ApiResult sealed", "use Equatable+Freezed mix", "Use case mandatory") on its own supersede chain.
 
 ### 1.5 Confirmation (mandatory)
 
@@ -224,7 +225,7 @@ For at least 2 alternatives, capture:
 
 Confirm the final `references` block:
 
-- `pitches`: list of pitch filenames (MUST be non-empty unless `domain: _global`)
+- `pitches`: list of pitch filenames (MUST be non-empty unless `domain` is declared `adr_only: true` in `profile.domain_allowlist.reserved_domains`)
 - `adrs`: prior ADRs this one builds on or overrides (non-supersede dependencies)
 - `designs`, `tech_specs`: usually empty for an ADR; allowed if the decision directly reacts to an existing design/tech-spec
 
@@ -269,7 +270,7 @@ For each finding, offer three action choices rendered from the catalog:
 | 3 | Consequences balanced | ≥2 positive AND ≥2 negative explicitly listed |
 | 4 | Alternatives considered | ≥2 alternatives with rejection reason |
 | 5 | Revisit trigger present | Metric, milestone, OR scheduled review date |
-| 6 | References valid | `references.pitches` non-empty (unless `_global`), all referenced files exist and parse |
+| 6 | References valid | `references.pitches` non-empty (unless domain is `adr_only: true` in `profile.domain_allowlist.reserved_domains`), all referenced files exist and parse |
 
 ### Judgment
 
@@ -308,7 +309,7 @@ domain: <name | _global>
 supersedes: <previous-filename | null>
 deprecated: false
 references:
-  pitches:    [<filename>, …]   # non-empty unless _global
+  pitches:    [<filename>, …]   # non-empty unless domain is adr_only in reserved_domains
   adrs:       [<filename>, …]
   designs:    []
   tech_specs: []
@@ -419,7 +420,7 @@ FILES='["<adr-relative-path>"]'   # e.g. ["adr/2026-05-05-auth-strategy.md"]
 2. Never advance with any `<profile.adr.gate.unresolved_tag>` tag.
 3. Never edit body of an existing ADR. Append-only + supersede chain.
 4. Never commit or push.
-5. Never generate an ADR with `references.pitches` empty unless `domain: _global` AND the body includes a scope statement.
+5. Never generate an ADR with `references.pitches` empty unless the ADR's `domain` is declared `adr_only: true` in `profile.domain_allowlist.reserved_domains` (the bundled default profiles mark only `_global` this way, but teams may add others) AND the body includes a scope statement.
 6. Never claim a decision has no negative consequences — push back until the user names ≥2.
 7. Never skip Alternatives — if the user insists on "there was no alternative", question whether this needs an ADR at all.
 

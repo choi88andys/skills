@@ -1040,6 +1040,14 @@ strings:
     - REJECT — premises 가 holds 안 함 또는 scope 가 근본적으로 잘못됨.
       `/immutable:office-hours` 부터 다시.
 
+  prc.phase4.auto_advanced: |
+    Phase 4 verdict (ceo): AUTO-ADVANCED → APPROVE.
+
+    `immutable-plan-review-ceo`의 autonomy policy가 `live`이고 이번 리뷰가 clean
+    (APPROVE, 미해결 issue 0건)하여, 평소의 AskUserQuestion 없이 verdict가 자동
+    선택되었습니다. Audit receipt가 작성되었습니다. Ship은 여전히 별도의
+    human-gated 단계입니다 — review verdict만 자동 진행되었습니다.
+
   prc.phase4.review_note_written: |
     Review note 작성 완료: `{path}`
 
@@ -1229,6 +1237,11 @@ strings:
     - REVISE — code-level issue 가 plan 의 shape 에 영향. 일시정지, plan 갱신 후 재호출.
     - REJECT — engineering 차원에서 scope 또는 approach 가 변경되어야 함. CEO 리뷰
       또는 office-hours 로 돌아가기 권장.
+
+  pre.phase4.auto_advanced: |
+    Phase 4 verdict (eng): 자동 승인 → APPROVE.
+
+    `immutable-plan-review-eng`의 autonomy policy가 `live`이고 이번 리뷰가 클린(APPROVE, 미해결 이슈 0건, ADR 트리거 0건)하여, 평소의 AskUserQuestion 없이 verdict가 자동 선택되었습니다. 감사 기록(audit receipt)이 작성되었습니다. Ship은 여전히 별도의 human-gated 단계입니다 — review verdict만 자동 진행되었습니다.
 
   pre.phase4.review_note_written: |
     Eng review note 작성 완료: `{path}`
