@@ -2,6 +2,25 @@
 
 All notable changes to the `immutable` plugin are documented in this file. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Version is canonically declared in `.claude-plugin/plugin.json`.
 
+## [0.7.7] — 2026-07-14
+
+Fixes a silent config-parsing defect shared by four skill bodies. All four read `.immutable-prd/config.yml` with the same idiom — `grep '^<key>:' "$CFG" | head -1 | awk '{print <field>}'` — but a `SKILL.md` cannot hold an awk field reference. Claude Code substitutes a dollar sign followed by a digit with the invocation's positional arguments *before bash ever runs*, fenced code blocks included, and it does so even when no arguments are passed. On the bare call the field reference degrades to the empty string, leaving `awk '{print }'` — which is not a parse error but valid awk: `print` with no argument prints the whole record. Every one of these seven reads therefore returned `<key>: <value>`, the entire line with the key still glued on, instead of `<value>`. A `${VAR:-default}` fallback one line below each read masked the defect in exactly the repos that left the key unset, which is why it survived this long.
+
+### Fixed
+
+- **`/immutable:design` and `/immutable:plan-review-ceo` found no pitches, ever.** `PITCHES_REL` resolved to the literal `pitches_path: spec/pitches/`, so `PITCHES_DIR` addressed a directory that cannot exist and both skills fell through to their `no_pitches_found` branch on every bare invocation in any repo whose config declares `pitches_path` — which includes the bundled `single-repo` starter. A repo leaving the key unset hit the fallback and was unaffected.
+- **`/immutable:init` never discovered a sibling spec repo.** `_mode` came back as `repo_mode: two-repo-spec`, which matches neither arm of the `case` immediately below it, so the adjacent-repo scan silently found nothing.
+- **`/immutable:ship` wrote malformed pitch and ADR links into the PR body.** Both the pitch path (read from the design note's `Pitch:` line) and `adr_path` came back as whole lines.
+
+### Changed
+
+- **`immutable/design/SKILL.md`, `immutable/init/SKILL.md`, `immutable/plan-review-ceo/SKILL.md`, `immutable/ship/SKILL.md`** — all seven affected reads replaced with a `sed` capture, `sed -n 's/^<key>:[[:space:]]*\([^[:space:]]*\).*/\1/p'`. A sed backreference is not a shell positional parameter, so the harness leaves it intact. Output was verified identical to the awk the code meant to run across six config shapes: plain, extra whitespace, trailing comment, and `ship`'s refactor-mode sentinel `Pitch: (none — internal refactor)`, where the capture still yields `(none` — precisely what the downstream refactor-mode check keys on.
+
+### Backward compatibility
+
+- **No schema, config, or interface change.** Same keys, same defaults, same fallbacks — only the parse of an already-supported config is corrected. Config schema v3 and profile schema 2 are untouched; no migration required.
+- **Behavior can only move from broken toward correct.** Repos that left `pitches_path` / `adr_path` unset were already resolving to the default via the fallback and see no change at all.
+
 ## [0.7.6] — 2026-07-08
 
 Cross-file consistency sweep across the plugin's own source (not end-user pitch/ADR artifacts) — an audited pass over frontmatter descriptions, `pipeline.yaml`, `README.md` (root + plugin), `SCHEMA.md`, the strings catalog, and cross-skill shared contracts, catching several more instances of the same drift class fixed once already in v0.7.5: docs and manifests describing a skill's behavior in a way that has since fallen out of sync with what the skill body actually does. Nine confirmed fixes across 8 files; every fix below was independently re-verified against the current on-disk state of both sides of the claimed inconsistency before being applied.
