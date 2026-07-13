@@ -98,8 +98,8 @@ Step 4: Handoff                    — transient note + recommend plan-review-ce
 
 ```bash
 # Resolve pitches directory from the SPEC config (which equals primary in single-repo).
-PITCHES_REL="$(grep '^pitches_path:' "$IMMUTABLE_PRD_SPEC_CONFIG" 2>/dev/null \
-  | head -1 | awk '{print $2}')"
+PITCHES_REL="$(sed -n 's/^pitches_path:[[:space:]]*\([^[:space:]]*\).*/\1/p' \
+  "$IMMUTABLE_PRD_SPEC_CONFIG" 2>/dev/null | head -1)"
 PITCHES_REL="${PITCHES_REL:-pitches/}"
 SPEC_ROOT="$(dirname "$(dirname "$IMMUTABLE_PRD_SPEC_CONFIG")")"
 PITCHES_DIR="$SPEC_ROOT/$PITCHES_REL"

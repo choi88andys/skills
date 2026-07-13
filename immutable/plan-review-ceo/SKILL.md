@@ -130,13 +130,13 @@ batch issues — one issue = one AskUserQuestion call.
 ```bash
 # Spec config gives pitches; app config gives ADRs.
 SPEC_ROOT="$(dirname "$(dirname "$IMMUTABLE_PRD_SPEC_CONFIG")")"
-PITCHES_REL="$(grep '^pitches_path:' "$IMMUTABLE_PRD_SPEC_CONFIG" 2>/dev/null \
-  | head -1 | awk '{print $2}')"
+PITCHES_REL="$(sed -n 's/^pitches_path:[[:space:]]*\([^[:space:]]*\).*/\1/p' \
+  "$IMMUTABLE_PRD_SPEC_CONFIG" 2>/dev/null | head -1)"
 PITCHES_DIR="$SPEC_ROOT/${PITCHES_REL:-pitches/}"
 
 APP_ROOT="$(dirname "$(dirname "$IMMUTABLE_PRD_APP_CONFIG")")"
-ADR_REL="$(grep '^adr_path:' "$IMMUTABLE_PRD_APP_CONFIG" 2>/dev/null \
-  | head -1 | awk '{print $2}')"
+ADR_REL="$(sed -n 's/^adr_path:[[:space:]]*\([^[:space:]]*\).*/\1/p' \
+  "$IMMUTABLE_PRD_APP_CONFIG" 2>/dev/null | head -1)"
 ADR_DIR="$APP_ROOT/${ADR_REL:-adr/}"
 
 echo "PITCHES_DIR=$PITCHES_DIR"

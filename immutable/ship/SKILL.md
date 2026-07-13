@@ -242,12 +242,14 @@ directory. Read it now and render with captured values:
 FEATURE_SLUG="${FEATURE_SLUG:-$(git branch --show-current 2>/dev/null | tr '/' '-' || echo "no-branch")}"
 DESIGN_NOTE=".claude/immutable/design/${FEATURE_SLUG}.md"
 
-PITCHES_REL="$(grep '^pitches_path:' "$IMMUTABLE_PRD_SPEC_CONFIG" 2>/dev/null \
-  | head -1 | awk '{print $2}')"
+PITCHES_REL="$(sed -n 's/^pitches_path:[[:space:]]*\([^[:space:]]*\).*/\1/p' \
+  "$IMMUTABLE_PRD_SPEC_CONFIG" 2>/dev/null | head -1)"
 PITCHES_REL="${PITCHES_REL:-pitches/}"
-# The pitch filename is captured in the design note's frontmatter; read it.
-PITCH_REL_PATH=$(grep '^Pitch:' "$DESIGN_NOTE" 2>/dev/null \
-  | head -1 | awk '{print $2}')
+# The pitch filename is captured in the design note's frontmatter; read it. Only the first
+# token after `Pitch:` — refactor mode writes "(none — internal refactor)" there and the
+# check below deliberately keys on the leading "(none".
+PITCH_REL_PATH=$(sed -n 's/^Pitch:[[:space:]]*\([^[:space:]]*\).*/\1/p' \
+  "$DESIGN_NOTE" 2>/dev/null | head -1)
 ```
 
 If `PITCH_REL_PATH` is `(none` (refactor mode), set the PR body's pitch
@@ -256,8 +258,8 @@ section to "(none — internal refactor)".
 ### 5.2 Resolve linked ADRs
 
 ```bash
-ADR_REL="$(grep '^adr_path:' "$IMMUTABLE_PRD_APP_CONFIG" 2>/dev/null \
-  | head -1 | awk '{print $2}')"
+ADR_REL="$(sed -n 's/^adr_path:[[:space:]]*\([^[:space:]]*\).*/\1/p' \
+  "$IMMUTABLE_PRD_APP_CONFIG" 2>/dev/null | head -1)"
 ADR_REL="${ADR_REL:-adr/}"
 APP_ROOT="$(dirname "$(dirname "$IMMUTABLE_PRD_APP_CONFIG")")"
 PITCH_FILENAME="$(basename "$PITCH_REL_PATH")"

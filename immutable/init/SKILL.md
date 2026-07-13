@@ -191,7 +191,7 @@ for _dir in "$_parent"/*/; do
   [ "$_dir" = "$(pwd)" ] && continue
   _cfg="$_dir/.immutable-prd/config.yml"
   [ -f "$_cfg" ] || continue
-  _mode="$(grep '^repo_mode:' "$_cfg" 2>/dev/null | head -1 | awk '{print $2}')"
+  _mode="$(sed -n 's/^repo_mode:[[:space:]]*\([^[:space:]]*\).*/\1/p' "$_cfg" 2>/dev/null | head -1)"
   case "$_mode" in
     two-repo|two-repo-spec) echo "$_dir" ;;
   esac
