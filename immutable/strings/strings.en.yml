@@ -132,6 +132,7 @@ strings:
     Reference:
     - Pitch conventions: `CONTRIBUTING.md`
     - ADRs are authored separately in the sibling app repo (`/immutable:init` for the app starter)
+    - CI: `.github/workflows/validate-docs.yml` validates every pitch on push and PR. No setup needed.
 
   init.stage7.handoff_two_repo_app_configured: |
     Bootstrap complete (mode: two-repo-app, lang: {lang}).
@@ -140,7 +141,8 @@ strings:
 
     Next steps:
     1. Run the git commands from Stage 6
-    2. Write the first ADR: `/immutable:adr`
+    2. Set `SPEC_REPO` at the top of `.github/workflows/validate-docs.yml` to the spec repo's GitHub owner/name (`{spec_path}` is its path on disk; CI needs its GitHub coordinates). If that repo is private, also add a read-scoped `SPEC_REPO_TOKEN` secret. Until this is set, CI fails — it will not pass while unable to check ADR→pitch references.
+    3. Write the first ADR: `/immutable:adr`
 
     Reference:
     - ADR conventions: `adr/README.md`
@@ -152,7 +154,8 @@ strings:
     Next steps:
     1. Run the git commands from Stage 6
     2. Edit `spec_repo_path: ../<your-spec-repo>` in `.immutable-prd/config.yml` — replace the placeholder with your spec repo path (absolute or relative; no naming convention required)
-    3. Write the first ADR: `/immutable:adr`
+    3. Set `SPEC_REPO` at the top of `.github/workflows/validate-docs.yml` to that repo's GitHub owner/name, and add a `SPEC_REPO_TOKEN` secret if it is private. Until this is set, CI fails — it will not pass while unable to check ADR→pitch references. CI needs the relative `../<dir>` form of `spec_repo_path`.
+    4. Write the first ADR: `/immutable:adr`
 
     Reference:
     - ADR conventions: `adr/README.md`
@@ -169,6 +172,7 @@ strings:
     Reference:
     - Pitch conventions: `spec/CONTRIBUTING.md`
     - ADR conventions: `adr/README.md`
+    - CI: `.github/workflows/validate-docs.yml` validates every pitch and ADR on push and PR. No setup needed.
 
   init.probe.status_present: "present"
   init.probe.status_absent: "absent"

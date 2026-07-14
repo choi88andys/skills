@@ -229,7 +229,9 @@ while :; do
 done
 ```
 
-Stand-alone validator (`scripts/validate_docs.py`, requires PyYAML) enforces the invariants in the Validation section below. Suitable for pre-commit hooks and CI.
+Stand-alone validator (`scripts/validate_docs.py`, requires PyYAML) enforces the invariants in the Validation section below. Since v0.8.0 every bundled starter ships `.github/workflows/validate-docs.yml`, which runs it on every push and pull request; the workflow fetches the script from a pinned plugin tag rather than vendoring a copy. Run it by hand the same way: `python3 scripts/validate_docs.py`.
+
+Whether a red run actually **blocks** a merge is a setting in the consuming repo, not something the plugin can ship: without a branch-protection rule making this check required, GitHub reports the failure and still allows the merge.
 
 ---
 
@@ -300,10 +302,10 @@ ADR TEMPLATE carries one worked example per area. See `adr/TEMPLATE.md`.
 
 ## Validation invariants
 
-Checked at generation time by the `/immutable:adr` skill, and by CI via `scripts/validate_docs.py`:
+Checked at generation time by the `/immutable:prd` and `/immutable:adr` skills, and — in any repo bootstrapped from a v0.8.0+ starter — by `scripts/validate_docs.py` running in CI on every push and pull request:
 
 1. **Frontmatter schema**: required fields present and typed correctly.
-2. **Supersede chain integrity (per-edge)**: for each file F with non-null `F.supersedes`, the target T must (a) exist in the same doc-type set and (b) have `deprecated: true`. No cycles.
+2. **Supersede chain integrity (per-edge)**: for each file F with non-null `F.supersedes`, the target T must (a) exist in the same doc-type set and (b) have `deprecated: true`. Per-edge is the whole of it — cycle detection across a chain is deferred (`validate_docs.py` docstring, "Not covered"), so the validator checks each edge, not the graph.
 3. **No global per-(domain, type) cap on actives** (changed in v0.5.6): multiple `deprecated: false` files MAY coexist in the same domain provided each is on its own supersede chain. Fan-out (one predecessor superseded by N successors — e.g., a `refactor-split`) is permitted as long as the shared predecessor is deprecated. Rationale: 1 PRD = 1 feature/policy, and a domain naturally hosts multiple features. The previous "exactly one active per (domain, type)" cap forced domain-charter monoliths and triggered fake-domain workarounds for ADRs (see "Anti-patterns" below).
 4. **Reference existence**: every filename in `references.pitches` exists at the configured pitches location.
 5. **Reference policy**: ADR `references.pitches` non-empty unless the domain is declared `adr_only` in `profile.domain_allowlist.reserved_domains` (e.g., `_global`).
@@ -313,9 +315,11 @@ Checked at generation time by the `/immutable:adr` skill, and by CI via `scripts
    - *pitch*: forbids code identifiers (enforced by `/immutable:prd` at authoring time, not by the CI validator).
    - *pitch / ADR (skill-level guard, always on)*: at Stage 6 generation, `/immutable:prd` and `/immutable:adr` verify every `required: true` entry in `profile.(adr.)sections[]` appears as an `## <heading>` in the assembled body. Missing sections abort file generation via `(prd|adr).stage6.missing_required_section` and loop back to the interview. The guard runs only on in-flight generation — previously written files are append-only and untouched. Covers custom profile forks that add required sections beyond the default branches.
    - *pitch user-stories structure (skill-level guard, v0.5.3+)*: when `profile.sections[id=user_stories].structure == per_story_grouped` (default), `/immutable:prd` Stage 6 additionally verifies that the user-stories H2 slice contains ≥1 `### ` sub-section, each sub-section contains ≥1 bracketed normative keyword line, and no bracketed normative leaks between the H2 and the first `### `. Violations abort via `prd.stage6.missing_story_structure`. Cross-cutting sub-sections with only normative lines (no GWT) are accepted by design. For `structure: consolidated` the guard is skipped.
-   - *pitch / ADR (CI validator, opt-in)*: `scripts/validate_docs.py --strict-body` scans all pitch and ADR files and flags the same missing-heading violations post-hoc. The v0.5.3+ pitch user-stories structure check activates under the same flag (profile-gated on `per_story_grouped`). Off by default for backward compatibility with v0.4 repos authored before the profile system existed.
+   - *pitch / ADR (CI validator, opt-in)*: `scripts/validate_docs.py --strict-body` scans all pitch and ADR files and flags the same missing-heading violations post-hoc. The v0.5.3+ pitch user-stories structure check activates under the same flag (profile-gated on `per_story_grouped`). Off by default for backward compatibility with v0.4 repos authored before the profile system existed. The bundled starter workflow leaves it off, matching that default; a repo bootstrapped fresh has no pre-profile legacy, so appending `--strict-body` to the workflow's validate step is safe and checks strictly more.
 
 **Profile awareness** (v0.5+): the CI validator loads the profile via the same resolution order as the skills — config.yml `profile:` → bundled `default-<team_language>.yml` → hardcoded last-resort defaults. v2 configs get the bundled default automatically; no config bump required.
+
+The bundled default is resolved **relative to the script's own location** (`<plugin>/examples/_profiles/default-<lang>.yml`, a sibling of `scripts/`), and a missing one falls through to the hardcoded defaults *silently*. So `validate_docs.py` must be run from inside a plugin tree — copy the one file somewhere on its own and it still runs, still exits 0 or 1, and quietly checks less. Measured against a real repo, the profile-less run reports 2 violations where the in-tree run reports 17. This is why the starter workflow checks out the whole plugin at a pinned tag instead of fetching the script by raw URL, and why vendoring a copy is a trap rather than a shortcut.
 
 ---
 
