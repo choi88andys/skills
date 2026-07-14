@@ -50,11 +50,11 @@ Copies one of six bundled starters into the current directory. Detects empty vs 
 
 Six bundled starters:
 
-| Starter | Mode | Language | Files | Purpose |
-|---|---|---|---|---|
-| `spec-ko` / `spec-en` | two-repo-spec | ko / en | 7 | Spec repo (pitches only) |
-| `app-ko` / `app-en` | two-repo-app | ko / en | 5 | App repo (ADRs only) |
-| `single-ko` / `single-en` | single-repo | ko / en | 9 | Single repo (pitches + ADRs) |
+| Starter | Mode | Language | Purpose |
+|---|---|---|---|
+| `spec-ko` / `spec-en` | two-repo-spec | ko / en | Spec repo (pitches only) |
+| `app-ko` / `app-en` | two-repo-app | ko / en | App repo (ADRs only) |
+| `single-ko` / `single-en` | single-repo | ko / en | Single repo (pitches + ADRs) |
 
 Every starter carries `.github/workflows/validate-docs.yml` (v0.8.0+) — a CI gate that runs the plugin's own `scripts/validate_docs.py` over the repo's pitches and ADRs on every push and pull request, fetching it from a pinned plugin tag rather than vendoring a copy. The `app-*` workflow additionally checks out the sibling spec repo, because an app repo's ADRs reference pitches it does not itself hold; set `SPEC_REPO` at the top of the file (and, for a private spec repo, a `SPEC_REPO_TOKEN` secret). Unconfigured, it fails loudly rather than passing while checking less.
 

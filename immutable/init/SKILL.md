@@ -296,16 +296,16 @@ Render `init.stage7.handoff_single_repo`.
 
 Six starters ship with the plugin (S2). Each is a self-contained tree the skill copies into CWD.
 
-| Starter | Mode | Language | File count | Purpose |
-|---|---|---|---|---|
-| `spec-ko` | two-repo-spec | ko | 7 | Korean spec repo |
-| `spec-en` | two-repo-spec | en | 7 | English spec repo |
-| `app-ko` | two-repo-app | ko | 5 | Korean app repo (ADRs only) |
-| `app-en` | two-repo-app | en | 5 | English app repo (ADRs only) |
-| `single-ko` | single-repo | ko | 9 | Korean single repo (pitches + ADRs) |
-| `single-en` | single-repo | en | 9 | English single repo (pitches + ADRs) |
+| Starter | Mode | Language | Purpose |
+|---|---|---|---|
+| `spec-ko` | two-repo-spec | ko | Korean spec repo |
+| `spec-en` | two-repo-spec | en | English spec repo |
+| `app-ko` | two-repo-app | ko | Korean app repo (ADRs only) |
+| `app-en` | two-repo-app | en | English app repo (ADRs only) |
+| `single-ko` | single-repo | ko | Korean single repo (pitches + ADRs) |
+| `single-en` | single-repo | en | English single repo (pitches + ADRs) |
 
-Counts include the dotfiles — `.gitignore`, `.immutable-prd/config.yml`, and `.github/workflows/validate-docs.yml`. Stage 5.1's `find "$src" -type f` enumerates them; nothing in Stage 5 filters dot-directories.
+Each starter is copied whole by Stage 5.1's `find "$src" -type f`, which enumerates the dotfiles — `.gitignore`, `.immutable-prd/config.yml`, `.github/workflows/validate-docs.yml` — too; nothing in Stage 5 filters dot-directories.
 
 Additional locales (`ja`, etc.) added without schema changes — drop a new starter directory and a new `default-<locale>.yml` profile.
 
