@@ -14,10 +14,12 @@ The workaround this cost people was a hand-made symlink, or `--no-verify` — wh
 
 - **`scripts/validate_docs.py` refused every commit made from a nested linked worktree.** A relative `spec_repo_path` is now tried against the current checkout FIRST — so every layout that already worked keeps working unchanged, including a spec repo genuinely parked beside the worktree — and only then against the main checkout, discovered via `git worktree list --porcelain`. An absolute `spec_repo_path` is untouched by any of this.
 - **An unresolvable spec repo now reports itself once, accurately.** Previously the validator globbed a directory that was not there and emitted one bogus `references.pitches file not found` per ADR — N violations, every one of them pointing away from the actual problem. It now emits a single violation naming the config keys involved and every path it tried.
+- **`scripts/sdd_mode_detect.sh` silently failed to pair the spec repo from a nested worktree.** The same relative-path arithmetic, with a quieter symptom: `IMMUTABLE_PRD_SPEC_CONFIG` came back empty, so a skill sourcing it fell through to its no-spec-repo branch instead of reporting anything. Both of the script's `spec_repo_path` resolution sites — the app-role branch and the reverse-config scan — now share one helper carrying the same worktree-first, then-main-checkout order.
 
 ### Changed
 
 - **`immutable/scripts/validate_docs.py`** — new `main_worktree_root()` helper. `resolve_pitches_for_reference()` now returns `(pitches_root, error)` so that an unresolvable spec repo is reported once by the caller, rather than N times by the per-ADR existence check. The helper prefers `git worktree list --porcelain` over `git rev-parse --git-common-dir`: it lists the main worktree first and always as an absolute path, whereas `--git-common-dir` prints a *relative* `.git` when run from the main checkout, and its parent is not the checkout root at all under `git init --separate-git-dir` or inside a submodule.
+- **`immutable/scripts/sdd_mode_detect.sh`** — new `_sdd_main_worktree_root` and `_sdd_resolve_spec_root` helpers, used by both the app-role branch and the reverse-config scan. A candidate spec root now counts only when it actually holds `.immutable-prd/config.yml`, which is the question both call sites were already asking downstream.
 
 ### Backward compatibility
 
