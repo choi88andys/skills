@@ -95,6 +95,63 @@ _sdd_sibling_pair_root() {
   return 1
 }
 
+# --- 2a-bis. Main-checkout root (linked-worktree awareness) ---
+#   Input:  a checkout root.
+#   Output: the MAIN worktree's root on stdout when the input is a LINKED
+#           worktree. Empty + return 1 when git is unavailable, the path is not a
+#           git repo, or it already IS the main checkout — callers then keep their
+#           checkout-relative resolution untouched.
+#
+#   `git worktree list --porcelain` lists the main worktree FIRST and always as an
+#   absolute path. Preferred over `rev-parse --git-common-dir`, which prints a
+#   *relative* `.git` from the main checkout and whose parent is not the checkout
+#   root at all under `git init --separate-git-dir` or inside a submodule.
+_sdd_main_worktree_root() {
+  local root main
+  root="$(cd "$1" 2>/dev/null && pwd -P)" || return 1
+  [ -n "$root" ] || return 1
+  main="$(git -C "$root" worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p')"
+  [ -n "$main" ] || return 1
+  main="$(cd "$main" 2>/dev/null && pwd -P)" || return 1
+  [ "$main" = "$root" ] && return 1
+  echo "$main"
+}
+
+# --- 2a-ter. Resolve an app repo's `spec_repo_path:` to an absolute spec root ---
+#   Input:  $1 = app repo root (may be a LINKED worktree), $2 = spec_repo_path value.
+#   Output: absolute spec root on stdout, or empty + return 1.
+#
+#   A RELATIVE spec_repo_path means "the spec repo sits next to my REPO". Called
+#   from a linked worktree, $1 is the worktree — not the repo — so `../` only lands
+#   correctly when that worktree happens to be a sibling of the main checkout. It
+#   does not for the nested layouts a dispatch harness creates
+#   (`<parent>/<repo>-worktrees/cycle-N/pod-M`), where `../` is the cycle dir.
+#   So: try the checkout-relative path FIRST (every existing layout keeps winning,
+#   including a spec repo genuinely beside the worktree), then fall back to the
+#   main-checkout-relative one. ABSOLUTE paths carry no such ambiguity and are used
+#   as-is. A candidate counts only when it actually holds `.immutable-prd/config.yml`.
+_sdd_resolve_spec_root() {
+  local root="$1" spec="$2" cand main
+  case "$spec" in
+    /*)
+      [ -f "$spec/.immutable-prd/config.yml" ] && { echo "$spec"; return 0; }
+      return 1
+      ;;
+  esac
+  cand="$(cd "$root" && cd "$spec" 2>/dev/null && pwd || echo "")"
+  if [ -n "$cand" ] && [ -f "$cand/.immutable-prd/config.yml" ]; then
+    echo "$cand"
+    return 0
+  fi
+  main="$(_sdd_main_worktree_root "$root")" || return 1
+  cand="$(cd "$main" && cd "$spec" 2>/dev/null && pwd || echo "")"
+  if [ -n "$cand" ] && [ -f "$cand/.immutable-prd/config.yml" ]; then
+    echo "$cand"
+    return 0
+  fi
+  return 1
+}
+
 # --- 2b. Reverse-config scan: find app config whose spec_repo_path: points here ---
 #   Input: spec repo absolute path.
 #   Output (globals, not stdout — side-effect design):
@@ -124,10 +181,7 @@ _sdd_reverse_scan_app_for_spec() {
     [ "$role" = "app" ] || continue
     their_spec_path="$(grep '^spec_repo_path:' "$cfg" 2>/dev/null | head -1 | awk '{print $2}')"
     [ -n "$their_spec_path" ] || continue
-    case "$their_spec_path" in
-      /*) resolved="$their_spec_path" ;;
-      *)  resolved="$(cd "$dir" && cd "$their_spec_path" 2>/dev/null && pwd || echo "")" ;;
-    esac
+    resolved="$(_sdd_resolve_spec_root "$dir" "$their_spec_path" || echo "")"
     [ "$resolved" = "$my_spec_root" ] || continue
     match_count=$((match_count + 1))
     _SDD_REV_APP_ROOT="$dir"
@@ -202,12 +256,11 @@ if [ -n "$IMMUTABLE_PRD_CONFIG" ]; then
     app)
       IMMUTABLE_PRD_APP_CONFIG="$IMMUTABLE_PRD_CONFIG"
       # Resolve spec via spec_repo_path (preferred, explicit) or sibling fallback.
+      # Relative paths resolve against this checkout first, then the main checkout
+      # when this is a linked worktree — see _sdd_resolve_spec_root.
       _sdd_spec_path="$(grep '^spec_repo_path:' "$IMMUTABLE_PRD_CONFIG" 2>/dev/null | head -1 | awk '{print $2}')"
       if [ -n "$_sdd_spec_path" ]; then
-        case "$_sdd_spec_path" in
-          /*) _sdd_resolved="$_sdd_spec_path" ;;
-          *)  _sdd_resolved="$(cd "$_sdd_primary_root" && cd "$_sdd_spec_path" 2>/dev/null && pwd || echo "")" ;;
-        esac
+        _sdd_resolved="$(_sdd_resolve_spec_root "$_sdd_primary_root" "$_sdd_spec_path" || echo "")"
         [ -n "$_sdd_resolved" ] && [ -f "$_sdd_resolved/.immutable-prd/config.yml" ] \
           && IMMUTABLE_PRD_SPEC_CONFIG="$_sdd_resolved/.immutable-prd/config.yml"
       fi
