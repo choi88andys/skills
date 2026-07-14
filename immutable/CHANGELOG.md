@@ -2,6 +2,30 @@
 
 All notable changes to the `immutable` plugin are documented in this file. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Version is canonically declared in `.claude-plugin/plugin.json`.
 
+## [0.7.8] — 2026-07-14
+
+Fixes a path-resolution defect that made `scripts/validate_docs.py` refuse every commit issued from a linked git worktree whose directory is not a sibling of the main checkout — including the nested layout (`<parent>/<repo>-worktrees/cycle-N/pod-M`) that parallel-dispatch harnesses create. The commit failed with one `references.pitches file not found` violation per ADR, raised against ADRs the diff never touched, so the repo looked corrupt when nothing was actually wrong with it. Every one of those violations was pure path arithmetic.
+
+`.immutable-prd/config.yml` is a tracked file, so it exists in every linked worktree too. Walk-up therefore finds it at the *worktree* root, `repo_root` becomes the worktree, and a relative `spec_repo_path: ../<spec-repo>` is resolved from there. That is correct only when the worktree happens to sit beside the main checkout, because only then does `../` land in the same parent directory. A relative `spec_repo_path` means "the spec repo sits next to my REPO" — and in a linked worktree, "my repo" is the MAIN checkout, not the one checkout of it you are standing in. Resolved from a nested worktree, `../` is the cycle directory and the spec repo is two levels away, so every pitch reference misses.
+
+The workaround this cost people was a hand-made symlink, or `--no-verify` — which also skips lint, codegen and the secret scan, a far larger hole than the one it works around.
+
+### Fixed
+
+- **`scripts/validate_docs.py` refused every commit made from a nested linked worktree.** A relative `spec_repo_path` is now tried against the current checkout FIRST — so every layout that already worked keeps working unchanged, including a spec repo genuinely parked beside the worktree — and only then against the main checkout, discovered via `git worktree list --porcelain`. An absolute `spec_repo_path` is untouched by any of this.
+- **An unresolvable spec repo now reports itself once, accurately.** Previously the validator globbed a directory that was not there and emitted one bogus `references.pitches file not found` per ADR — N violations, every one of them pointing away from the actual problem. It now emits a single violation naming the config keys involved and every path it tried.
+
+### Changed
+
+- **`immutable/scripts/validate_docs.py`** — new `main_worktree_root()` helper. `resolve_pitches_for_reference()` now returns `(pitches_root, error)` so that an unresolvable spec repo is reported once by the caller, rather than N times by the per-ADR existence check. The helper prefers `git worktree list --porcelain` over `git rev-parse --git-common-dir`: it lists the main worktree first and always as an absolute path, whereas `--git-common-dir` prints a *relative* `.git` when run from the main checkout, and its parent is not the checkout root at all under `git init --separate-git-dir` or inside a submodule.
+
+### Backward compatibility
+
+- **No schema, config or interface change.** No new config key and no migration: every repo already in the wild with a relative `spec_repo_path` keeps working with no edit required of it.
+- **Resolution is purely additive.** The pre-existing checkout-relative candidate is tried first and kept whenever it resolves, so no layout that works today can change behaviour — not the sibling-worktree layout, and not a spec repo deliberately placed beside a worktree.
+- **Degenerate cases keep today's behaviour exactly.** Not a git repo, git not installed, or a plain non-worktree checkout: the main-checkout candidate is simply never added, and resolution is what it is today.
+- **One intentional behaviour change.** A repo whose `spec_repo_path` resolves nowhere now fails with one accurate violation; it previously failed with N bogus ones, or — with zero ADRs to check — passed silently. Only an already-broken configuration can reach this path; a working one cannot.
+
 ## [0.7.7] — 2026-07-14
 
 Fixes a silent config-parsing defect shared by four skill bodies. All four read `.immutable-prd/config.yml` with the same idiom — `grep '^<key>:' "$CFG" | head -1 | awk '{print <field>}'` — but a `SKILL.md` cannot hold an awk field reference. Claude Code substitutes a dollar sign followed by a digit with the invocation's positional arguments *before bash ever runs*, fenced code blocks included, and it does so even when no arguments are passed. On the bare call the field reference degrades to the empty string, leaving `awk '{print }'` — which is not a parse error but valid awk: `print` with no argument prints the whole record. Every one of these seven reads therefore returned `<key>: <value>`, the entire line with the key still glued on, instead of `<value>`. A `${VAR:-default}` fallback one line below each read masked the defect in exactly the repos that left the key unset, which is why it survived this long.
