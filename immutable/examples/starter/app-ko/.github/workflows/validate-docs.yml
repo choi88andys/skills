@@ -1,0 +1,130 @@
+name: Validate SDD docs
+
+# Runs the immutable plugin's validator over this repo's ADRs on every push and
+# pull request. Shipped by `/immutable:init`; this file is yours now — edit it
+# freely.
+#
+# This repo's ADRs reference pitches that live in the SIBLING SPEC REPO, so the
+# validator needs both trees. `actions/checkout` cannot write above
+# $GITHUB_WORKSPACE, so the two are laid out as siblings INSIDE it:
+#
+#   $GITHUB_WORKSPACE/app/        <- this repo
+#   $GITHUB_WORKSPACE/<spec>/     <- the spec repo
+#
+# `../<spec>` then resolves from app/ exactly as it does on your machine.
+#
+# The validator is FETCHED at a pinned tag, never copied into this repo:
+#
+#   * A vendored copy drifts. One in-house repo's copy is already 1.4 KB adrift
+#     from the plugin's and nobody can say which is newer.
+#   * The whole plugin tree is needed, not just the one script. validate_docs.py
+#     resolves its bundled default profile from `examples/_profiles/` sitting NEXT
+#     TO itself. Fetch the .py alone and that lookup misses, and it falls back to
+#     hardcoded defaults with no warning — silently dropping every profile-driven
+#     body check. Measured on a real repo: 17 violations become 2.
+#
+# Upgrading is a deliberate act: bump IMMUTABLE_REF to a newer plugin tag. Until
+# you do, this gate cannot change underneath you.
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  IMMUTABLE_REF: immutable--v0.8.0
+
+  # ─── REQUIRED — set this or the job fails ────────────────────────────────
+  # GitHub owner/name of the sibling spec repo: the repo that `spec_repo_path`
+  # in .immutable-prd/config.yml points at on your filesystem. config.yml knows
+  # the PATH (`../my-spec`); only you know the GitHub coordinates.
+  #
+  # Left unset, this job fails loudly. It will not go green having quietly
+  # checked less — an ADR whose pitch reference has rotted is exactly the defect
+  # this gate exists to catch, and it is invisible without the spec repo.
+  SPEC_REPO: your-org/your-spec-repo
+  #
+  # If the spec repo is PRIVATE, the default GITHUB_TOKEN cannot read it — it is
+  # scoped to this repo alone. Add a read-scoped PAT or GitHub App token as a
+  # repository secret named SPEC_REPO_TOKEN. If the spec repo is public, there is
+  # nothing to do.
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out this app repo
+        uses: actions/checkout@v4
+        with:
+          path: app
+
+      # The sibling directory must be named for the last segment of
+      # spec_repo_path, so it is read from config.yml rather than guessed.
+      - name: Work out where the spec repo has to land
+        id: spec
+        run: |
+          set -euo pipefail
+          cfg=app/.immutable-prd/config.yml
+          # First match only, without a pipe: under `pipefail`, `sed … | head -1`
+          # can hand the step a SIGPIPE (141) from sed and abort it.
+          rel=$(sed -n '/^spec_repo_path:/{s#^spec_repo_path:[[:space:]]*\([^[:space:]#]*\).*#\1#p;q;}' "$cfg")
+
+          if [ -z "$rel" ] || [ "$rel" = "../<your-spec-repo>" ]; then
+            echo "::error::spec_repo_path is unset in $cfg. Point it at the spec repo (e.g. ../my-spec), commit, and re-run."
+            exit 1
+          fi
+          case "$rel" in
+            ../*) ;;
+            *) echo "::error::spec_repo_path is '$rel'. CI needs the relative sibling form ../<dir> — an absolute path cannot exist on a runner."; exit 1 ;;
+          esac
+          name=${rel#../}
+          case "$name" in
+            ''|*/*|.*) echo "::error::spec_repo_path is '$rel'. CI supports one level up only (../<dir>), so both repos can sit side by side in the workspace."; exit 1 ;;
+          esac
+
+          if [ "$SPEC_REPO" = "your-org/your-spec-repo" ]; then
+            echo "::error::Set SPEC_REPO (env, top of this file) to the spec repo's GitHub owner/name — the repo that '$rel' is on your machine."
+            exit 1
+          fi
+
+          echo "dir=$name" >> "$GITHUB_OUTPUT"
+          echo "Spec repo $SPEC_REPO will be checked out to ./$name (resolving $rel from app/)."
+
+      - name: Check out the sibling spec repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.SPEC_REPO }}
+          token: ${{ secrets.SPEC_REPO_TOKEN || github.token }}
+          path: ${{ steps.spec.outputs.dir }}
+
+      - name: Fetch the immutable validator (pinned, not vendored)
+        uses: actions/checkout@v4
+        with:
+          repository: choi88andys/skills
+          ref: ${{ env.IMMUTABLE_REF }}
+          path: .immutable-plugin
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install the validator's only dependency
+        run: pip install pyyaml
+
+      # Exits non-zero on any violation. The config at .immutable-prd/config.yml
+      # is auto-detected by walking up from the working directory.
+      #
+      # Body-level section checks are off here, matching the validator's own
+      # documented default — it stays backward-compatible with v0.4 repos written
+      # before the profile system existed. A repo bootstrapped fresh by
+      # /immutable:init has no such legacy, so appending `--strict-body` below is
+      # safe and checks strictly more.
+      - name: Validate ADRs against the spec repo's pitches
+        working-directory: app
+        run: python3 "$GITHUB_WORKSPACE/.immutable-plugin/immutable/scripts/validate_docs.py"

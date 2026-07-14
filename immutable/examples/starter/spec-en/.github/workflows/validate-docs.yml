@@ -1,0 +1,64 @@
+name: Validate SDD docs
+
+# Runs the immutable plugin's validator over this repo's pitches / ADRs on every
+# push and pull request. Shipped by `/immutable:init`; this file is yours now —
+# edit it freely.
+#
+# The validator is FETCHED at a pinned tag, never copied into this repo:
+#
+#   * A vendored copy drifts. One in-house repo's copy is already 1.4 KB adrift
+#     from the plugin's and nobody can say which is newer.
+#   * The whole plugin tree is needed, not just the one script. validate_docs.py
+#     resolves its bundled default profile from `examples/_profiles/` sitting NEXT
+#     TO itself. Fetch the .py alone and that lookup misses, and it falls back to
+#     hardcoded defaults with no warning — silently dropping every profile-driven
+#     body check. Measured on a real repo: 17 violations become 2.
+#
+# Upgrading is a deliberate act: bump IMMUTABLE_REF to a newer plugin tag. Until
+# you do, this gate cannot change underneath you.
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  IMMUTABLE_REF: immutable--v0.8.0
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out this repo
+        uses: actions/checkout@v4
+
+      - name: Fetch the immutable validator (pinned, not vendored)
+        uses: actions/checkout@v4
+        with:
+          repository: choi88andys/skills
+          ref: ${{ env.IMMUTABLE_REF }}
+          path: .immutable-plugin
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install the validator's only dependency
+        run: pip install pyyaml
+
+      # Exits non-zero on any violation. The config at .immutable-prd/config.yml
+      # is auto-detected by walking up from the working directory.
+      #
+      # Body-level section checks are off here, matching the validator's own
+      # documented default — it stays backward-compatible with v0.4 repos written
+      # before the profile system existed. A repo bootstrapped fresh by
+      # /immutable:init has no such legacy, so appending `--strict-body` below is
+      # safe and checks strictly more.
+      - name: Validate pitches and ADRs
+        run: python3 .immutable-plugin/immutable/scripts/validate_docs.py

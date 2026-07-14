@@ -14,7 +14,10 @@ Coverage (matches SCHEMA.md "Validation invariants"):
   1. `config.yml` parses and has required keys for the declared `repo_mode`.
   2. Each doc's frontmatter parses and contains required fields.
   3. Referenced pitch filenames resolve to an existing file (in this repo for
-     spec/single-repo mode, in sibling spec repo for app-repo mode).
+     spec/single-repo mode, in the spec repo declared by `spec_repo_path` for
+     app-repo mode — see `resolve_pitches_for_reference` for how a *relative*
+     `spec_repo_path` is resolved when the validator runs from a linked git
+     worktree).
   4. Reference policy — ADR `references.pitches` non-empty unless the domain is
      declared `adr_only` in the profile's `domain_allowlist.reserved_domains`
      (e.g., `_global`).
@@ -63,6 +66,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -350,24 +354,102 @@ def resolve_dirs(config: dict[str, Any], repo_root: Path) -> dict[str, Path | No
     return result
 
 
+def main_worktree_root(repo_root: Path) -> Path | None:
+    """Root of the MAIN checkout, when `repo_root` is a LINKED git worktree.
+
+    Returns None when git is unavailable, `repo_root` is not a git repo, or the
+    checkout already IS the main worktree — in every one of those cases the
+    caller keeps its worktree-relative resolution untouched.
+
+    `git worktree list --porcelain` is preferred over `rev-parse
+    --git-common-dir`: it always lists the main worktree first and always as an
+    absolute path, whereas `--git-common-dir` prints a *relative* `.git` when run
+    from the main checkout, and its parent is not the checkout root at all under
+    `git init --separate-git-dir` or inside a submodule.
+    """
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(repo_root), "worktree", "list", "--porcelain"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=True,
+        )
+    except (OSError, subprocess.SubprocessError):
+        # git missing, not a repo, or git errored — no main checkout to fall back on.
+        return None
+
+    first_line = proc.stdout.splitlines()[0] if proc.stdout else ""
+    prefix = "worktree "
+    if not first_line.startswith(prefix):
+        return None
+    main_root = Path(first_line[len(prefix) :]).resolve()
+    if main_root == repo_root.resolve():
+        return None  # main checkout — the fallback candidate would be identical
+    return main_root
+
+
 def resolve_pitches_for_reference(
     config: dict[str, Any], repo_root: Path
-) -> Path | None:
+) -> tuple[Path | None, str | None]:
     """Pitches directory used for `references.pitches` existence checks.
 
+    Returns `(pitches_root, error)`:
+
+      * `(path, None)` — resolved; check each `references.pitches` entry against it.
+      * `(None, None)` — existence check opted out (app repo declaring no
+        `spec_repo_path`). Unchanged behaviour.
+      * `(None, error)` — `spec_repo_path` IS declared but no candidate resolves.
+        The caller reports `error` once, naming every path tried, instead of
+        letting every ADR emit a `file not found` against a phantom directory.
+
     Spec-repo / single-repo: same as the local pitches dir.
-    App-repo: resolved relative to spec_repo_path + pitches_path_in_spec.
+    App-repo: `spec_repo_path` + `pitches_path_in_spec`.
+
+    A *relative* `spec_repo_path` means "the spec repo sits next to my repo". Run
+    from a linked git worktree, `repo_root` is the worktree — not the repo — so
+    `../` lands somewhere else entirely unless the worktree happens to be a
+    sibling of the main checkout. Candidates are therefore tried worktree-first
+    (so a spec repo genuinely beside the worktree keeps winning, and no existing
+    layout changes behaviour), then relative to the main checkout. An *absolute*
+    `spec_repo_path` carries no such ambiguity and is used as-is.
     """
     mode = config["repo_mode"]
     if mode in ("two-repo-spec", "single-repo"):
-        return repo_root / config["pitches_path"]
+        return repo_root / config["pitches_path"], None
     # app-repo
     spec_repo = config.get("spec_repo_path")
     if not spec_repo:
-        return None  # existence not validated; user opted out
-    spec_root = (repo_root / spec_repo).resolve()
+        return None, None  # existence not validated; user opted out
     pitches_sub = config.get("pitches_path_in_spec", "pitches/")
-    return spec_root / pitches_sub
+
+    is_relative = not Path(spec_repo).is_absolute()
+    candidates = [(repo_root / spec_repo).resolve()]
+    if is_relative:
+        linked_from = main_worktree_root(repo_root)
+        if linked_from is not None:
+            candidates.append((linked_from / spec_repo).resolve())
+
+    tried: list[Path] = []
+    for spec_root in candidates:
+        pitches_root = spec_root / pitches_sub
+        if pitches_root.is_dir():
+            return pitches_root, None
+        tried.append(pitches_root)
+
+    # The worktree hint applies to relative paths only — printing it under an
+    # absolute spec_repo_path would point the reader at machinery that never ran.
+    hint = (
+        " (A relative spec_repo_path is resolved against this checkout first, then "
+        "against the main checkout when this is a linked git worktree.)"
+        if is_relative
+        else ""
+    )
+    return None, (
+        f"spec_repo_path `{spec_repo}` + pitches_path_in_spec `{pitches_sub}` "
+        f"does not resolve to an existing directory, so `references.pitches` "
+        f"cannot be checked. Tried: {', '.join(str(p) for p in tried)}.{hint}"
+    )
 
 
 def domain_allowlist(pitches_root: Path | None) -> set[str]:
@@ -791,13 +873,18 @@ def main() -> int:
     )
 
     dirs = resolve_dirs(config, repo_root)
-    pitches_ref_root = resolve_pitches_for_reference(config, repo_root)
+    pitches_ref_root, pitches_ref_error = resolve_pitches_for_reference(config, repo_root)
 
     # Allowlist comes from local pitches README when available,
     # otherwise from the reference root (app repo walks to sibling spec).
     allow = domain_allowlist(dirs.get("pitch") or pitches_ref_root)
 
     violations: list[str] = []
+
+    # An unresolvable spec repo is ONE configuration violation, reported once —
+    # not one bogus "file not found" per ADR against a directory that isn't there.
+    if pitches_ref_error:
+        warn(violations, pitches_ref_error)
 
     types = DOC_TYPES if args.type == "all" else (args.type,)
     for doc_type in types:
