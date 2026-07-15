@@ -1,6 +1,6 @@
 {
   "name": "immutable",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "Append-only SDD toolkit covering the full 7-step flow from problem framing through PR creation. Skills: /immutable:init (starter bootstrap), /immutable:office-hours (premise + alternatives), /immutable:prd (pitch authoring — WHAT), /immutable:design (app-side context), /immutable:plan-review-ceo (scope challenge + adversarial review), /immutable:plan-review-eng (engineering review + worktree analysis), /immutable:adr (Architecture Decision Records — WHY), /immutable:ship (PR creation), /immutable:migrate (one-shot config + profile schema migration). Authoring skills enforce a grill-me interview, multi-persona adversarial review, and a 90% completeness gate. The flow runs standalone — no external harness required. Built from two layered fusions: the immutable-prd lineage (append-only artifacts with supersede chains for accuracy + accountability) and the gstack lineage (transient → artifact flow pipeline). See plugin README's Design heritage for the full origin story.",
   "author": {
     "name": "choi88andys"
