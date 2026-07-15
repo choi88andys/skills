@@ -2,6 +2,31 @@
 
 All notable changes to the `immutable` plugin are documented in this file. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Version is canonically declared in `.claude-plugin/plugin.json`.
 
+## [0.9.0] — 2026-07-15
+
+Adds a date cutoff to `--strict-body`, so a repo with legacy documents can start enforcing structure on new ones without breaking its own append-only rule.
+
+`--strict-body` scans **every** pitch and ADR. That is correct for a fresh repo and a trap for an established one: the v0.5.3 pitch user-stories structure requirement, and any team's profile that adds a required ADR section, are retroactive under `--strict-body` — every document authored before the rule fails it at once. Measured across the in-house repos: turning `--strict-body` on lights up 4 pitches in one spec repo, 2 in another, and 3 ADRs in an app repo. Not one of those is missing content. The ADRs carry all five required sections under English headings (`## Context`) where the Korean profile expects the bilingual form (`## 맥락 (Context)`); the pitches carry their user stories in the pre-v0.5.3 flat layout rather than the `###` per-story grouping. They are legacy *format*, not legacy *substance* — and they are append-only, so the honest way to make them pass is to supersede each one, which is absurd overhead for a heading-label mismatch.
+
+The cutoff turns retroactive enforcement into forward enforcement. `--strict-since 2026-07-01` (or `strict_body_since:` in `.immutable-prd/config.yml`) checks only files whose filename date is on or after it; everything older is grandfathered *by exemption*, untouched, no append-only violation. This is the mechanism that was missing when the earlier design conversation reached "either break append-only to normalize the legacy, or grandfather it" — grandfathering is now a first-class, per-repo setting rather than a manual carve-out.
+
+The design deliberately avoids a git-diff / base-SHA scope (the other obvious way to mean "only new docs"). Diff-scoping is fragile exactly where it must not be: the base is ambiguous on a first commit, a force-push, or a direct-to-main push, and it resolves differently under `actions/checkout` than it does locally — a validator that passed on your machine and failed in CI for reasons neither of you can see. The filename date is already mandated by the naming invariant, is present on every valid file, and compares identically everywhere. A cutoff has no external-state dependency at all, which is why its behaviour could be pinned down by an exhaustive test rather than argued about.
+
+### Added
+
+- **`--strict-since YYYY-MM-DD` flag and the `strict_body_since` config field** for `scripts/validate_docs.py`. With `--strict-body`, body-level checks (missing required sections; the v0.5.3+ user-stories structure check) apply only to files dated on or after the cutoff. The CLI flag overrides the config field; unset, behaviour is exactly as before — every file is checked. Backward-compatible: no schema bump, no migration, and a repo that sets neither sees no change.
+- **`immutable/scripts/validate_docs_strict_since.test.sh`** — an 8-case regression test, run with `bash immutable/scripts/validate_docs_strict_since.test.sh` (needs only python3 + PyYAML, no git). It builds a throwaway repo whose ADRs deliberately fail `--strict-body` under the real bundled `default-ko` profile, then asserts each contract that makes the cutoff trustworthy: no cutoff checks everything (backward compatible); a cutoff between two files exempts the older and still catches the newer; the boundary is inclusive (a file dated exactly on the cutoff is checked); a cutoff past every file exits clean and says how many it exempted; the config field scopes identically to the flag; and — the cases that matter most for a gate — an impossible date (`2026-13-01`) and a non-date both **die loudly and check nothing**, rather than silently falling back to checking everything or nothing.
+
+### Changed
+
+- **`scripts/validate_docs.py`** — new `resolve_strict_since()` (CLI-over-config precedence, fatal on a malformed cutoff) and `strict_body_in_scope()` (filename-date vs cutoff, inclusive, fail-closed on an unparseable name). The exemption count is written to stderr whenever a cutoff is active, so the scoping is observable in CI logs and never silent. Passing `--strict-since` without `--strict-body` warns that it has no effect rather than doing nothing quietly.
+- **`immutable/SCHEMA.md`** — the strict-body section documents the cutoff, its inclusive boundary, the fail-closed and fail-loud behaviours, and why the scope is by filename date rather than git diff.
+
+### Backward compatibility
+
+- **No schema, config, or interface change to anything that already ran.** The new config key is optional and defaults to absent; the new flag defaults to absent; with neither set, `validate_docs.py` behaves byte-for-byte as it did in 0.8.0. The existing `validate_docs.test.sh` (spec_repo_path resolution) stays green.
+- **The starter workflows still pin `immutable--v0.8.0`.** They are unchanged by this release; a repo wanting the cutoff bumps `IMMUTABLE_REF` deliberately, or picks it up when a future release re-pins the starters. Nothing auto-changes underneath a repo that did not ask.
+
 ## [0.8.0] — 2026-07-14
 
 The plugin has bundled a 31.7 KB validator since v0.3 and never once run it. No skill invokes `scripts/validate_docs.py`; no hook ships; no starter carried CI. It executed only when a human remembered to type it, and for months nobody did — while `SCHEMA.md` told readers the invariants were "checked at generation time by the `/immutable:adr` skill, **and by CI via `scripts/validate_docs.py`**". That sentence was false, and verifiable as false in thirty seconds by anyone who looked. Run for the first time against the five in-house repos that adopted this plugin, the validator found four clean and one — an app repo — carrying two genuine broken pitch references that had been sitting in a merged ADR for thirty-five days.

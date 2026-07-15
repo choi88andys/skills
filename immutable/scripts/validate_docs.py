@@ -64,6 +64,7 @@ Requires: PyYAML. Invoke with `python3 -m pip install pyyaml` if missing.
 from __future__ import annotations
 
 import argparse
+import datetime
 import json
 import re
 import subprocess
@@ -478,6 +479,61 @@ def iter_docs(doc_root: Path, doc_type: str) -> list[Path]:
     ]
 
 
+_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_FILENAME_DATE_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})-")
+
+
+def resolve_strict_since(
+    args: argparse.Namespace, config: dict[str, Any]
+) -> str | None:
+    """The `--strict-body` date cutoff: CLI `--strict-since` wins, else config
+    `strict_body_since`, else None.
+
+    A malformed value is fatal. A silently-ignored cutoff would let `--strict-body`
+    quietly check every file (or, read the other way, none) — the exact
+    silent-degradation this validator exists not to have.
+    """
+    raw = (
+        args.strict_since
+        if args.strict_since is not None
+        else config.get("strict_body_since")
+    )
+    if raw is None:
+        return None
+    cutoff = str(raw).strip()
+    source = (
+        "--strict-since"
+        if args.strict_since is not None
+        else "config strict_body_since"
+    )
+    if not _DATE_RE.match(cutoff):
+        die(f"{source} must be a zero-padded YYYY-MM-DD date, got {cutoff!r}.")
+    try:
+        datetime.date.fromisoformat(cutoff)
+    except ValueError:
+        die(f"{source} {cutoff!r} is not a real calendar date.")
+    return cutoff
+
+
+def strict_body_in_scope(path: Path, cutoff: str | None) -> bool:
+    """Whether `path` is subject to `--strict-body` checks under `cutoff`.
+
+    `cutoff` (YYYY-MM-DD) grandfathers legacy: a file is in scope only when its
+    filename date is on or after the cutoff, so structure can be enforced on new
+    docs without editing append-only history. No cutoff → every file is in scope
+    (the pre-v0.9 behaviour, unchanged). A filename with no leading date is
+    fail-closed to IN scope — it cannot dodge the check by being unparseable, and
+    the filename-format invariant reports the malformed name on its own. Both
+    dates are zero-padded YYYY-MM-DD, so the string compare is chronological.
+    """
+    if cutoff is None:
+        return True
+    m = _FILENAME_DATE_RE.match(path.name)
+    if not m:
+        return True
+    return m.group(1) >= cutoff
+
+
 def check_filename(
     path: Path,
     filename_pattern: re.Pattern[str],
@@ -831,6 +887,16 @@ def main() -> int:
             "profile system existed)."
         ),
     )
+    parser.add_argument(
+        "--strict-since",
+        metavar="YYYY-MM-DD",
+        help=(
+            "With --strict-body, apply body-level checks ONLY to files whose "
+            "filename date is on or after this cutoff; older files are exempt. "
+            "Lets a repo enforce structure on new docs without rewriting "
+            "append-only legacy. Overrides the config `strict_body_since` field."
+        ),
+    )
     args = parser.parse_args()
 
     config_path = args.config or find_config()
@@ -841,6 +907,7 @@ def main() -> int:
         )
     assert config_path is not None
     config = load_config(config_path)
+    strict_since = resolve_strict_since(args, config)
 
     repo_root = config_path.parent.parent
     profile = load_profile(config, repo_root)
@@ -880,6 +947,7 @@ def main() -> int:
     allow = domain_allowlist(dirs.get("pitch") or pitches_ref_root)
 
     violations: list[str] = []
+    strict_exempt_count = 0
 
     # An unresolvable spec repo is ONE configuration violation, reported once —
     # not one bogus "file not found" per ADR against a directory that isn't there.
@@ -909,21 +977,35 @@ def main() -> int:
                     violations,
                 )
                 if args.strict_body:
-                    validate_body_headings(
-                        md_path,
-                        doc_type,
-                        required_headings_by_type[doc_type],
-                        violations,
-                    )
-                    if strict_structure_enabled and doc_type == "pitch":
-                        validate_pitch_user_stories_structure(
+                    if strict_body_in_scope(md_path, strict_since):
+                        validate_body_headings(
                             md_path,
-                            user_stories_heading,
-                            normative_tokens,
+                            doc_type,
+                            required_headings_by_type[doc_type],
                             violations,
                         )
+                        if strict_structure_enabled and doc_type == "pitch":
+                            validate_pitch_user_stories_structure(
+                                md_path,
+                                user_stories_heading,
+                                normative_tokens,
+                                violations,
+                            )
+                    else:
+                        strict_exempt_count += 1
                 collected.append((md_path, fm_checked))
         check_supersede_chain_integrity(doc_type, collected, violations)
+
+    # Scoping is observable, never silent: say how many files the cutoff exempted.
+    if args.strict_body and strict_since is not None:
+        sys.stderr.write(
+            f"note: --strict-body scoped to files dated on/after {strict_since}; "
+            f"{strict_exempt_count} legacy file(s) exempt.\n"
+        )
+    elif args.strict_since is not None and not args.strict_body:
+        sys.stderr.write(
+            "warning: --strict-since has no effect without --strict-body.\n"
+        )
 
     if args.json:
         print(json.dumps({"violations": violations, "clean": not violations}))
