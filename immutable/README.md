@@ -90,6 +90,46 @@ Full reference lives in [`SCHEMA.md`](SCHEMA.md):
 - Validation invariants 1–8 (validator coverage)
 - Migration guide v0.2 → v0.3/v0.4 → v0.5
 
+## Deprecated-doc read gate (the plugin's first hook)
+
+`hooks/hooks.json` registers a PostToolUse hook on the `Read` tool
+(`scripts/deprecated_read_guard.sh`). When a session reads a document whose
+frontmatter carries `deprecated: true` inside any immutable SDD repo
+(identified by a `.immutable-prd/` ancestor directory), the document's **body
+is withheld** and replaced by a banner naming the superseding file(s). The
+frontmatter itself stays visible.
+
+Why a read gate: the validator and starter CI enforce deprecation on the
+*write* path only. A deprecated pitch's body is textually indistinguishable
+from a live one — the only marker is one frontmatter line — so a session that
+reads a dead spec implements from it in good faith, and every artifact it then
+produces is individually valid. The defect is *which document was read*, which
+leaves nothing for CI to catch. Withholding removes the input instead of
+hoping a warning is heeded.
+
+Deliberate boundaries:
+
+- **Read tool only.** Raw-body access for audits or supersede review stays
+  available through Bash (`cat`, `git show`, `git log -p`) — deliberately.
+  The banner says exactly this.
+- **Frontmatter passes through**, so the one sanctioned in-place edit
+  (flipping `deprecated: false` → `true`, or back) always has its exact
+  target text visible.
+- **Off switch**: set `IMMUTABLE_DEPRECATED_GUARD_DISABLE=1` (e.g. in a
+  settings `env` block). The plugin system has no per-hook toggle, so the
+  guard ships its own. Instrumentation: set
+  `IMMUTABLE_DEPRECATED_GUARD_LOG=<path>` to append one `withheld`/`pass`
+  line per gated Read.
+- **Requirements**: bash, `jq`, and python3 with PyYAML. PyYAML is already
+  required by the bundled validator; `jq` is new and used only by the hook's
+  fast path. Missing PyYAML fails **open** with a deterministic warning —
+  the gate never blocks reads it cannot judge. Windows adopters need these
+  via a POSIX-ish environment (e.g. Git Bash), which the plugin's skills
+  already assume.
+
+Hooks load at session start — restart the session after enabling or updating
+the plugin.
+
 ## Design heritage
 
 `immutable` is built from two layered fusions.
