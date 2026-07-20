@@ -128,24 +128,30 @@ batch issues — one issue = one AskUserQuestion call.
 ### 0.1 Locate review targets
 
 ```bash
-# Spec config gives pitches; app config gives ADRs.
+# Spec root feeds the picker render ({spec_root}); app config gives ADRs.
+# (Active-pitch enumeration itself is the resolver call below — no path math.)
 SPEC_ROOT="$(dirname "$(dirname "$IMMUTABLE_PRD_SPEC_CONFIG")")"
-PITCHES_REL="$(sed -n 's/^pitches_path:[[:space:]]*\([^[:space:]]*\).*/\1/p' \
-  "$IMMUTABLE_PRD_SPEC_CONFIG" 2>/dev/null | head -1)"
-PITCHES_DIR="$SPEC_ROOT/${PITCHES_REL:-pitches/}"
 
 APP_ROOT="$(dirname "$(dirname "$IMMUTABLE_PRD_APP_CONFIG")")"
 ADR_REL="$(sed -n 's/^adr_path:[[:space:]]*\([^[:space:]]*\).*/\1/p' \
   "$IMMUTABLE_PRD_APP_CONFIG" 2>/dev/null | head -1)"
 ADR_DIR="$APP_ROOT/${ADR_REL:-adr/}"
 
-echo "PITCHES_DIR=$PITCHES_DIR"
+echo "SPEC_ROOT=$SPEC_ROOT"
 echo "ADR_DIR=$ADR_DIR"
 ```
 
+List the active pitches with the bundled resolver — never a text grep
+(`deprecated: True` spelling variants and fenced example lines both fool one):
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/validate_docs.py" \
+  --config "$IMMUTABLE_PRD_SPEC_CONFIG" --type pitch --list-active
+```
+
 Ask the user via `prc.phase0.target_pitch_question` which pitch this review
-covers. Surface the active pitches in `PITCHES_DIR` (excluding deprecated)
-as picker options.
+covers, surfacing each output line (`<absolute path>` TAB `<domain>`) as a
+picker option.
 
 After the pitch is selected, scan `ADR_DIR` for ADRs whose frontmatter
 `references.pitches:` matches the selected pitch. List them.
