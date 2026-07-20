@@ -229,9 +229,11 @@ while :; do
 done
 ```
 
-Stand-alone validator (`scripts/validate_docs.py`, requires PyYAML) enforces the invariants in the Validation section below. Since v0.8.0 every bundled starter ships `.github/workflows/validate-docs.yml`, which runs it on every push and pull request; the workflow fetches the script from a pinned plugin tag rather than vendoring a copy. Run it by hand the same way: `python3 scripts/validate_docs.py`.
+Stand-alone validator (`scripts/validate_docs.py`, requires PyYAML) enforces the invariants in the Validation section below. Since v0.8.0 every bundled starter ships `.github/workflows/validate-docs.yml`, which runs it on every push and pull request; the workflow fetches the script from a pinned plugin tag rather than vendoring a copy. Run it by hand the same way: `python3 scripts/validate_docs.py`. Beyond validating, `--list-active` prints the repo's active (non-deprecated) docs — one `<absolute path>` TAB `<domain>` line each, judged by a real YAML frontmatter parse — and is the canonical resolver behind the flow skills' pitch pickers (v0.10.0+).
 
 Whether a red run actually **blocks** a merge is a setting in the consuming repo, not something the plugin can ship: without a branch-protection rule making this check required, GitHub reports the failure and still allows the merge.
+
+Since v0.10.0 the plugin also carries a **read-time** layer, orthogonal to both: a PostToolUse hook (`hooks/hooks.json` + `scripts/deprecated_read_guard.sh`) that withholds the body of a `deprecated: true` doc when it is read through the Read tool, replacing it with a banner naming the successor(s). It guards the one class no write-time check can see — implementing *from* a dead spec, where every artifact is individually valid and the defect is which document was read. Details, deliberate escapes, and the off switch: plugin `README.md`, "Deprecated-doc read gate".
 
 ---
 
