@@ -113,14 +113,22 @@ If `PITCHES_DIR` does not exist or contains no `*.md` files, render
 ### 1.2 List active (non-deprecated) pitches
 
 ```bash
-# Scan for pitches with `deprecated: false` in frontmatter.
-find "$PITCHES_DIR" -name '*.md' -not -name 'TEMPLATE.md' -not -name 'README.md' \
-  -exec grep -L '^deprecated: true' {} \; 2>/dev/null
+# Real YAML-parsed active list via the bundled resolver — never a text grep.
+# (A grep for '^deprecated: true' is wrong in both directions: `deprecated: True`
+# and `deprecated:  true` are live YAML it reads as active, and a fenced example
+# line inside a body reads as deprecated.)
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/validate_docs.py" \
+  --config "$IMMUTABLE_PRD_SPEC_CONFIG" --type pitch --list-active
 ```
 
-Surface the list to the user via `design.step1.pitch_picker_question`. Include
-the pitch path (relative to the spec repo) and the pitch's frontmatter `domain:`
-for each candidate. The user picks by number or path.
+Each output line is `<absolute path>` TAB `<domain>` (domain `-` when the
+frontmatter is unparseable — such files are listed fail-open with a stderr
+warning rather than silently dropped). If the resolver prints nothing (every
+pitch deprecated), treat it exactly like §1.1's empty directory: render
+`design.step1.no_pitches_found`. Otherwise surface the list to the user via
+`design.step1.pitch_picker_question`. Include the pitch path (relative to the
+spec repo) and the domain column for each candidate. The user picks by number
+or path.
 
 ### 1.3 Read the chosen pitch
 

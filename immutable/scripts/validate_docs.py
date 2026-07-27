@@ -44,6 +44,12 @@ Coverage (matches SCHEMA.md "Validation invariants"):
 
 Not covered (deferred): cycle detection on supersede chains.
 
+Besides validating, `--list-active` prints the repo's active (non-deprecated)
+docs — one `<absolute path>\\t<domain>` line per doc — and is the canonical
+resolver behind the flow skills' active-pitch pickers (`/immutable:design`,
+`/immutable:prd`, `/immutable:plan-review-ceo`). See the flag's help text for
+its fail-open contract.
+
 --- Profile awareness (v0.5 / S4) ---
 This validator is profile-aware. Resolution order per run:
 
@@ -333,9 +339,15 @@ def load_frontmatter(md_path: Path) -> dict[str, Any] | None:
     if not match:
         return None
     try:
-        return yaml.safe_load(match.group(1)) or {}
+        fm = yaml.safe_load(match.group(1)) or {}
     except yaml.YAMLError:
         return None
+    # Scalar/list frontmatter (`---\njust text\n---`) parses fine but has no
+    # `.keys()`/`.get()` — letting it through crashed check_frontmatter with an
+    # AttributeError instead of reporting a violation. Not-a-mapping ≙ malformed.
+    if not isinstance(fm, dict):
+        return None
+    return fm
 
 
 def resolve_dirs(config: dict[str, Any], repo_root: Path) -> dict[str, Path | None]:
@@ -859,6 +871,76 @@ def check_supersede_chain_integrity(
             )
 
 
+def list_active_docs(
+    dirs: dict[str, Path | None],
+    types: tuple[str, ...],
+    domain_filter: str | None,
+    as_json: bool,
+) -> int:
+    """`--list-active`: print active (non-deprecated) docs, one per line.
+
+    Plain output is `<absolute path>\\t<domain>` (domain `-` when unknown),
+    sorted by path within each doc type; `--json` emits
+    `{"active": [{"path", "domain", "doc_type"}]}`.
+
+    A doc is excluded ONLY on a positively parsed `deprecated: true` — the same
+    real-YAML-parse semantics the rest of this validator (and the read gate in
+    `deprecated_read_guard.sh`) uses. This is the resolver behind the flow
+    skills' active-pitch pickers, replacing per-skill `grep` filters that were
+    wrong in both directions: `deprecated: True` / `deprecated:  true` are live
+    YAML a grep for '^deprecated: true' reads as ACTIVE, and a fenced example
+    body line starting `deprecated: true` reads as DEPRECATED.
+
+    The lister's contract is that a live doc is never silently dropped, so a
+    doc whose frontmatter is missing or malformed is LISTED (fail-open) with a
+    warning on stderr — including under `--domain`, since an unknown domain
+    cannot be proven not to match. Plain validation reports the underlying
+    frontmatter defect; this mode only enumerates.
+
+    Exit 0 even when the list is empty — emptiness is an answer, not an error.
+    """
+    rows: list[dict[str, Any]] = []
+    for doc_type in types:
+        doc_root = dirs.get(doc_type)
+        if doc_root is None:
+            continue
+        for md_path in sorted(iter_docs(doc_root, doc_type)):
+            fm = load_frontmatter(md_path)
+            if fm is not None and fm.get("deprecated") is True:
+                continue
+            domain = fm.get("domain") if fm is not None else None
+            domain = str(domain) if domain is not None else None
+            if fm is None:
+                sys.stderr.write(
+                    f"warning: {md_path}: frontmatter missing or malformed — "
+                    f"listed as active with unknown domain (fail-open, so a "
+                    f"live doc cannot be silently dropped). Run validation to "
+                    f"surface the underlying defect.\n"
+                )
+            elif domain is None and domain_filter is not None:
+                sys.stderr.write(
+                    f"warning: {md_path}: no `domain` in frontmatter — listed "
+                    f"despite --domain {domain_filter} (unknown domain cannot "
+                    f"be proven not to match).\n"
+                )
+            if (
+                domain_filter is not None
+                and domain is not None
+                and domain != domain_filter
+            ):
+                continue
+            rows.append(
+                {"path": str(md_path), "domain": domain, "doc_type": doc_type}
+            )
+
+    if as_json:
+        print(json.dumps({"active": rows}))
+    else:
+        for row in rows:
+            print(f"{row['path']}\t{row['domain'] or '-'}")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
@@ -895,6 +977,29 @@ def main() -> int:
             "filename date is on or after this cutoff; older files are exempt. "
             "Lets a repo enforce structure on new docs without rewriting "
             "append-only legacy. Overrides the config `strict_body_since` field."
+        ),
+    )
+    parser.add_argument(
+        "--list-active",
+        action="store_true",
+        help=(
+            "List active (non-deprecated) docs instead of validating: one line "
+            "per doc, `<absolute path>` TAB `<domain>`, sorted; with --json, a "
+            "{'active': [...]} object. A doc is excluded only on a positively "
+            "parsed `deprecated: true` frontmatter (real YAML parse, never a "
+            "text grep); one with missing or malformed frontmatter is listed "
+            "with domain `-` and a stderr warning, so a live doc is never "
+            "silently dropped. Lists only doc types this config's repo owns; "
+            "narrow with --type / --domain. Exits 0 even when empty."
+        ),
+    )
+    parser.add_argument(
+        "--domain",
+        metavar="NAME",
+        help=(
+            "With --list-active, keep only docs whose frontmatter `domain` "
+            "matches. Docs whose domain is unknown (missing or malformed "
+            "frontmatter) are still listed — see --list-active."
         ),
     )
     args = parser.parse_args()
@@ -940,6 +1045,16 @@ def main() -> int:
     )
 
     dirs = resolve_dirs(config, repo_root)
+
+    if args.list_active:
+        if args.strict_body or args.strict_since is not None:
+            sys.stderr.write(
+                "warning: --strict-body/--strict-since have no effect with "
+                "--list-active.\n"
+            )
+        types = DOC_TYPES if args.type == "all" else (args.type,)
+        return list_active_docs(dirs, types, args.domain, args.json)
+
     pitches_ref_root, pitches_ref_error = resolve_pitches_for_reference(config, repo_root)
 
     # Allowlist comes from local pitches README when available,
@@ -1006,6 +1121,8 @@ def main() -> int:
         sys.stderr.write(
             "warning: --strict-since has no effect without --strict-body.\n"
         )
+    if args.domain is not None:
+        sys.stderr.write("warning: --domain has no effect without --list-active.\n")
 
     if args.json:
         print(json.dumps({"violations": violations, "clean": not violations}))

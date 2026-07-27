@@ -135,7 +135,7 @@ Use Bash + Glob + Read to collect:
    - This guard exists to surface silent-skip behavior immediately. Without it, teams who ran `/immutable:migrate` once on plugin v0.5.0-era and never re-migrated would see new features (anti_monolith, etc.) silently disabled.
 2. Confirm `pitches/` exists in CWD (or at the configured `pitches_path`). If not, stop by rendering `prd.stage1.no_pitches_dir` (no substitutions).
 3. Read `pitches/README.md` — extract domain allowlist from the allowed-domains table (rows matching `` | `<name>` | ``). Use `profile.domain_allowlist.source` if it differs from the default `pitches/README.md`.
-4. **Enumerate active pitches per domain** (changed v0.5.6 — was: "find the active pitch", singular). For each allowlisted domain directory, scan `*.md` frontmatter to find **all** files with `deprecated: false` (excluding `README.md` and `TEMPLATE.md`). A domain may host multiple active PRDs, each on its own supersede chain. None is privileged as "the" baseline for the domain.
+4. **Enumerate active pitches per domain** (changed v0.5.6 — was: "find the active pitch", singular; v0.10.0 — the ad-hoc frontmatter scan became a resolver call). Run `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/validate_docs.py" --type pitch --list-active` (config auto-detected by walk-up from CWD) and group its output by the domain column — one `<absolute path>` TAB `<domain>` line per active pitch, `README.md`/`TEMPLATE.md` already excluded, deprecation judged by a real YAML frontmatter parse rather than a text grep. A domain may host multiple active PRDs, each on its own supersede chain. None is privileged as "the" baseline for the domain.
 
 ### 1.2.1 Anti-monolith pre-check (v0.5.6+)
 
