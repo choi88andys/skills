@@ -23,8 +23,24 @@
 #                  when git branch detection fails (detached HEAD, no repo).
 #
 # Why a script and not a one-liner comment to copy: the two incidents above were
-# both copy-paste/drift failures, not logic failures — the one-liner itself was
-# always correct. Making it a single sourced file removes the copy step, not
-# the logic.
+# copy-paste/drift failures. Centralizing removes the copy step — and, because the
+# derivation is now read once instead of skimmed at five call sites, it also exposed
+# a latent logic bug in the one-liner itself, fixed below.
+#
+# THE `|| echo "no-branch"` TRAP (fixed 2026-07-31 — do not "simplify" this back).
+# `git branch --show-current` EXITS 0 AND PRINTS NOTHING on a detached HEAD, so a
+# trailing `|| echo "no-branch"` never runs there. Measured on both branchless cases:
+# detached HEAD and non-repo each yielded an EMPTY slug, never "no-branch".
+# An empty slug is not cosmetic — it is CHANGELOG v0.6.1 verbatim: every consumer
+# composes `${FEATURE_SLUG}.md`, so a blank one produces the hidden, glob-invisible
+# `.claude/immutable/design/.md` / `.claude/immutable/plan-review/-ceo.md`, which
+# "could never match real notes" and blocked every PR through ship's APPROVE gate.
+# Worse than v0.6.1: an empty slug is not merely unmatchable, it is SHARED — two
+# different branchless runs collide on the same path, so ship can read a stale note
+# from unrelated work and treat it as this feature's approval.
+# Branch on the RESULT being non-empty, never on the exit status.
 
-FEATURE_SLUG="${FEATURE_SLUG:-$(git branch --show-current 2>/dev/null | tr '/' '-' || echo "no-branch")}"
+if [ -z "${FEATURE_SLUG:-}" ]; then
+  FEATURE_SLUG="$(git branch --show-current 2>/dev/null | tr '/' '-')"
+  [ -n "$FEATURE_SLUG" ] || FEATURE_SLUG="no-branch"
+fi
