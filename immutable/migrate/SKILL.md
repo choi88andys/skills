@@ -436,5 +436,5 @@ Both rollback variants are safe because `/migrate` never touches files outside `
 
 ## Credits
 
-- Walk-up detection SOURCES `scripts/find_config.sh` directly (same pattern `office-hours`/`ship` use for `sdd_mode_detect.sh`) + `validate_docs.py`.
+- Walk-up detection EXECUTES `scripts/find_config.sh` (`bash <script>`, reading its stdout) rather than reimplementing the walk inline. It is deliberately NOT the `source` pattern `office-hours`/`ship` use for `sdd_mode_detect.sh`: `find_config.sh` returns its result via `exit 0`/`exit 1`, so sourcing it would terminate the caller's whole bash block. Execute-and-capture for scripts that exit; source only for scripts that set variables. Validation still via `validate_docs.py`.
 - Plan-then-confirm pattern mirrors `/immutable:init` Stage 2.
