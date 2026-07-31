@@ -149,7 +149,7 @@ The skill does NOT run interactive git operations on behalf of the user.
 # every upstream skill in the 7-step flow). Each Bash invocation is a fresh
 # shell — variables don't persist across blocks, so this derivation repeats
 # in every block that needs the slug.
-FEATURE_SLUG="${FEATURE_SLUG:-$(git branch --show-current 2>/dev/null | tr '/' '-' || echo "no-branch")}"
+source "${CLAUDE_PLUGIN_ROOT}/scripts/feature_slug.sh"
 
 DESIGN_NOTE=".claude/immutable/design/${FEATURE_SLUG}.md"
 CEO_NOTE=".claude/immutable/plan-review/${FEATURE_SLUG}-ceo.md"
@@ -239,7 +239,7 @@ directory. Read it now and render with captured values:
 ```bash
 # Re-derive slug + design-note path (this is a fresh Bash invocation; vars
 # from Step 3 don't persist).
-FEATURE_SLUG="${FEATURE_SLUG:-$(git branch --show-current 2>/dev/null | tr '/' '-' || echo "no-branch")}"
+source "${CLAUDE_PLUGIN_ROOT}/scripts/feature_slug.sh"
 DESIGN_NOTE=".claude/immutable/design/${FEATURE_SLUG}.md"
 
 PITCHES_REL="$(sed -n 's/^pitches_path:[[:space:]]*\([^[:space:]]*\).*/\1/p' \

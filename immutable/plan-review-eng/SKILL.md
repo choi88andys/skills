@@ -112,7 +112,7 @@ Phase 4: Verdict + Handoff       — APPROVE / REJECT / REVISE; recommend
 ### 0.1 Mode routing
 
 ```bash
-FEATURE_SLUG="${FEATURE_SLUG:-$(git branch --show-current 2>/dev/null | tr '/' '-' || echo "no-branch")}"
+source "${CLAUDE_PLUGIN_ROOT}/scripts/feature_slug.sh"
 CEO_NOTE=".claude/immutable/plan-review/${FEATURE_SLUG}-ceo.md"
 
 REVIEW_MODE=""
@@ -424,7 +424,7 @@ Render via AskUserQuestion using `pre.phase4.verdict_question`:
 
 ```bash
 mkdir -p .claude/immutable/plan-review
-FEATURE_SLUG="${FEATURE_SLUG:-$(git branch --show-current 2>/dev/null | tr '/' '-' || echo "no-branch")}"
+source "${CLAUDE_PLUGIN_ROOT}/scripts/feature_slug.sh"
 OUT=".claude/immutable/plan-review/${FEATURE_SLUG}-eng.md"
 echo "OUTPUT_PATH: $OUT"
 ```

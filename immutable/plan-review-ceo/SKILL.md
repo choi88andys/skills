@@ -161,8 +161,7 @@ silent-skip; NOT hard-refused).** Compute the canonical path and check
 existence:
 
 ```bash
-FEATURE_SLUG="${FEATURE_SLUG:-$(git branch --show-current 2>/dev/null \
-  | tr '/' '-' || echo "no-branch")}"
+source "${CLAUDE_PLUGIN_ROOT}/scripts/feature_slug.sh"
 DESIGN_NOTE=".claude/immutable/design/${FEATURE_SLUG}.md"
 echo "DESIGN_NOTE=$DESIGN_NOTE"
 ```
@@ -394,7 +393,7 @@ Render via AskUserQuestion using `prc.phase4.verdict_question`:
 
 ```bash
 mkdir -p .claude/immutable/plan-review
-FEATURE_SLUG="${FEATURE_SLUG:-$(git branch --show-current 2>/dev/null | tr '/' '-' || echo "no-branch")}"
+source "${CLAUDE_PLUGIN_ROOT}/scripts/feature_slug.sh"
 OUT=".claude/immutable/plan-review/${FEATURE_SLUG}-ceo.md"
 echo "OUTPUT_PATH: $OUT"
 ```
