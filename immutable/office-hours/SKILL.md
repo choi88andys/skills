@@ -251,7 +251,7 @@ Do NOT proceed to Phase 4 without explicit user approval.
 mkdir -p .claude/immutable/office-hours
 # Prefer a user-provided feature slug (asked early in Phase 1 if relevant);
 # otherwise derive from the branch name.
-FEATURE_SLUG="${FEATURE_SLUG:-$(git branch --show-current 2>/dev/null | tr '/' '-' || echo "no-branch")}"
+source "${CLAUDE_PLUGIN_ROOT}/scripts/feature_slug.sh"
 OUT=".claude/immutable/office-hours/${FEATURE_SLUG}.md"
 echo "OUTPUT_PATH: $OUT"
 ```

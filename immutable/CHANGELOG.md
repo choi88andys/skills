@@ -2,6 +2,31 @@
 
 All notable changes to the `immutable` plugin are documented in this file. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Version is canonically declared in `.claude-plugin/plugin.json`.
 
+## [0.10.1] — 2026-07-31
+
+A hardening sweep over the skill bodies themselves. No new capability — this release deletes duplication that had already shipped two production bugs, and closes the gaps a read of the duplicated code exposed.
+
+The headline is `FEATURE_SLUG`. Five skills — `design`, `plan-review-ceo`, `plan-review-eng`, `ship`, `office-hours` — each carried a hand-copied one-liner deriving the slug that anchors the whole design/review/ship handoff contract, and every consumer composes a path as `${FEATURE_SLUG}.md`. Copy-paste of that line is what v0.6.1 ("`FEATURE_SLUG` undefined") and v0.7.2 ("slug-derivation drift between writer and reader") both were. Centralizing it into `scripts/feature_slug.sh` removes the copy step — and reading the derivation once, instead of skimming it at five call sites, surfaced that the line was also **wrong**: its `|| echo "no-branch"` fallback could never fire, because `git branch --show-current` exits 0 and prints nothing on a detached HEAD. Both branchless cases therefore produced an *empty* slug, which is v0.6.1 verbatim — the hidden, glob-invisible `.claude/immutable/design/.md` that "could never match real notes" and made `ship` refuse every PR. Worse than v0.6.1, in fact: an empty slug is not merely unmatchable but **shared**, so two unrelated branchless runs collide on one path and `ship` can read a stale note from other work as this feature's approval.
+
+### Added
+
+- **`scripts/feature_slug.sh`** — single source of truth for `FEATURE_SLUG`, sourced (not executed) by every skill block that needs the slug. Resolution order: caller-set override → branch name with `/` → `-` → the literal `no-branch`. The fallback now branches on the derived value being **non-empty**, never on `git`'s exit status, which is the actual fix. Header documents the trap so it is not "simplified" back.
+- **`scripts/feature_slug.test.sh`** — regression test pinning the one load-bearing property (the slug is never empty) across every reachable input: detached HEAD, non-repo, explicit override, empty-string override, `/`-bearing branch name, and sourcing under `set -u`.
+- **Post-write verdict validation in `plan-review-ceo` and `plan-review-eng` Phase 4.2.** Both skills already documented the column-0 `Verdict:` / `Next:` format that downstream greps require; neither checked its own output. Each now re-greps the note it just wrote with the exact patterns from `pipeline.yaml`'s `exit_verdicts` (the source of truth) and refuses to hand off a note that would fail the same grep `plan-review-eng` / `ship` runs on it. This is the v0.6.1 verdict-line class caught at the writer instead of the reader.
+- **`adr` Hard Prohibition #8** — never derive an ADR's structure or depth from an active L2/L3 ADR in the same scope. Mirrors `/immutable:prd`'s #9: L2/L3 are anti-pattern instances retained for backward compatibility, so templating from one reproduces the bundling the tier exists to flag. Stage 3 gains the matching interview-time rule.
+
+### Changed
+
+- **`adr` Stage 1.2 active-ADR enumeration** now calls `validate_docs.py --type adr --list-active` instead of an ad-hoc Glob + frontmatter scan, matching the resolver migration `prd`, `design`, and `plan-review-ceo` received in v0.10.0. The resolver replaces the deprecation filter only — its output carries no `supersedes:` field — so the frontmatter read that builds the supersede chain index stays explicit.
+- **`migrate` Stage 1 config detection** executes `scripts/find_config.sh` rather than reimplementing the walk-up inline. The Credits line, which claimed the walk-up merely "mirrors" that script, now records what the code does and why it is `bash <script>` rather than `source`: `find_config.sh` returns its result through `exit 0`/`exit 1`, so sourcing it would terminate the caller's entire bash block. Execute-and-capture for scripts that exit; source only for scripts that set variables.
+- **`ship` frontmatter and Scope section** no longer claim learnings capture is out of scope — the skill has carried a mandatory "Log learning to project memory" final step since v0.7.0. Both now say what is actually delegated to a wrapper: capture *richer* than one lightweight entry per attempt (multi-entry retrospectives, pruning, cross-skill aggregation).
+
+### Backward compatibility
+
+- **No schema, config, or profile change; no migration.** No new config keys, no version bump in either schema, no starter change.
+- **`FEATURE_SLUG` semantics are unchanged for every repo that has a branch checked out** — same override precedence, same `/` → `-` transform. Only the branchless cases change, and they change from a silently empty slug to the `no-branch` value the skills always documented.
+- **The new scripts require nothing new**: bash and git only, no python, no `jq`.
+
 ## [0.10.0] — 2026-07-20
 
 Closes the read path. Since v0.8.0 the plugin has enforced its deprecation invariant when documents are *written* — validator plus starter CI — and enforced nothing when they are *read*. A deprecated pitch's body is textually indistinguishable from a live one: same template, same normative "MUST" prose, and the only marker is a single frontmatter line. A session read a dead spec and implemented from it, and no write-side gate can catch that class, because every document in the repo is valid — the defect is *which one was read*, and a belief formed from a dead spec leaves no artifact. The Read, the code, and the commit are each individually legitimate.
