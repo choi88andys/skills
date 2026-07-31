@@ -79,15 +79,7 @@ Stage 6: Final verify + handoff — show result, suggest commit
 Walk up from CWD until `.immutable-prd/config.yml` is found or the `.git` boundary is reached:
 
 ```bash
-current="$(pwd)"
-while :; do
-  candidate="$current/.immutable-prd/config.yml"
-  [ -f "$candidate" ] && { echo "$candidate"; break; }
-  [ -d "$current/.git" ] && { echo "NOT_FOUND"; break; }
-  parent="$(dirname "$current")"
-  [ "$parent" = "$current" ] && { echo "NOT_FOUND"; break; }
-  current="$parent"
-done
+CONFIG_PATH="$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/find_config.sh")" && echo "$CONFIG_PATH" || echo "NOT_FOUND"
 ```
 
 If the walk-up returns `NOT_FOUND`, STOP by rendering `migrate.stage1.not_initialized` (no substitutions). Do not proceed.
@@ -444,5 +436,5 @@ Both rollback variants are safe because `/migrate` never touches files outside `
 
 ## Credits
 
-- Walk-up detection mirrors `scripts/find_config.sh` + `validate_docs.py`.
+- Walk-up detection SOURCES `scripts/find_config.sh` directly (same pattern `office-hours`/`ship` use for `sdd_mode_detect.sh`) + `validate_docs.py`.
 - Plan-then-confirm pattern mirrors `/immutable:init` Stage 2.
