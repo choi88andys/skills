@@ -501,6 +501,21 @@ For REJECT:
 Same column-0 rule as Verdict — markdown bold, heading, list-marker, or
 indent prefixes break the grep (`grep -E '^Next:[[:space:]]+'`).
 
+**Post-write validation (mandatory — do not skip).** After writing the note, verify it against
+the exact patterns downstream readers use — `pipeline.yaml`'s `exit_verdicts.plan-review-eng`
+is the source of truth for these — before moving on:
+```bash
+if ! grep -qE '^Verdict:[[:space:]]+(APPROVE|REVISE|REJECT)' "$OUT"; then
+  echo "VERDICT_LINE_MISSING_OR_MALFORMED — re-render per 'Verdict line — REQUIRED format' above"
+fi
+if ! grep -qE '^Next:[[:space:]]+' "$OUT"; then
+  echo "NEXT_LINE_MISSING_OR_MALFORMED — re-render per 'Next line — REQUIRED format' above"
+fi
+```
+If either check prints, fix the note (re-render the offending line at column 0, no markdown
+decoration) and re-run this block before proceeding — do not hand off a note that would fail
+the same grep `/immutable:ship` runs on it.
+
 **Autonomy receipt (optional — no-op unless the gate is installed).** If you rendered the
 AskUserQuestion in 4.1 (i.e. did NOT auto-advance), record the human's actual choice so the
 autonomy engine's measurement loop can learn — the keypress IS the label, no separate step.
