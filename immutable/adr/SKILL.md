@@ -99,7 +99,7 @@ If the user passed no argument, ask once using `adr.stage1.intent_question` (no 
 - Read `.immutable-prd/config.yml` → resolve ADR directory, pitches path, team language.
 - **Load profile** per the resolution order in **Profile Resolution** above. Cache `profile.adr.*` for the rest of the session.
 - **Profile schema mismatch detection** (added v0.5.7): when the loaded profile is a TEAM profile, read its `profile_schema:` and the bundled default's `profile_schema:`. If team < bundled, render `adr.stage1.profile_schema_mismatch` with `{team_schema}` / `{bundled_schema}` / list of missing top-level fields (e.g., `adr.anti_monolith`). Recommend `/immutable:migrate`. For this run, fetch missing fields from the bundled default with source annotation in any tier output. Mirror behavior of `/immutable:prd` §1.bis — same rationale, same fallback chain.
-- Glob ADR directory for existing files. Read frontmatter of each to build the supersede chain index.
+- **Enumerate active ADRs** (v0.10.0 — the ad-hoc Glob+frontmatter scan became a resolver call, mirroring `/immutable:prd`'s Stage 1.2 item 4). Run `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/validate_docs.py" --type adr --list-active` (config auto-detected by walk-up from CWD) — deprecation judged by a real YAML frontmatter parse rather than a text grep. The resolver replaces the **deprecation filter** only, not the frontmatter read: its output is one `<absolute path>` TAB `<domain>` line per active ADR and carries no `supersedes:` field, so read the frontmatter of each listed file to build the supersede chain index the next bullet operates on.
 - **Enumerate active ADRs per (domain, supersede chain)** (changed v0.5.6 — was: implicit "the active ADR per domain"). Multiple active ADRs may coexist in the same domain (notably in `_global`) provided each is on its own supersede chain. Cross-check the user's request against every active chain — `update` targets exactly one specific chain; `new` opens a separate chain.
 - If the user's intent mentions a specific domain or feature, cross-reference with active pitches in that domain.
 
@@ -175,7 +175,7 @@ Skip path: if the user replies with a negative/empty response (e.g., `없음`, `
 
 ## Stage 3 — Interview (Nygard template)
 
-**One question at a time, always with a recommended answer** derived from upstream pitches / prior ADR / intake summary / industry defaults.
+**One question at a time, always with a recommended answer** derived from upstream pitches / prior ADR / intake summary / industry defaults. **When sourcing from a prior ADR in the same scope, respect its anti-monolith tier** (§1.2.1) exactly as `/immutable:prd` Branch B does for pitches: `pass`/`L1` ADRs may inform structure; **`L2`/`L3` ADRs are fact-source only, never a structural template** — they are anti-pattern instances retained for backward compatibility, and deriving this ADR's structure or depth from one reproduces the bundling problem it exists to prevent.
 
 ### Branch A — Context
 
@@ -423,6 +423,7 @@ FILES='["<adr-relative-path>"]'   # e.g. ["adr/2026-05-05-auth-strategy.md"]
 5. Never generate an ADR with `references.pitches` empty unless the ADR's `domain` is declared `adr_only: true` in `profile.domain_allowlist.reserved_domains` (the bundled default profiles mark only `_global` this way, but teams may add others) AND the body includes a scope statement.
 6. Never claim a decision has no negative consequences — push back until the user names ≥2.
 7. Never skip Alternatives — if the user insists on "there was no alternative", question whether this needs an ADR at all.
+8. Never derive this ADR's structure/depth from an L2/L3 active ADR in the same scope (mirrors `/immutable:prd` Hard Prohibition #9) — treat it as fact-source only.
 
 ---
 

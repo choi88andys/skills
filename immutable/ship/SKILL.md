@@ -1,6 +1,6 @@
 ---
 name: ship
-description: Minimum-viable PR creation skill for the immutable SDD flow. Runs pre-ship checklist, verifies commit hygiene, runs build/test, composes a PR body that auto-includes pitch and linked ADR paths, then creates the PR via `gh pr create`. Refuses if the eng review did not APPROVE. Stops short of cross-session learnings capture and harness-policy gating — teams that want those layers should wrap this skill rather than fork it. Triggers - "/immutable:ship", "PR 만들어", "배포 준비", "ship it".
+description: Minimum-viable PR creation skill for the immutable SDD flow. Runs pre-ship checklist, verifies commit hygiene, runs build/test, composes a PR body that auto-includes pitch and linked ADR paths, then creates the PR via `gh pr create`. Refuses if the eng review did not APPROVE. Logs one lightweight learning entry per attempt natively; richer capture (multi-entry retrospectives, pruning, cross-skill aggregation) and harness-policy gating are left to a wrapper — teams that want those layers should wrap this skill rather than fork it. Triggers - "/immutable:ship", "PR 만들어", "배포 준비", "ship it".
 allowed-tools: Read, Write, Bash, Glob, Grep, AskUserQuestion
 license: MIT
 ---
@@ -19,8 +19,10 @@ work — verify eng APPROVE, ensure pitch and ADR paths land in the PR body,
 guard against shipping a dirty tree or a protected-branch commit. It does
 NOT cover:
 
-- Cross-session **learnings capture** — wrap with a project-specific hook
-  if needed.
+- **Richer learnings capture** beyond one lightweight entry per attempt
+  (see "Log learning to project memory" below) — multi-entry
+  retrospectives, pruning, or cross-skill aggregation need a
+  project-specific wrapper hook.
 - Worktree policy enforcement beyond a one-line warning — branch-write
   guards belong in `PreToolUse` hooks, not in this skill.
 - Status ledgers, archive workflows, or per-team telemetry.
@@ -149,7 +151,7 @@ The skill does NOT run interactive git operations on behalf of the user.
 # every upstream skill in the 7-step flow). Each Bash invocation is a fresh
 # shell — variables don't persist across blocks, so this derivation repeats
 # in every block that needs the slug.
-FEATURE_SLUG="${FEATURE_SLUG:-$(git branch --show-current 2>/dev/null | tr '/' '-' || echo "no-branch")}"
+source "${CLAUDE_PLUGIN_ROOT}/scripts/feature_slug.sh"
 
 DESIGN_NOTE=".claude/immutable/design/${FEATURE_SLUG}.md"
 CEO_NOTE=".claude/immutable/plan-review/${FEATURE_SLUG}-ceo.md"
@@ -239,7 +241,7 @@ directory. Read it now and render with captured values:
 ```bash
 # Re-derive slug + design-note path (this is a fresh Bash invocation; vars
 # from Step 3 don't persist).
-FEATURE_SLUG="${FEATURE_SLUG:-$(git branch --show-current 2>/dev/null | tr '/' '-' || echo "no-branch")}"
+source "${CLAUDE_PLUGIN_ROOT}/scripts/feature_slug.sh"
 DESIGN_NOTE=".claude/immutable/design/${FEATURE_SLUG}.md"
 
 PITCHES_REL="$(sed -n 's/^pitches_path:[[:space:]]*\([^[:space:]]*\).*/\1/p' \

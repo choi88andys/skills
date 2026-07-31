@@ -215,7 +215,7 @@ should be **delta-only** — context that is not in the pitch.
 
 ```bash
 mkdir -p .claude/immutable/design
-FEATURE_SLUG="${FEATURE_SLUG:-$(git branch --show-current 2>/dev/null | tr '/' '-' || echo "no-branch")}"
+source "${CLAUDE_PLUGIN_ROOT}/scripts/feature_slug.sh"
 OUT=".claude/immutable/design/${FEATURE_SLUG}.md"
 echo "OUTPUT_PATH: $OUT"
 ```

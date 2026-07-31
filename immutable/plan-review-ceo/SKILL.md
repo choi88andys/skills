@@ -161,8 +161,7 @@ silent-skip; NOT hard-refused).** Compute the canonical path and check
 existence:
 
 ```bash
-FEATURE_SLUG="${FEATURE_SLUG:-$(git branch --show-current 2>/dev/null \
-  | tr '/' '-' || echo "no-branch")}"
+source "${CLAUDE_PLUGIN_ROOT}/scripts/feature_slug.sh"
 DESIGN_NOTE=".claude/immutable/design/${FEATURE_SLUG}.md"
 echo "DESIGN_NOTE=$DESIGN_NOTE"
 ```
@@ -394,7 +393,7 @@ Render via AskUserQuestion using `prc.phase4.verdict_question`:
 
 ```bash
 mkdir -p .claude/immutable/plan-review
-FEATURE_SLUG="${FEATURE_SLUG:-$(git branch --show-current 2>/dev/null | tr '/' '-' || echo "no-branch")}"
+source "${CLAUDE_PLUGIN_ROOT}/scripts/feature_slug.sh"
 OUT=".claude/immutable/plan-review/${FEATURE_SLUG}-ceo.md"
 echo "OUTPUT_PATH: $OUT"
 ```
@@ -455,6 +454,21 @@ review's `Next:` line.
 
 Same column-0 rule as Verdict — markdown bold, heading, list-marker, or
 indent prefixes break the grep (`grep -E '^Next:[[:space:]]+'`).
+
+**Post-write validation (mandatory — do not skip).** After writing the note, verify it against
+the exact patterns downstream readers use — `pipeline.yaml`'s `exit_verdicts.plan-review-ceo`
+is the source of truth for these — before moving to 4.3:
+```bash
+if ! grep -qE '^Verdict:[[:space:]]+(APPROVE|REVISE|REJECT)' "$OUT"; then
+  echo "VERDICT_LINE_MISSING_OR_MALFORMED — re-render per 'Verdict line — REQUIRED format' above"
+fi
+if ! grep -qE '^Next:[[:space:]]+' "$OUT"; then
+  echo "NEXT_LINE_MISSING_OR_MALFORMED — re-render per 'Next line — REQUIRED format' above"
+fi
+```
+If either check prints, fix the note (re-render the offending line at column 0, no markdown
+decoration) and re-run this block before proceeding — do not hand off a note that would fail
+the same grep `plan-review-eng`/`ship` run on it.
 
 **Autonomy receipt (optional — no-op unless the gate is installed).** If you rendered the
 AskUserQuestion in 4.1 (i.e. did NOT auto-advance), record the human's actual choice so the
