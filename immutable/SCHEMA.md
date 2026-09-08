@@ -194,6 +194,29 @@ profile: .immutable-prd/profile.yml
 
 All other v2 fields (`repo_mode`, `team_language`, `pitches_path`, `adr_path`, `spec_repo_path`, `pitches_path_in_spec`, `templates`) retain their v2 meaning in v3.
 
+### v0.11 additions — `requirement_contract` (optional)
+
+A repo whose pitches are authored against tracker tickets declares the contract here. The block is **opt-in**: absent, `/immutable:prd` never mentions tickets and the validator checks nothing new. No `version:` bump — it is an optional key on a v3 (or v2) config.
+
+```yaml
+# Requirement contract (v0.11+, optional). See "Requirement contract" below.
+requirement_contract:
+  # optional — a pitch MAY cite a ticket; required — every pitch cites one or
+  # records `references.ticket_exemption` with a one-line reason.
+  enforcement: optional
+  # Label copied into each pitch's `references.tickets[].tracker`.
+  tracker: github
+  # Default repository for a bare ticket id (the GitHub adapter needs it).
+  repo: my-org/task-tracker
+  # Optional adapter: a command printing the ticket-input JSON documented in
+  # scripts/requirement_contract.py. `{repo}` and `{id}` are substituted per
+  # argv element and the command runs WITHOUT a shell. Unset → the built-in
+  # GitHub adapter (`gh api graphql`).
+  # fetch_command: "python3 tools/jira_ticket.py {id}"
+```
+
+The vocabulary the contract needs — which ticket headings bind, the three admissible deviation categories, the disagreement section's labels — lives in the **profile**, not here (see "Requirement contract" below).
+
 **Interop rule**: `version: 2` without `profile:` is valid in v0.5+. The plugin auto-loads the default profile matching `team_language`. Authors opt in to customization by either:
 
 - bumping `version: 2 → 3` and adding `profile:` (explicit, recommended), or
@@ -249,6 +272,14 @@ supersedes: <filename|null>
 deprecated: false
 references:
   pitches: [<filename>, …]    # ADR MUST have ≥1 unless domain == "_global"
+  tickets:                    # pitch, v0.11+: the tracker tickets this pitch is authored against
+    - tracker: github
+      repo: my-org/task-tracker
+      id: "3755"
+      version: "2026-09-08T05:25:01Z"   # opaque version coordinate; equality is its only operation
+      read_at: 2026-09-08
+      url: https://github.com/my-org/task-tracker/issues/3755
+  ticket_exemption: <reason>  # pitch, v0.11+: why no ticket binds this pitch (required-mode only)
 ---
 ```
 
@@ -260,6 +291,8 @@ references:
 - The entire `references:` block is **optional** for pitches. For ADRs it is required unless `domain: _global`.
 - When present, `references.pitches` MAY be empty. Non-empty lists MUST reference files that exist at generation time — stale references are a validation error.
 - A deprecated doc's references are frozen — no back-edits allowed. If the referenced pitch is superseded, the ADR stays pointing at the old filename (history snapshot) unless a new ADR is issued.
+- `references.tickets` (pitch only, v0.11+) records the identity and the version coordinate of every ticket whose binding sections this pitch honours — and **no ticket text**. The tracker keeps the body at that version; `scripts/requirement_contract.py drift` re-reads it. `tracker`, `id`, `version` are required non-empty strings; `repo`, `read_at`, `url` are informational.
+- `references.ticket_exemption` (pitch only, v0.11+) is the one-line reason a pitch cites no ticket. Under `requirement_contract.enforcement: required` the validator demands one of the two.
 
 ---
 
@@ -319,6 +352,10 @@ Checked at generation time by the `/immutable:prd` and `/immutable:adr` skills, 
    - *pitch user-stories structure (skill-level guard, v0.5.3+)*: when `profile.sections[id=user_stories].structure == per_story_grouped` (default), `/immutable:prd` Stage 6 additionally verifies that the user-stories H2 slice contains ≥1 `### ` sub-section, each sub-section contains ≥1 bracketed normative keyword line, and no bracketed normative leaks between the H2 and the first `### `. Violations abort via `prd.stage6.missing_story_structure`. Cross-cutting sub-sections with only normative lines (no GWT) are accepted by design. For `structure: consolidated` the guard is skipped.
    - *pitch / ADR (CI validator, opt-in)*: `scripts/validate_docs.py --strict-body` scans all pitch and ADR files and flags the same missing-heading violations post-hoc. The v0.5.3+ pitch user-stories structure check activates under the same flag (profile-gated on `per_story_grouped`). Off by default for backward compatibility with v0.4 repos authored before the profile system existed. The bundled starter workflow leaves it off, matching that default; a repo bootstrapped fresh has no pre-profile legacy, so appending `--strict-body` to the workflow's validate step is safe and checks strictly more.
    - *date cutoff for `--strict-body` (v0.9.0+)*: because `--strict-body` scans **every** file, switching it on in a repo with legacy docs lights up every one that predates a later structural requirement — and those docs are append-only, so they cannot simply be edited into shape. `--strict-since YYYY-MM-DD` (or the config field `strict_body_since`) restricts the body checks to files whose **filename date** is on or after the cutoff; older files are exempt. This enforces structure on new docs without rewriting append-only history — forward enforcement, not retroactive. The cutoff is inclusive (a file dated exactly on it is checked); a file with no leading date in its name is fail-closed to in-scope; and a malformed cutoff is fatal, never silently ignored. The exemption count is printed to stderr so the scoping is visible, not silent. The CLI flag overrides the config field.
+9. **Requirement contract (v0.11+)** — three checks, all no-ops for a repo without a `requirement_contract:` config block:
+   - *always on*: a `references.tickets` list, when present, holds mappings each carrying non-empty string `tracker`, `id`, `version`; `references.ticket_exemption`, when present, is a non-empty string.
+   - *`--strict-body`, within the `--strict-since` scope*: under `enforcement: required` every pitch carries a non-empty `references.tickets` or a `ticket_exemption`. Scoped like the other body checks because legacy pitches predate the policy.
+   - *`--strict-body`, within the `--strict-since` scope*: a pitch whose disagreement section (`profile.sections[id=requirement_disagreement].heading`) exists holds ≥1 `### ` entry, and every entry carries the four labelled bullets (`profile.requirement_contract.disagreement.fields`) with an outcome that begins with a terminal token (`outcome_terminal`). An outcome beginning with `outcome_provisional` is a violation — this is the merge gate that keeps a pitch PR open until its correction request is settled.
 
 **Profile awareness** (v0.5+): the CI validator loads the profile via the same resolution order as the skills — config.yml `profile:` → bundled `default-<team_language>.yml` → hardcoded last-resort defaults. v2 configs get the bundled default automatically; no config bump required.
 
@@ -365,6 +402,12 @@ sections:
     structure: per_story_grouped | consolidated  # optional, user_stories only (v0.5.3+)
     description: "<interview hint + gate pass condition>"
   # …
+  # v0.11+: rendered only when the pitch deviates from a binding ticket item.
+  - id: requirement_disagreement
+    heading: "<user-facing heading>"
+    required: false
+    min_items: 0
+    description: "…"
 
 # Adversarial review personas for Stage 4.
 personas:
@@ -430,6 +473,26 @@ anti_monolith:
     L1: { action: hint,             sub_sections: <int>, normative_lines: <int> }
     L2: { action: strong_recommend, sub_sections: <int>, normative_lines: <int> }
     L3: { action: block,            sub_sections: <int>, normative_lines: <int> }
+
+# Requirement contract vocabulary (v0.11+, profile_schema 3). Inert unless
+# config.yml declares `requirement_contract:`. See "Requirement contract".
+requirement_contract:
+  ticket_sections:                 # the ticket headings that bind, with stable ids
+    - id: acceptance
+      heading: "<heading as written on the ticket>"
+    - id: qa_checklist
+      heading: "<heading>"
+  categories:                      # the ONLY judgements that let a pitch deviate
+    - id: infeasible
+      label: "<label>"
+    - id: self_contradiction
+      label: "<label>"
+    - id: conflict
+      label: "<label>"
+  disagreement:
+    fields: { original: "<label>", correction: "<label>", reason: "<label>", outcome: "<label>" }
+    outcome_provisional: "<token>"   # an open request — validator blocks merge
+    outcome_terminal: ["<token>", "<token>"]   # agreed / deadline passed
 
 # Domain allowlist policy (points at `pitches/README.md`).
 domain_allowlist:
@@ -564,6 +627,65 @@ sections:
 ```
 
 ---
+
+## Requirement contract (v0.11.0, profile_schema 3)
+
+A pitch can be authored against a tracker ticket whose designated sections **bind** it. In the pilot the ticket is a GitHub Epic and the binding sections are 「완료 조건」 and 「QA 통과 리스트」; the plugin knows neither name — both come from the profile — and obtains the ticket through an adapter, so a team on another tracker plugs in one command and changes nothing else.
+
+### What the plugin defines, and nothing more
+
+Three shapes, all owned here; everything around them belongs to the consuming repos:
+
+| Shape | Where it is defined | Who reads it |
+|---|---|---|
+| Ticket input — `id`, `title`, `url`, `body` (markdown), `version` (opaque string), optional `history[]` | printed by an adapter command; contract in `scripts/requirement_contract.py` | `fetch` / `drift` |
+| Parsed contract — `bindings[].groups[].items[].text`, `sections[]`, `warnings[]`, `errors[]` | JSON from `requirement_contract.py parse` / `fetch` | `/immutable:prd` judgement, `drift` |
+| Pitch record — `references.tickets[]` (identity + version, no text) and the `requirement_disagreement` body section | pitch frontmatter and body, formats in this file | the validator; every later reader |
+
+Deliberately **not** in the plugin: a clock (business-day deadlines and holiday calendars live with the tracker), posting to the tracker (a correction request is handed to the author to post), and any coverage check against sources the ticket does not name — a topic the ticket never raised is not a defect; the pitch fills it.
+
+### Why a version coordinate, not a quotation
+
+The first design quoted the binding sentences into the pitch so CI could compare the quote with the live ticket. A tracker that keeps edit history makes the quote redundant: ticket identity plus the version coordinate the author read reconstructs the exact text, and copying it would recreate the two-sources-of-truth problem that made the ticket's own requirement section links-only. GitHub's `userContentEdits` returns the full body after every edit — verified 2026-09-08 on a six-edit Epic with `gh api graphql` — which is what the built-in adapter and `drift` rely on. `version` is opaque: the plugin only ever tests it for equality, so a tracker whose coordinate is a revision number works unchanged.
+
+### Authoring flow (`/immutable:prd`)
+
+1. **Intake** (Stage 1.5.1) — under `enforcement: optional` the skill asks whether a ticket binds this pitch; under `required` it insists, or records a one-line `ticket_exemption`. The ticket is fetched through the adapter and its binding sections are summarised (counts, warnings, and any missing section — a ticket without the binding sections cannot be contracted against and is refused as such).
+2. **Judgement** (Stage 1.6) — every binding item is classified as *followed* or as one of the three profile categories: not implementable; self-contradictory against the ticket's own text, non-binding notes included; or in conflict with a settled requirement, meaning an active pitch's normative line. Only those three let the pitch deviate. "A better way exists" is not one and is routed to the next requirement list. Each confirmed deviation gets a drafted correction and a reason, and the skill hands the author a correction request to post on the ticket. It never posts.
+3. **Interview** — the binding items, corrected where a deviation stands, become the highest-priority source for recommended answers.
+4. **Gate** (Stage 5) — a bound pitch accounts for every binding item: reflected in the body, listed as out of this pitch's scope with a handoff target, or recorded as a disagreement. Anything else refuses generation, exactly as an unresolved tag does.
+5. **Output** (Stage 6) — `references.tickets[]` in the frontmatter; the disagreement section only when there is a disagreement.
+
+### The disagreement section
+
+One `### ` entry per contested item; four labelled bullets whose labels come from `profile.requirement_contract.disagreement.fields`:
+
+```markdown
+## 요구사항 이견
+
+### github my-org/task-tracker#3755 · 완료 조건 · 적립 7
+
+- **원문** <the ticket's sentence, verbatim>
+- **정정** <the sentence this pitch follows>
+- **사유** 자기모순 — <why, citing the ticket text it contradicts>
+- **결과** 잠정 — 정정 요청 2026-09-08
+```
+
+The outcome bullet is the merge gate. While it begins with `outcome_provisional` the pitch is a **pull request that stays open**; before merge the author rewrites it as one of `outcome_terminal` — agreed, with the date the ticket was corrected; or deadline passed, the pitch's correction stands and the item moves to the next list — and `validate_docs.py --strict-body` refuses anything else. The section is kept after resolution, not removed: it is what tells a later reader that the difference between pitch and ticket was deliberate, which matters most in the deadline case, where the ticket may still carry the old wording. All of this editing happens on the PR branch, so the append-only rule is untouched, and no supersede is spent on bookkeeping.
+
+### Drift, and how consumers wire it
+
+```
+python3 scripts/requirement_contract.py drift --repo <owner/name> --id <id> \
+  --version <recorded> --binding acceptance="완료 조건" --binding qa_checklist="QA 통과 리스트"
+```
+
+Exit 0 when nothing binding moved (including a ticket edit confined to non-binding text), 1 when a binding item was added or removed — or when the recorded version's body cannot be retrieved, which is treated as moved — and 2 on an adapter error; the JSON lists `added` / `removed` per binding section. Where it runs is the consumer's decision:
+
+- a spec repo's CI on every pitch pull request — has the ticket moved since the author read it?
+- a tracker-side bot on every ticket edit, against the pitches that recorded that ticket. The pilot registers each merged pitch on its Epic with a comment naming the pitch path and version, so the bot knows whom to notify without scanning another repository.
+
+The plugin ships the parser, the adapter contract and the exit codes. The trigger, the transport and the comment format are not its business.
 
 ## Anti-patterns (v0.5.6)
 
@@ -790,6 +912,8 @@ Idempotent. Safe to re-run after every plugin update.
 **Locale parity guarantee**: bundled default-ko.yml and default-en.yml maintain identical structure (same top-level keys, same id-keyed entries, same nested fields) — only locale-specific values differ (e.g., `vague_words` entries are Korean hedge words vs English hedge words). This guarantee is what makes the universal diff algorithm sound across all locales. Adding a structural divergence between locale defaults is a breaking change to the algorithm and must be paired with explicit handling in the migrate SKILL.md.
 
 **Compatibility**: this is an additive change — v0.5.6 and earlier behave correctly when team profile is fully current. The v0.5.7+ detection only fires when the team profile is genuinely behind.
+
+**profile_schema 3 (v0.11.0)** added `sections[id=requirement_disagreement]` and the top-level `requirement_contract` block. The universal diff picks both up on the next `/immutable:migrate`; until then a v2 team profile keeps working — the skills read the two from the bundled default with a source annotation, and both are inert unless `config.yml` opts into the contract.
 
 ---
 

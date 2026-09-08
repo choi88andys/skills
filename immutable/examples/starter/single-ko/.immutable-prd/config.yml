@@ -38,3 +38,17 @@ templates:
 # Profile selection (optional in v0.5).
 # Unset → bundled default profile matching `team_language`.
 # profile: .immutable-prd/profile.yml
+
+# Requirement contract (v0.11+, optional).
+#
+# Declare this when pitches in this repo are authored against tracker tickets
+# whose designated sections bind them (immutable/SCHEMA.md "Requirement
+# contract"). Absent → /immutable:prd never mentions tickets and the validator
+# checks nothing new. The binding headings, the three deviation categories and
+# the disagreement vocabulary come from the profile.
+#
+# requirement_contract:
+#   enforcement: optional        # optional | required
+#   tracker: github              # label recorded in each pitch's references.tickets[]
+#   repo: my-org/task-tracker    # default repository for a bare ticket id
+#   # fetch_command: "python3 tools/ticket.py {id}"   # custom adapter; unset → gh api graphql

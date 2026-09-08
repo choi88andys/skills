@@ -18,7 +18,10 @@
 # v1 → v2 (v0.5.6): added `sections[].max_items`, top-level `anti_monolith` block,
 # `adr.anti_monolith` block, new gate criterion `concern_scope`. v1 profiles auto-
 # fallback (anti-monolith thresholds derived from `sections[user_stories].max_items`).
-profile_schema: 2
+# v2 → v3 (v0.11.0): added `sections[requirement_disagreement]` and the top-level
+# `requirement_contract` block. Both are inert unless config.yml opts in; v2
+# profiles fall back to the bundled values with a source annotation.
+profile_schema: 3
 
 # Team working language key. Must match `strings/strings.<locale>.yml` when
 # strings catalog lookup is enabled. v0.5 renders inline strings from this file.
@@ -76,6 +79,11 @@ sections:
     required: true
     min_items: 1
     description: "deferred / intentionally-not-provided / outside-scope 중 하나로 분류된 항목 ≥1개."
+  - id: requirement_disagreement
+    heading: "요구사항 이견"
+    required: false
+    min_items: 0
+    description: "요구사항 계약(requirement_contract)이 켜진 레포에서, 티켓의 구속 항목을 그대로 따를 수 없을 때만 섹션 추가. 항목마다 `### ` 엔트리 하나 — 원문·정정·사유·결과 네 줄. 결과가 잠정이면 머지 불가 (validator --strict-body)."
   - id: feature_flag
     heading: "Feature Flag"
     required: false
@@ -312,6 +320,47 @@ anti_monolith:
       action: block
       sub_sections: 8
       normative_lines: 40
+
+# -----------------------------------------------------------------------------
+# Requirement contract (v0.11.0 / profile_schema 3).
+#
+# Vocabulary for authoring a pitch against a tracker ticket whose designated
+# sections bind it. Inert unless the repo's config.yml declares a
+# `requirement_contract:` block — see SCHEMA.md "Requirement contract".
+#
+#   ticket_sections  — 티켓에서 구속력을 갖는 헤딩과 그 안정 id. 스킬과
+#                      `scripts/requirement_contract.py` 가 이 id 로 항목을 부른다.
+#                      매칭은 관용적 (「」, 끝 콜론, 대소문자, 공백 무시).
+#   categories       — 피치가 구속 항목에서 벗어날 수 있는 판정 딱 세 가지.
+#                      "더 나은 방법이 있다"는 여기 들지 않고 다음 목록으로 올린다.
+#   disagreement     — `requirement_disagreement` 섹션의 엔트리 하나를 이루는
+#                      네 줄의 라벨과 결과 어휘. `outcome_provisional` 은 열린
+#                      정정 요청 (validator --strict-body 가 머지를 막는다),
+#                      `outcome_terminal` 은 닫히는 두 가지 방식이다.
+# -----------------------------------------------------------------------------
+requirement_contract:
+  ticket_sections:
+    - id: acceptance
+      heading: "완료 조건"
+    - id: qa_checklist
+      heading: "QA 통과 리스트"
+  categories:
+    - id: infeasible
+      label: "구현 불가"
+    - id: self_contradiction
+      label: "자기모순"
+    - id: conflict
+      label: "확정된 다른 요구사항과의 충돌"
+  disagreement:
+    fields:
+      original: "원문"
+      correction: "정정"
+      reason: "사유"
+      outcome: "결과"
+    outcome_provisional: "잠정"
+    outcome_terminal:
+      - "합의"
+      - "기한 경과"
 
 # -----------------------------------------------------------------------------
 # Domain allowlist policy.

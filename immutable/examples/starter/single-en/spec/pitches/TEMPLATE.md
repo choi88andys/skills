@@ -2,6 +2,15 @@
 domain: <name>
 supersedes: null
 deprecated: false
+# Only in repos with requirement_contract enabled (v0.11+): the ticket's
+# identity and version coordinate. No quotation — the tracker keeps the body.
+# references:
+#   tickets:
+#     - tracker: github
+#       repo: my-org/task-tracker
+#       id: "3755"
+#       version: "2026-09-08T05:25:01Z"
+#       read_at: 2026-09-08
 ---
 
 # <Pitch title>
@@ -48,6 +57,25 @@ directly under the H2.
 ## Out of Scope
 
 - What this pitch **does not** cover (record exclusions explicitly)
+
+## Requirement Disagreements (optional)
+
+<!--
+Only in repos with requirement_contract enabled, and only when this pitch
+cannot follow a binding ticket item as written — the three admissible
+judgements are: not implementable / self-contradiction / conflict with a
+settled requirement. One `### ` entry per item. While the outcome reads
+"Provisional" this pitch's PR stays open (validator --strict-body blocks the
+merge); rewrite it as "Agreed" or "Deadline passed" once settled, and keep the
+section — it tells a later reader the difference from the ticket is deliberate.
+-->
+
+### <tracker repo#id · section · group ordinal>
+
+- **Original** <the ticket's sentence, verbatim>
+- **Correction** <the sentence this pitch follows>
+- **Reason** <Self-contradiction | Not implementable | Conflict with a settled requirement> — <evidence>
+- **Outcome** Provisional — correction requested YYYY-MM-DD
 
 ## Feature Flag (optional)
 
