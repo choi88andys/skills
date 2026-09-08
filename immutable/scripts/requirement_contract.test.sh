@@ -20,8 +20,9 @@
 #
 # Usage:  bash immutable/scripts/requirement_contract.test.sh
 # Exit:   0 all cases passed · 1 a case failed · 2 the test could not run.
-# Needs:  python3 only — no PyYAML, no git, no network (`fetch` is exercised
-#         through a stub `gh` placed first on PATH).
+# Needs:  python3 only — no PyYAML, no git, no network (`fetch` and `drift`
+#         are exercised through a stub `gh` placed first on PATH, and through
+#         a custom --fetch-command adapter).
 
 set -euo pipefail
 
@@ -252,7 +253,7 @@ run parse "$RIG/epic.md" --binding "nonsense"
 U2=$RC
 run parse "$RIG/epic.md" --binding "$B_ACC" --binding "acceptance=Other"
 U3=$RC
-run fetch --repo "not a repo" --issue 1 --binding "$B_ACC"
+run fetch --repo "not a repo" --id 1 --binding "$B_ACC"
 U4=$RC
 if [ "$U1$U2$U3$U4" = "2222" ] && grep -qF -- '--binding ID=HEADING is required' <<<"$E1" && ! grep -qF 'Traceback' <<<"$E1"; then
   pass "C11 usage errors exit 2 (missing/malformed/duplicate --binding, bad --repo)"
@@ -260,35 +261,53 @@ else
   fail "C11 usage errors" "rc=$U1$U2$U3$U4 stderr=$E1"
 fi
 
-# C12 — fetch through a stub gh: `source` is populated from the gh JSON, the
-# body is parsed the same way, and the exact gh invocation is pinned.
+# C12 — fetch through a stub gh: `source` is populated from the GraphQL
+# answer, the body is parsed the same way, the version coordinate is the
+# body's last-edit time, and the exact gh invocation is pinned.
 mkdir -p "$RIG/bin"
-python3 - "$RIG/epic.md" "$RIG/gh.json" <<'PYX'
+# gh_json <body-file> <out> <lastEditedAt|null> [<editedAt>=<body-file> ...]
+gh_json() {
+  python3 - "$@" <<'PYX'
 import json, sys
 body = open(sys.argv[1], encoding="utf-8").read()
-json.dump({
+last = None if sys.argv[3] == "null" else sys.argv[3]
+edits = []
+for spec in sys.argv[4:]:
+    at, _, path = spec.partition("=")
+    edits.append({"editedAt": at, "diff": open(path, encoding="utf-8").read()})
+issue = {
     "number": 3755, "title": "[EPIC] Sample", "body": body, "state": "OPEN",
     "url": "https://example.invalid/acme/tracker/issues/3755",
-    "labels": [{"name": "ux"}, {"name": "type: feature"}],
-    "milestone": {"title": "Sample v1.0"}, "updatedAt": "2026-09-07T01:02:03Z",
-}, open(sys.argv[2], "w", encoding="utf-8"), ensure_ascii=False)
+    "createdAt": "2026-09-07T06:41:48Z", "lastEditedAt": last,
+    "labels": {"nodes": [{"name": "ux"}, {"name": "type: feature"}]},
+    "milestone": {"title": "Sample v1.0"},
+    "userContentEdits": {"totalCount": len(edits), "nodes": edits},
+}
+json.dump({"data": {"repository": {"issue": issue}}}, open(sys.argv[2], "w", encoding="utf-8"), ensure_ascii=False)
 PYX
+}
+gh_json "$RIG/epic.md" "$RIG/gh.json" "2026-09-08T05:25:01Z" "2026-09-07T06:41:48Z=$RIG/old.md" "2026-09-08T05:25:01Z=$RIG/epic.md"
 cat >"$RIG/bin/gh" <<SH2
 #!/usr/bin/env bash
-printf '%s\n' "\$*" >"$RIG/gh-args.txt"
+printf '%s\n' "\$@" >"$RIG/gh-args.txt"
 cat "$RIG/gh.json"
 SH2
 chmod +x "$RIG/bin/gh"
-OUT=$(PATH="$RIG/bin:$PATH" python3 "$SUT" fetch --repo acme/tracker --issue 3755 --binding "$B_ACC" --binding "$B_QA" 2>"$RIG/stderr.txt") && RC=0 || RC=$?
-printf '%s' "$OUT" >"$RIG/out.json"
+fetch_stub() {  # fetch_stub <subcommand args...>
+  OUT=$(PATH="$RIG/bin:$PATH" python3 "$SUT" "$@" 2>"$RIG/stderr.txt") && RC=0 || RC=$?
+  ERR=$(cat "$RIG/stderr.txt")
+  printf '%s' "$OUT" >"$RIG/out.json"
+}
+fetch_stub fetch --repo acme/tracker --id 3755 --binding "$B_ACC" --binding "$B_QA"
 if [ "$RC" -eq 0 ] \
-  && [ "$(q '(d["source"]["tracker"], d["source"]["repo"], d["source"]["number"], d["source"]["labels"], d["source"]["milestone"], d["source"]["updated_at"])')" = "('github', 'acme/tracker', 3755, ['ux', 'type: feature'], 'Sample v1.0', '2026-09-07T01:02:03Z')" ] \
-  && [ "$(q 'bool(__import__("re").fullmatch(r"\d{4}-\d{2}-\d{2}", d["source"]["as_of"])) and d["source"]["fetched_at"].startswith(d["source"]["as_of"])')" = "True" ] \
+  && [ "$(q '(d["source"]["tracker"], d["source"]["repo"], d["source"]["id"], d["source"]["labels"], d["source"]["milestone"], d["source"]["version"])')" = "('github', 'acme/tracker', '3755', ['ux', 'type: feature'], 'Sample v1.0', '2026-09-08T05:25:01Z')" ] \
+  && [ "$(q 'bool(__import__("re").fullmatch(r"\d{4}-\d{2}-\d{2}", d["source"]["read_at"])) and d["source"]["fetched_at"].startswith(d["source"]["read_at"])')" = "True" ] \
   && [ "$(q '[b["item_count"] for b in d["bindings"]]')" = "[8, 3]" ] \
-  && [ "$(cat "$RIG/gh-args.txt")" = "issue view 3755 --repo acme/tracker --json number,title,body,url,state,labels,milestone,updatedAt" ]; then
-  pass "C12 fetch: source populated, body parsed, gh invocation pinned"
+  && [ "$(sed -n '1,3p' "$RIG/gh-args.txt" | tr '\n' ' ')" = "api graphql -f " ] \
+  && grep -qF 'owner=acme' "$RIG/gh-args.txt" && grep -qF 'name=tracker' "$RIG/gh-args.txt" && grep -qF 'number=3755' "$RIG/gh-args.txt"; then
+  pass "C12 fetch (GitHub adapter): source + version from lastEditedAt, gh api graphql pinned"
 else
-  fail "C12 fetch" "rc=$RC args=$(cat "$RIG/gh-args.txt" 2>/dev/null) source=$(q 'd["source"]') stderr=$(cat "$RIG/stderr.txt")"
+  fail "C12 fetch" "rc=$RC args=$(tr '\n' ' ' <"$RIG/gh-args.txt" 2>/dev/null | cut -c1-120) source=$(q 'd["source"]') stderr=$ERR"
 fi
 
 # C13 — fetch when gh fails: exit 2, gh's stderr relayed, no traceback.
@@ -297,9 +316,8 @@ cat >"$RIG/bin/gh" <<'SH2'
 echo "GraphQL: Could not resolve to an Issue (404)" >&2
 exit 1
 SH2
-OUT=$(PATH="$RIG/bin:$PATH" python3 "$SUT" fetch --repo acme/tracker --issue 999999 --binding "$B_ACC" 2>"$RIG/stderr.txt") && RC=0 || RC=$?
-ERR=$(cat "$RIG/stderr.txt")
-if [ "$RC" -eq 2 ] && grep -qF 'gh exited 1 for acme/tracker#999999' <<<"$ERR" && grep -qF 'Could not resolve' <<<"$ERR" && ! grep -qF 'Traceback' <<<"$ERR"; then
+fetch_stub fetch --repo acme/tracker --id 999999 --binding "$B_ACC"
+if [ "$RC" -eq 2 ] && grep -qF 'exited 1 while trying to fetch acme/tracker#999999' <<<"$ERR" && grep -qF 'Could not resolve' <<<"$ERR" && ! grep -qF 'Traceback' <<<"$ERR"; then
   pass "C13 fetch failure → exit 2, gh stderr relayed, no traceback"
 else
   fail "C13 fetch failure" "rc=$RC stderr=$ERR"
@@ -307,7 +325,7 @@ fi
 
 # C14 — canonical `text`: NFD (decomposed Hangul, as some editors emit) and
 # ragged whitespace normalise to the same string a clean NFC body yields —
-# otherwise a quote taken on one machine drifts against the same ticket read
+# otherwise a version read on one machine drifts against the same ticket read
 # on another.
 python3 - "$RIG/nfd.md" <<'PYX'
 import sys, unicodedata
@@ -336,9 +354,89 @@ else
   fail "C15 encoding contract" "rc=$U5/$RC stderr=$E5 $(cat "$RIG/stderr.txt")"
 fi
 
+# C16 — a custom adapter: `--fetch-command` is shlex-split, `{repo}`/`{id}`
+# swapped per argv element, run without a shell; its JSON becomes `source`.
+mkdir -p "$RIG/tickets"
+python3 - "$RIG/epic.md" "$RIG/tickets/T-42.json" <<'PYX'
+import json, sys
+json.dump({"id": "T-42", "title": "Jira-ish", "url": "https://example.invalid/T-42",
+           "body": open(sys.argv[1], encoding="utf-8").read(), "version": "rev-7",
+           "labels": ["ux"], "milestone": None, "state": "Open"},
+          open(sys.argv[2], "w", encoding="utf-8"), ensure_ascii=False)
+PYX
+run fetch --id T-42 --tracker jira --fetch-command "cat $RIG/tickets/{id}.json" --binding "$B_ACC"
+if [ "$RC" -eq 0 ] && [ "$(q '(d["source"]["tracker"], d["source"]["repo"], d["source"]["id"], d["source"]["version"], d["bindings"][0]["item_count"])')" = "('jira', None, 'T-42', 'rev-7', 8)" ]; then
+  pass "C16 custom --fetch-command adapter (no gh, no shell) feeds source + body"
+else
+  fail "C16 custom adapter" "rc=$RC stderr=$ERR $(q 'd["source"]')"
+fi
+
+# C17 — adapter contract is enforced: no `version` → exit 2 naming the gap; an
+# id carrying shell syntax is refused before any command runs.
+printf '{"id":"T-1","body":"### x\\n- [ ] a"}' >"$RIG/tickets/T-1.json"
+run fetch --id T-1 --fetch-command "cat $RIG/tickets/{id}.json" --binding "$B_ACC"
+U6=$RC; E6=$ERR
+run fetch --id 'T-1;rm' --fetch-command "cat $RIG/tickets/{id}.json" --binding "$B_ACC"
+U7=$RC; E7=$ERR
+if [ "$U6" -eq 2 ] && grep -qF '`version` (non-empty string) missing' <<<"$E6" \
+  && [ "$U7" -eq 2 ] && grep -qF -- '--id may contain only' <<<"$E7" && ! grep -qF 'Traceback' <<<"$E6$E7"; then
+  pass "C17 adapter output without version → exit 2; unsafe --id refused → exit 2"
+else
+  fail "C17 adapter contract" "rc=$U6/$U7 stderr=$E6 | $E7"
+fi
+
+# C18 — drift, same version: no drift, every item counted unchanged, exit 0.
+cp "$RIG/epic.md" "$RIG/epic-v1.md"
+gh_json "$RIG/epic.md" "$RIG/gh.json" "2026-09-08T05:25:01Z" "2026-09-07T06:41:48Z=$RIG/epic-v1.md" "2026-09-08T05:25:01Z=$RIG/epic.md"
+cat >"$RIG/bin/gh" <<SH2
+#!/usr/bin/env bash
+cat "$RIG/gh.json"
+SH2
+fetch_stub drift --repo acme/tracker --id 3755 --version "2026-09-08T05:25:01Z" --binding "$B_ACC" --binding "$B_QA"
+if [ "$RC" -eq 0 ] && [ "$(q '(d["drift"], d["binding_changed"], d["history_available"], [(b["id"], b["unchanged"], len(b["added"]), len(b["removed"])) for b in d["bindings"]])')" = "(False, False, True, [('acceptance', 8, 0, 0), ('qa_checklist', 3, 0, 0)])" ]; then
+  pass "C18 drift, same version → exit 0, nothing changed"
+else
+  fail "C18 drift same version" "rc=$RC $(q 'd')"
+fi
+
+# C19 — drift with history: one acceptance item reworded → removed 1 / added 1,
+# QA untouched, binding_changed true, exit 1. The recorded body is looked up in
+# the edit log by version, so the diff is item-level, not "something moved".
+sed 's/1,000원 이상 주문에서 잔당 스탬프 1개가 적립된다/0원 초과 주문에서 잔당 스탬프 1개가 적립된다/' "$RIG/epic.md" >"$RIG/epic-v2.md"
+gh_json "$RIG/epic-v2.md" "$RIG/gh.json" "2026-09-09T01:00:00Z" "2026-09-07T06:41:48Z=$RIG/epic-v1.md" "2026-09-08T05:25:01Z=$RIG/epic.md" "2026-09-09T01:00:00Z=$RIG/epic-v2.md"
+fetch_stub drift --repo acme/tracker --id 3755 --version "2026-09-08T05:25:01Z" --binding "$B_ACC" --binding "$B_QA"
+if [ "$RC" -eq 1 ] && [ "$(q '(d["drift"], d["history_available"], d["binding_changed"], d["recorded_version"], d["current_version"])')" = "(True, True, True, '2026-09-08T05:25:01Z', '2026-09-09T01:00:00Z')" ] \
+  && [ "$(q '[(b["id"], b["unchanged"], [a["text"] for a in b["added"]], [r["ordinal"] for r in b["removed"]]) for b in d["bindings"]]')" = "[('acceptance', 6, ['0원 초과 주문에서 잔당 스탬프 1개가 적립된다', '0원 초과 주문에서 잔당 스탬프 1개가 적립된다'], [1, 8]), ('qa_checklist', 3, [], [])]" ]; then
+  pass "C19 drift with history → item-level added/removed (multiset), exit 1"
+else
+  fail "C19 drift with history" "rc=$RC $(q '[(b["id"], b["unchanged"], b["added"], b["removed"]) for b in d["bindings"]]') stderr=$ERR"
+fi
+
+# C20 — drift where only NON-binding text changed (비고 edited): versions differ,
+# but history proves no binding item moved → binding_changed false, exit 0.
+sed 's/서버는 0원/서버는 0원 (확인 중)/' "$RIG/epic.md" >"$RIG/epic-v3.md"
+gh_json "$RIG/epic-v3.md" "$RIG/gh.json" "2026-09-09T02:00:00Z" "2026-09-08T05:25:01Z=$RIG/epic.md" "2026-09-09T02:00:00Z=$RIG/epic-v3.md"
+fetch_stub drift --repo acme/tracker --id 3755 --version "2026-09-08T05:25:01Z" --binding "$B_ACC" --binding "$B_QA"
+if [ "$RC" -eq 0 ] && [ "$(q '(d["drift"], d["binding_changed"], d["history_available"], [b["unchanged"] for b in d["bindings"]])')" = "(True, False, True, [8, 3])" ]; then
+  pass "C20 drift outside the binding sections → drift true, binding_changed false, exit 0"
+else
+  fail "C20 non-binding drift" "rc=$RC $(q '(d["drift"], d["binding_changed"], d["history_available"])')"
+fi
+
+# C21 — drift with no history for the recorded version: cannot prove anything,
+# so it is reported as changed (exit 1) with a warning, unchanged = null.
+gh_json "$RIG/epic-v3.md" "$RIG/gh.json" "2026-09-09T02:00:00Z" "2026-09-09T02:00:00Z=$RIG/epic-v3.md"
+fetch_stub drift --repo acme/tracker --id 3755 --version "2026-01-01T00:00:00Z" --binding "$B_ACC"
+if [ "$RC" -eq 1 ] && [ "$(q '(d["drift"], d["history_available"], d["binding_changed"], d["bindings"][0]["unchanged"])')" = "(True, False, True, None)" ] \
+  && [ "$(q 'any("no body is available for recorded version" in w for w in d["warnings"])')" = "True" ]; then
+  pass "C21 drift without history for the recorded version → exit 1, unproven, warned"
+else
+  fail "C21 drift without history" "rc=$RC $(q 'd["warnings"]')"
+fi
+
 echo
 if [ "$FAILURES" -eq 0 ]; then
-  echo "all 15 cases passed."
+  echo "all 21 cases passed."
   exit 0
 fi
 echo "$FAILURES case(s) failed."

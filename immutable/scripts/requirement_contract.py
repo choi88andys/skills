@@ -7,20 +7,39 @@ a tracker ticket whose designated sections bind it — in the pilot, an Epic's
 BOTH read the ticket through this script so they cannot disagree about what
 an item is or what its text is:
 
-  * `/immutable:prd` Stage 1.5 — fetches the Epic, classifies every binding
-    item, and quotes the ones the pitch commits to (with an `as of` marker).
-  * The consuming spec repo's CI — re-reads the Epic later and compares the
-    pitch's quoted text against the live body to report drift.
+  * `/immutable:prd` Stage 1.5 — fetches the Epic, judges every binding item,
+    and records the ticket's identity + version coordinate in the pitch.
+  * A drift check (the consuming repos' CI or tracker bot) — re-reads the
+    Epic later and compares the recorded version against the live one, item
+    by item, so a requirement cannot move underneath a pitch unnoticed.
 
 Subcommands
   parse   read a ticket body from a file (`-` = stdin) and emit JSON
-  fetch   `gh issue view <N> --repo <owner/name>`, then parse; adds `source`
+  fetch   obtain the ticket through an adapter, then parse; adds `source`
+  drift   fetch the ticket and compare it with a recorded version coordinate
 
-The script carries NO section vocabulary of its own. Which headings bind is
-passed by the caller — `--binding ID=HEADING`, repeatable — and the plugin
-sources those from the active profile, so a team's tracker template is data,
-not code. Everything else the parser recognises is plain GitHub-flavoured
-markdown:
+Nothing tracker-specific is baked in beyond one default adapter:
+
+  * Which headings bind is passed by the caller — `--binding ID=HEADING`,
+    repeatable — and the plugin sources those from the active profile, so a
+    team's tracker template is data, not code.
+  * How a ticket is obtained is an *adapter*: any command that prints the
+    ticket-input JSON below. `--fetch-command` (or the consuming repo's
+    `requirement_contract.fetch_command`) names it; the placeholders `{repo}`
+    and `{id}` are substituted per argv element — the template is split with
+    shlex and run WITHOUT a shell, so a placeholder value can never become
+    shell syntax. Absent, the built-in GitHub adapter runs `gh api graphql`.
+  * The version coordinate is an opaque string; the only operation this
+    script performs on it is equality. GitHub's is the body's last-edit time.
+
+Ticket-input JSON (what an adapter prints; `history` is optional):
+
+  {"id": "3755", "title": "…", "url": "…", "body": "<markdown>",
+   "version": "2026-09-08T05:25:01Z", "state": "OPEN",
+   "labels": ["ux"], "milestone": "v2.3.1",
+   "history": [{"version": "…", "body": "<markdown at that version>"}, …]}
+
+Everything the parser recognises is plain GitHub-flavoured markdown:
 
   * a binding section is the slice from its heading (any `#` level; 「」 marks,
     a trailing colon, case and whitespace are ignored when matching) up to the
@@ -42,28 +61,37 @@ Output contract (`schema: 1`) — always JSON on stdout, even on failure:
   items        `ordinal` (1-based within the section, across groups), `group`,
                `depth`, `checkbox`, `checked`, `struck`, `text`, `line`
   sections[]   the whole outline, binding or not, each with its raw slice —
-               the non-binding context a classifier needs to spot a
+               the non-binding context a judgement needs to spot a
                self-contradiction (a 비고 / 미해결 note) lives here
   warnings[]   tolerated but worth a look: plain bullets, prose lines, empty
                items, duplicate item text, fenced code inside a binding section
   errors[]     what made the exit code non-zero
-  source       `fetch` only: repo, number, title, url, state, labels,
-               milestone, updated_at, fetched_at, as_of
+  source       `fetch`/`drift`: tracker, repo, id, title, url, state, labels,
+               milestone, version, fetched_at, read_at
 
-`text` is the ONE canonical form both halves compare: NFC-normalised, outer
-whitespace stripped, inner whitespace runs collapsed to a single space, inline
-markdown kept verbatim. A struck item keeps its `~~`; `struck: true` says so.
+`drift` adds: `recorded_version`, `current_version`, `drift` (versions
+differ), `history_available` (the recorded body could be retrieved),
+`binding_changed` (a binding item was added or removed — false when history
+proves the change touched only non-binding text), and per binding `added[]`,
+`removed[]`, `unchanged` (item texts compared as multisets).
+
+`text` is the ONE canonical form every consumer compares: NFC-normalised,
+outer whitespace stripped, inner whitespace runs collapsed to a single
+space, inline markdown kept verbatim. A struck item keeps its `~~`;
+`struck: true` says so.
 
 Exit codes
-  0  every binding section was found and holds at least one item
-  1  a binding section is missing or empty — JSON is still emitted, so the
-     caller renders `errors` instead of guessing
-  2  usage error, or `fetch` could not reach the ticket
+  parse/fetch  0 every binding section found with ≥1 item · 1 a binding
+               section is missing or empty (JSON still emitted, so the caller
+               renders `errors` instead of guessing) · 2 usage or adapter error
+  drift        0 no drift, or drift proven to touch no binding item · 1 a
+               binding item changed, or the change could not be examined
+               (no history for the recorded version) · 2 usage or adapter error
 
-Requires python3 only (no PyYAML). `fetch` needs the `gh` CLI on PATH,
-authenticated for the target repo. Line numbers in the output are 1-based
-and refer to the body as fetched (comments are blanked, not deleted, so they
-stay stable).
+Requires python3 only (no PyYAML). The default adapter needs the `gh` CLI on
+PATH, authenticated for the target repo. Line numbers are 1-based and refer
+to the body as fetched (comments are blanked, not deleted, so they stay
+stable).
 """
 
 from __future__ import annotations
@@ -72,10 +100,12 @@ import argparse
 import datetime as _dt
 import json
 import re
+import shlex
 import shutil
 import subprocess
 import sys
 import unicodedata
+from collections import Counter
 from typing import Any
 
 SCHEMA = 1
@@ -90,14 +120,32 @@ ORDERED_RE = re.compile(r"^(\s*)\d{1,3}[.)][ \t]+(.*)$")
 STRUCK_RE = re.compile(r"^~~.+~~$")
 BINDING_ID_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 REPO_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$")
+TICKET_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 WS_RE = re.compile(r"\s+")
 HEADING_QUOTES = "「」『』\"'“”‘’"
 EXCERPT_LEN = 60
-GH_TIMEOUT_SECONDS = 60
+ADAPTER_TIMEOUT_SECONDS = 60
+HISTORY_PAGE = 100
+
+# The built-in GitHub adapter. `userContentEdits` holds the FULL body after each
+# edit (the creation counts as the first edit), which is what lets `drift` show
+# the item-level difference instead of only "the ticket moved".
+GITHUB_QUERY = """
+query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    issue(number: $number) {
+      number title body url state createdAt lastEditedAt
+      labels(first: 100) { nodes { name } }
+      milestone { title }
+      userContentEdits(first: %d) { totalCount nodes { editedAt diff } }
+    }
+  }
+}
+""" % HISTORY_PAGE
 
 
 # --------------------------------------------------------------------------
-# text normalisation — the one definition both halves of the contract share
+# text normalisation — the one definition every consumer shares
 # --------------------------------------------------------------------------
 
 
@@ -125,7 +173,7 @@ def excerpt(s: str) -> str:
 def preprocess(body: str) -> list[str]:
     body = unicodedata.normalize("NFC", body.replace("\r\n", "\n").replace("\r", "\n"))
     # Blank comments instead of deleting them so every reported line number
-    # still points at the same line of the body the reader sees on GitHub.
+    # still points at the same line of the body the reader sees on the tracker.
     body = HTML_COMMENT_RE.sub(lambda m: "\n" * m.group(0).count("\n"), body)
     return body.split("\n")
 
@@ -344,6 +392,248 @@ def parse_body(body: str, bindings: list[tuple[str, str]]) -> dict[str, Any]:
     }
 
 
+def binding_texts(parsed: dict[str, Any]) -> dict[str, list[str]]:
+    """Binding id → canonical item texts, in document order."""
+    return {
+        b["id"]: [it["text"] for g in b["groups"] for it in g["items"]]
+        for b in parsed["bindings"]
+    }
+
+
+# --------------------------------------------------------------------------
+# adapters — obtaining a ticket
+# --------------------------------------------------------------------------
+
+
+def adapter_fail(msg: str) -> None:
+    sys.stderr.write(f"error: {msg}\n")
+    sys.exit(2)
+
+
+def run_argv(argv: list[str], what: str) -> str:
+    if shutil.which(argv[0]) is None:
+        adapter_fail(f"`{argv[0]}` not found on PATH — needed to {what}")
+    try:
+        proc = subprocess.run(
+            argv, capture_output=True, encoding="utf-8", timeout=ADAPTER_TIMEOUT_SECONDS
+        )
+    except subprocess.TimeoutExpired:
+        adapter_fail(f"`{argv[0]}` did not answer within {ADAPTER_TIMEOUT_SECONDS}s while trying to {what}")
+    except OSError as exc:
+        adapter_fail(f"could not run `{argv[0]}`: {exc}")
+    if proc.returncode != 0:
+        detail = proc.stderr.strip() or proc.stdout.strip() or "(no output)"
+        adapter_fail(f"`{argv[0]}` exited {proc.returncode} while trying to {what}: {detail}")
+    return proc.stdout
+
+
+def load_json_output(raw: str, what: str) -> Any:
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as exc:
+        adapter_fail(f"non-JSON output while trying to {what}: {exc}")
+
+
+def github_fetch(repo: str, ticket_id: str) -> dict[str, Any]:
+    """Built-in adapter: the issue plus its full edit history via GraphQL."""
+    if not ticket_id.isdigit():
+        adapter_fail(f"the GitHub adapter needs a numeric issue id, got {ticket_id!r}")
+    owner, name = repo.split("/", 1)
+    what = f"fetch {repo}#{ticket_id}"
+    raw = run_argv(
+        [
+            "gh", "api", "graphql",
+            "-f", f"query={GITHUB_QUERY}",
+            "-F", f"owner={owner}", "-F", f"name={name}", "-F", f"number={int(ticket_id)}",
+        ],
+        what,
+    )
+    data = load_json_output(raw, what)
+    issue = (((data or {}).get("data") or {}).get("repository") or {}).get("issue")
+    if not isinstance(issue, dict):
+        errs = (data or {}).get("errors") if isinstance(data, dict) else None
+        detail = "; ".join(str(e.get("message", e)) for e in errs) if errs else "no issue in response"
+        adapter_fail(f"could not {what}: {detail}")
+    version = issue.get("lastEditedAt") or issue.get("createdAt")
+    edits = issue.get("userContentEdits") or {}
+    history = [
+        {"version": n.get("editedAt"), "body": n.get("diff")}
+        for n in (edits.get("nodes") or [])
+        if isinstance(n, dict) and n.get("editedAt") and n.get("diff") is not None
+    ]
+    if history and version and not any(h["version"] == version for h in history):
+        # The current version's edit record can be missing only when the edit
+        # log is longer than one page; the current body still stands for it.
+        history.append({"version": version, "body": issue.get("body") or ""})
+    total = edits.get("totalCount")
+    milestone = issue.get("milestone") or None
+    return {
+        "id": str(issue.get("number", ticket_id)),
+        "title": issue.get("title"),
+        "url": issue.get("url"),
+        "body": issue.get("body") or "",
+        "version": version,
+        "state": issue.get("state"),
+        "labels": [lb.get("name") for lb in ((issue.get("labels") or {}).get("nodes") or []) if isinstance(lb, dict)],
+        "milestone": milestone.get("title") if isinstance(milestone, dict) else None,
+        "history": history,
+        "history_truncated": bool(isinstance(total, int) and total > HISTORY_PAGE),
+    }
+
+
+def command_fetch(template: str, repo: str | None, ticket_id: str) -> dict[str, Any]:
+    """A consumer-supplied adapter: shlex-split template, placeholders swapped
+    per argv element, run without a shell, output = ticket-input JSON."""
+    try:
+        parts = shlex.split(template)
+    except ValueError as exc:
+        adapter_fail(f"--fetch-command is not a valid command line: {exc}")
+    if not parts:
+        adapter_fail("--fetch-command is empty")
+    argv = [p.replace("{repo}", repo or "").replace("{id}", ticket_id) for p in parts]
+    what = f"fetch ticket {ticket_id} via `{parts[0]}`"
+    data = load_json_output(run_argv(argv, what), what)
+    if not isinstance(data, dict):
+        adapter_fail(f"adapter output must be a JSON object while trying to {what}")
+    return data
+
+
+def normalize_ticket(data: dict[str, Any], ticket_id: str) -> dict[str, Any]:
+    """Validate an adapter's output against the ticket-input contract."""
+    problems: list[str] = []
+    if not isinstance(data.get("body"), str):
+        problems.append("`body` (string) missing")
+    version = data.get("version")
+    if not isinstance(version, str) or not version.strip():
+        problems.append("`version` (non-empty string) missing — the drift check has nothing to compare")
+    if problems:
+        adapter_fail(f"adapter output for ticket {ticket_id} is incomplete: " + "; ".join(problems))
+    history_in = data.get("history") or []
+    history = [
+        {"version": str(h["version"]), "body": h["body"]}
+        for h in history_in
+        if isinstance(h, dict) and h.get("version") and isinstance(h.get("body"), str)
+    ]
+    labels = data.get("labels") or []
+    return {
+        "id": str(data.get("id") or ticket_id),
+        "title": data.get("title"),
+        "url": data.get("url"),
+        "body": data["body"],
+        "version": version.strip(),
+        "state": data.get("state"),
+        "labels": [str(x) for x in labels] if isinstance(labels, list) else [],
+        "milestone": data.get("milestone"),
+        "history": history,
+        "history_truncated": bool(data.get("history_truncated", False)),
+    }
+
+
+def obtain_ticket(args: argparse.Namespace) -> dict[str, Any]:
+    if args.fetch_command:
+        raw = command_fetch(args.fetch_command, args.repo, args.id)
+    else:
+        if not args.repo:
+            adapter_fail("--repo OWNER/NAME is required for the built-in GitHub adapter")
+        raw = github_fetch(args.repo, args.id)
+    return normalize_ticket(raw, args.id)
+
+
+def source_block(args: argparse.Namespace, ticket: dict[str, Any]) -> dict[str, Any]:
+    now = _dt.datetime.now().astimezone()
+    return {
+        "tracker": args.tracker,
+        "repo": args.repo,
+        "id": ticket["id"],
+        "title": ticket["title"],
+        "url": ticket["url"],
+        "state": ticket["state"],
+        "labels": ticket["labels"],
+        "milestone": ticket["milestone"],
+        "version": ticket["version"],
+        "fetched_at": now.isoformat(timespec="seconds"),
+        "read_at": now.date().isoformat(),
+    }
+
+
+# --------------------------------------------------------------------------
+# drift — recorded version vs. current
+# --------------------------------------------------------------------------
+
+
+def pick_items(binding: dict[str, Any], wanted: Counter) -> list[dict[str, Any]]:
+    """The items of `binding`, in document order, whose text is in `wanted`
+    (a multiset — a text listed twice is picked twice, then no more)."""
+    left = Counter(wanted)
+    picked: list[dict[str, Any]] = []
+    for g in binding["groups"]:
+        for it in g["items"]:
+            if left.get(it["text"], 0) > 0:
+                left[it["text"]] -= 1
+                picked.append({"ordinal": it["ordinal"], "group": it["group"], "text": it["text"]})
+    return picked
+
+
+def compute_drift(
+    ticket: dict[str, Any], recorded: str, bindings: list[tuple[str, str]]
+) -> dict[str, Any]:
+    current = parse_body(ticket["body"], bindings)
+    result: dict[str, Any] = {
+        "schema": SCHEMA,
+        "source": None,
+        "recorded_version": recorded,
+        "current_version": ticket["version"],
+        "drift": ticket["version"] != recorded,
+        "history_available": True,
+        "binding_changed": False,
+        "bindings": [],
+        "warnings": list(current["warnings"]),
+        "errors": [],
+    }
+    if not result["drift"]:
+        result["bindings"] = [
+            {"id": b["id"], "heading": b["heading"], "added": [], "removed": [],
+             "unchanged": b["item_count"]}
+            for b in current["bindings"]
+        ]
+        return result
+
+    old_body = next((h["body"] for h in ticket["history"] if h["version"] == recorded), None)
+    if old_body is None:
+        result["history_available"] = False
+        result["binding_changed"] = True  # unproven → treat as changed
+        note = " (the edit log was longer than one page)" if ticket.get("history_truncated") else ""
+        result["warnings"].append(
+            f"no body is available for recorded version {recorded!r}{note}; "
+            f"cannot tell which items changed — re-read the ticket"
+        )
+        result["bindings"] = [
+            {"id": b["id"], "heading": b["heading"], "added": [], "removed": [],
+             "unchanged": None}
+            for b in current["bindings"]
+        ]
+        return result
+
+    old = parse_body(old_body, bindings)
+    old_texts = binding_texts(old)
+    new_by_id = {b["id"]: b for b in current["bindings"]}
+    for b in old["bindings"]:
+        bid = b["id"]
+        new_b = new_by_id[bid]
+        old_c = Counter(old_texts[bid])
+        new_c = Counter(it["text"] for g in new_b["groups"] for it in g["items"])
+        removed = pick_items(b, old_c - new_c)
+        added = pick_items(new_b, new_c - old_c)
+        unchanged = sum((old_c & new_c).values())
+        if added or removed:
+            result["binding_changed"] = True
+        result["bindings"].append(
+            {"id": bid, "heading": b["heading"], "added": added, "removed": removed,
+             "unchanged": unchanged}
+        )
+    return result
+
+
 # --------------------------------------------------------------------------
 # CLI
 # --------------------------------------------------------------------------
@@ -377,41 +667,17 @@ def read_body(path: str) -> str:
         return fh.read().decode("utf-8")
 
 
-def fetch_issue(repo: str, number: int) -> dict[str, Any]:
-    if shutil.which("gh") is None:
-        sys.stderr.write("error: `gh` CLI not found on PATH — needed for `fetch`\n")
-        sys.exit(2)
-    cmd = [
-        "gh", "issue", "view", str(number), "--repo", repo,
-        "--json", "number,title,body,url,state,labels,milestone,updatedAt",
-    ]
-    try:
-        proc = subprocess.run(cmd, capture_output=True, encoding="utf-8", timeout=GH_TIMEOUT_SECONDS)
-    except subprocess.TimeoutExpired:
-        sys.stderr.write(f"error: gh did not answer within {GH_TIMEOUT_SECONDS}s for {repo}#{number}\n")
-        sys.exit(2)
-    except OSError as exc:
-        sys.stderr.write(f"error: could not run gh: {exc}\n")
-        sys.exit(2)
-    if proc.returncode != 0:
-        detail = proc.stderr.strip() or proc.stdout.strip() or "(no output)"
-        sys.stderr.write(f"error: gh exited {proc.returncode} for {repo}#{number}: {detail}\n")
-        sys.exit(2)
-    try:
-        data = json.loads(proc.stdout)
-    except json.JSONDecodeError as exc:
-        sys.stderr.write(f"error: gh returned non-JSON for {repo}#{number}: {exc}\n")
-        sys.exit(2)
-    if not isinstance(data, dict) or "body" not in data:
-        sys.stderr.write(f"error: gh output for {repo}#{number} carries no `body`\n")
-        sys.exit(2)
-    return data
-
-
 def emit(result: dict[str, Any], compact: bool) -> None:
     payload = json.dumps(result, ensure_ascii=False, indent=None if compact else 2) + "\n"
     sys.stdout.buffer.write(payload.encode("utf-8"))
     sys.stdout.flush()
+
+
+def validate_ticket_args(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
+    if args.repo is not None and not REPO_RE.match(args.repo):
+        parser.error(f"--repo must be OWNER/NAME, got {args.repo!r}")
+    if not TICKET_ID_RE.match(args.id):
+        parser.error(f"--id may contain only letters, digits, `.`, `_`, `-`; got {args.id!r}")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -428,14 +694,27 @@ def main(argv: list[str] | None = None) -> int:
         )
         p.add_argument("--compact", action="store_true", help="single-line JSON")
 
+    def add_ticket(p: argparse.ArgumentParser) -> None:
+        p.add_argument("--id", required=True, metavar="TICKET_ID", help="ticket identifier (issue number on GitHub)")
+        p.add_argument("--repo", metavar="OWNER/NAME", help="repository the ticket lives in (required for the GitHub adapter)")
+        p.add_argument("--tracker", default="github", metavar="NAME", help="label recorded in `source.tracker` (default: github)")
+        p.add_argument(
+            "--fetch-command", metavar="TEMPLATE",
+            help="adapter command printing ticket-input JSON; `{repo}` and `{id}` are substituted per argv element, no shell",
+        )
+
     p_parse = sub.add_parser("parse", help="parse a ticket body from a file (`-` = stdin)")
     p_parse.add_argument("body", help="path to the body, or `-` for stdin")
     add_common(p_parse)
 
-    p_fetch = sub.add_parser("fetch", help="gh issue view, then parse")
-    p_fetch.add_argument("--repo", required=True, metavar="OWNER/NAME")
-    p_fetch.add_argument("--issue", required=True, type=int, metavar="N")
+    p_fetch = sub.add_parser("fetch", help="obtain the ticket through an adapter, then parse")
+    add_ticket(p_fetch)
     add_common(p_fetch)
+
+    p_drift = sub.add_parser("drift", help="compare the live ticket with a recorded version coordinate")
+    add_ticket(p_drift)
+    p_drift.add_argument("--version", required=True, metavar="RECORDED", help="the version coordinate the pitch recorded")
+    add_common(p_drift)
 
     args = parser.parse_args(argv)
     bindings = parse_binding_args(parser, args.binding)
@@ -446,31 +725,25 @@ def main(argv: list[str] | None = None) -> int:
         except (OSError, UnicodeDecodeError) as exc:
             parser.error(f"cannot read body: {exc}")
         result = parse_body(body, bindings)
-    else:
-        if not REPO_RE.match(args.repo):
-            parser.error(f"--repo must be OWNER/NAME, got {args.repo!r}")
-        if args.issue <= 0:
-            parser.error("--issue must be a positive integer")
-        data = fetch_issue(args.repo, args.issue)
-        now = _dt.datetime.now().astimezone()
-        result = parse_body(data.get("body") or "", bindings)
-        milestone = data.get("milestone") or None
-        result["source"] = {
-            "tracker": "github",
-            "repo": args.repo,
-            "number": data.get("number", args.issue),
-            "title": data.get("title"),
-            "url": data.get("url"),
-            "state": data.get("state"),
-            "labels": [lb.get("name") for lb in (data.get("labels") or []) if isinstance(lb, dict)],
-            "milestone": milestone.get("title") if isinstance(milestone, dict) else None,
-            "updated_at": data.get("updatedAt"),
-            "fetched_at": now.isoformat(timespec="seconds"),
-            "as_of": now.date().isoformat(),
-        }
+        emit(result, args.compact)
+        return 1 if result["errors"] else 0
 
+    validate_ticket_args(parser, args)
+    ticket = obtain_ticket(args)
+
+    if args.command == "fetch":
+        result = parse_body(ticket["body"], bindings)
+        result["source"] = source_block(args, ticket)
+        emit(result, args.compact)
+        return 1 if result["errors"] else 0
+
+    recorded = args.version.strip()
+    if not recorded:
+        parser.error("--version must not be empty")
+    result = compute_drift(ticket, recorded, bindings)
+    result["source"] = source_block(args, ticket)
     emit(result, args.compact)
-    return 1 if result["errors"] else 0
+    return 1 if result["binding_changed"] else 0
 
 
 if __name__ == "__main__":
