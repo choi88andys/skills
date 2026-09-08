@@ -42,6 +42,17 @@ Coverage (matches SCHEMA.md "Validation invariants"):
      `### `. Off by default to preserve backward compatibility with v0.4 repos
      authored before the profile system existed.
 
+  9. Requirement contract (v0.11+) — `references.tickets[]` entries carry
+     non-empty string `tracker` / `id` / `version` (always on); under
+     `--strict-body` and the `--strict-since` scope, with the config's
+     `requirement_contract.enforcement: required`, every pitch carries a
+     ticket reference or a `references.ticket_exemption`; and, once the
+     config opts into the contract, a pitch's disagreement section
+     (`profile.sections[id=requirement_disagreement]`) holds ≥1 `### ` entry
+     whose four labelled bullets are present and whose outcome begins with a
+     terminal token — a provisional outcome is a violation, which is the
+     merge gate that keeps a pitch PR open until the request is settled.
+
 Not covered (deferred): cycle detection on supersede chains.
 
 Besides validating, `--list-active` prints the repo's active (non-deprecated)
@@ -114,6 +125,10 @@ GIVEN_WHEN_THEN_RE = {
 }
 
 DOC_TYPES = ("pitch", "adr")
+REPO_SLUG_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$")
+ENFORCEMENT_VALUES = ("optional", "required")
+TICKET_REQUIRED_KEYS = ("tracker", "id", "version")
+DISAGREEMENT_FIELDS = ("original", "correction", "reason", "outcome")
 REPO_MODES = ("two-repo-spec", "two-repo-app", "single-repo")
 
 
@@ -166,7 +181,36 @@ def load_config(path: Path) -> dict[str, Any]:
         if missing_paths:
             die(f"config.yml repo_mode=single-repo requires {sorted(missing_paths)}")
 
+    # v0.11+: the optional requirement-contract block. A malformed block is
+    # fatal, like a malformed cutoff — a gate that silently degrades to "off"
+    # is the failure this validator exists to prevent.
+    contract = data.get("requirement_contract")
+    if contract is not None:
+        if not isinstance(contract, dict):
+            die("config.yml requirement_contract must be a mapping")
+        enforcement = contract.get("enforcement", "optional")
+        if enforcement not in ENFORCEMENT_VALUES:
+            die(
+                f"config.yml requirement_contract.enforcement must be one of "
+                f"{list(ENFORCEMENT_VALUES)}, got {enforcement!r}"
+            )
+        repo = contract.get("repo")
+        if repo is not None and not REPO_SLUG_RE.match(str(repo)):
+            die(f"config.yml requirement_contract.repo must be OWNER/NAME, got {repo!r}")
+        fetch_command = contract.get("fetch_command")
+        if fetch_command is not None and (
+            not isinstance(fetch_command, str) or not fetch_command.strip()
+        ):
+            die("config.yml requirement_contract.fetch_command must be a non-empty string")
+
     return data
+
+
+def config_contract(config: dict[str, Any]) -> dict[str, Any] | None:
+    """The validated `requirement_contract` block, or None when the repo has
+    not opted in. Callers treat None as "every contract check is a no-op"."""
+    block = config.get("requirement_contract")
+    return block if isinstance(block, dict) else None
 
 
 def load_profile(config: dict[str, Any], repo_root: Path) -> dict[str, Any]:
@@ -279,6 +323,38 @@ def profile_user_stories_section(profile: dict[str, Any]) -> dict[str, Any] | No
         if isinstance(entry, dict) and entry.get("id") == "user_stories":
             return entry
     return None
+
+
+def profile_disagreement_vocabulary(profile: dict[str, Any]) -> dict[str, Any] | None:
+    """What the disagreement-outcome check needs from the profile (v0.11+):
+    the section heading plus field labels and outcome tokens. None when any
+    of it is missing — the caller then skips the check with a warning rather
+    than inventing labels."""
+    if not profile:
+        return None
+    heading = None
+    for entry in profile.get("sections") or []:
+        if isinstance(entry, dict) and entry.get("id") == "requirement_disagreement":
+            heading = str(entry.get("heading") or "").strip()
+    block = (profile.get("requirement_contract") or {}).get("disagreement") or {}
+    fields = block.get("fields") or {}
+    provisional = block.get("outcome_provisional")
+    terminal = block.get("outcome_terminal") or []
+    if (
+        not heading
+        or not all(isinstance(fields.get(k), str) and fields[k].strip() for k in DISAGREEMENT_FIELDS)
+        or not isinstance(provisional, str)
+        or not provisional.strip()
+        or not isinstance(terminal, list)
+        or not terminal
+    ):
+        return None
+    return {
+        "heading": heading,
+        "fields": {k: str(fields[k]).strip() for k in DISAGREEMENT_FIELDS},
+        "provisional": provisional.strip(),
+        "terminal": [str(t).strip() for t in terminal if str(t).strip()],
+    }
 
 
 def profile_normative_tokens(profile: dict[str, Any]) -> list[str]:
@@ -651,6 +727,160 @@ def check_references(
                 violations,
                 f"{path}: references.pitches file not found: {value} (searched {pitches_ref_root})",
             )
+
+
+def check_ticket_references(
+    path: Path,
+    fm: dict[str, Any],
+    doc_type: str,
+    violations: list[str],
+) -> None:
+    """Shape of `references.tickets` / `references.ticket_exemption` (v0.11+).
+
+    Always on, for pitches: a ticket record that lacks its version coordinate
+    cannot be drift-checked, and a validator that accepts it would let the
+    contract silently degrade to "some ticket, some time".
+    """
+    if doc_type != "pitch":
+        return
+    refs = fm.get("references") or {}
+    if not isinstance(refs, dict):
+        return  # check_references already reports non-list pitches; keep one voice
+    tickets = refs.get("tickets")
+    if tickets is not None:
+        if not isinstance(tickets, list):
+            warn(violations, f"{path}: references.tickets must be a list")
+        else:
+            for i, entry in enumerate(tickets):
+                if not isinstance(entry, dict):
+                    warn(violations, f"{path}: references.tickets[{i}] must be a mapping")
+                    continue
+                missing = [
+                    k for k in TICKET_REQUIRED_KEYS
+                    if not isinstance(entry.get(k), (str, int)) or not str(entry.get(k)).strip()
+                ]
+                if missing:
+                    warn(
+                        violations,
+                        f"{path}: references.tickets[{i}] missing non-empty {missing} "
+                        f"(a record without its version coordinate cannot be drift-checked)",
+                    )
+    exemption = refs.get("ticket_exemption")
+    if exemption is not None and (not isinstance(exemption, str) or not exemption.strip()):
+        warn(violations, f"{path}: references.ticket_exemption must be a non-empty reason string")
+
+
+def check_ticket_presence(path: Path, fm: dict[str, Any], violations: list[str]) -> None:
+    """`enforcement: required` — a pitch cites a ticket or says why it cannot.
+    Runs under --strict-body within the --strict-since scope (a body policy
+    that legacy pitches predate)."""
+    refs = fm.get("references") or {}
+    if not isinstance(refs, dict):
+        refs = {}
+    tickets = refs.get("tickets")
+    exemption = refs.get("ticket_exemption")
+    has_ticket = isinstance(tickets, list) and len(tickets) > 0
+    has_exemption = isinstance(exemption, str) and bool(exemption.strip())
+    if not has_ticket and not has_exemption:
+        warn(
+            violations,
+            f"{path}: requirement_contract.enforcement is `required` but the pitch "
+            f"records neither references.tickets nor references.ticket_exemption",
+        )
+
+
+def _labelled_bullet_re(label: str) -> re.Pattern[str]:
+    """`- **<label>** <text>` — optional emphasis around the label, optional
+    colon after it; the label itself is matched literally."""
+    return re.compile(
+        rf"^\s*[-*]\s+[\*_]{{0,3}}{re.escape(label)}[\*_]{{0,3}}\s*[:：]?\s*(.*)$"
+    )
+
+
+def validate_pitch_disagreement_outcomes(
+    path: Path,
+    vocab: dict[str, Any],
+    violations: list[str],
+) -> None:
+    """The requirement-contract merge gate (v0.11+).
+
+    When the disagreement section (H2 == `vocab["heading"]`) exists, it must
+    hold ≥1 `### ` entry, and every entry must carry the four labelled bullets
+    with an outcome that BEGINS with a terminal token. An outcome beginning
+    with the provisional token is a violation: the request it records is still
+    open, so the pitch may not merge yet. Runs under --strict-body within the
+    --strict-since scope.
+    """
+    text = path.read_text(encoding="utf-8")
+    fm_match = FRONTMATTER_RE.match(text)
+    body = text[fm_match.end():] if fm_match else text
+    body = FENCED_CODE_RE.sub("", body)
+    lines = body.splitlines()
+
+    target = vocab["heading"]
+    slice_start: int | None = None
+    slice_end = len(lines)
+    for idx, line in enumerate(lines):
+        m = HEADING_RE.match(line)
+        if not m:
+            continue
+        level = len(m.group(1))
+        title = m.group(2).strip()
+        if slice_start is None:
+            if level == 2 and title == target:
+                slice_start = idx
+        elif level <= 2:
+            slice_end = idx
+            break
+    if slice_start is None:
+        return  # no disagreement → nothing to gate
+
+    slice_lines = lines[slice_start + 1 : slice_end]
+    entries: list[tuple[int, str]] = []
+    for idx, line in enumerate(slice_lines):
+        m = HEADING_RE.match(line)
+        if m and len(m.group(1)) == 3:
+            entries.append((idx, m.group(2).strip()))
+
+    issues: list[str] = []
+    if not entries:
+        issues.append(f"`## {target}` — section present but holds no `### ` entry")
+
+    fields = vocab["fields"]
+    field_res = {k: _labelled_bullet_re(v) for k, v in fields.items()}
+    provisional = vocab["provisional"]
+    terminal = vocab["terminal"]
+    for e_i, (e_start, e_title) in enumerate(entries):
+        e_end = entries[e_i + 1][0] if e_i + 1 < len(entries) else len(slice_lines)
+        found: dict[str, str] = {}
+        for line in slice_lines[e_start + 1 : e_end]:
+            for key, pattern in field_res.items():
+                if key in found:
+                    continue
+                m = pattern.match(line)
+                if m:
+                    found[key] = m.group(1).strip()
+                    break
+        missing = [fields[k] for k in DISAGREEMENT_FIELDS if k not in found]
+        if missing:
+            issues.append(f"### {e_title} — missing bullet(s): {', '.join(missing)}")
+        outcome = found.get("outcome")
+        if outcome is None:
+            continue
+        if outcome.startswith(provisional):
+            issues.append(
+                f"### {e_title} — outcome is `{provisional}` (correction request still open); "
+                f"settle it as one of {terminal} before merging"
+            )
+        elif not any(outcome.startswith(t) for t in terminal):
+            issues.append(
+                f"### {e_title} — outcome must begin with one of {terminal} "
+                f"(or `{provisional}` while open); got: {outcome[:60]}"
+            )
+
+    if issues:
+        bullet = "\n  - " + "\n  - ".join(issues)
+        warn(violations, f"{path}: requirement-contract disagreement violation:{bullet}")
 
 
 def validate_pitch_user_stories_structure(
@@ -1037,6 +1267,16 @@ def main() -> int:
         else ""
     )
     normative_tokens = profile_normative_tokens(profile)
+    contract = config_contract(config)
+    contract_required = bool(contract and contract.get("enforcement", "optional") == "required")
+    disagreement_vocab = profile_disagreement_vocabulary(profile) if contract else None
+    if contract and args.strict_body and disagreement_vocab is None:
+        sys.stderr.write(
+            "warning: requirement_contract is declared in config.yml but the active "
+            "profile lacks sections[id=requirement_disagreement] or "
+            "requirement_contract.disagreement — the disagreement-outcome check is "
+            "skipped. Run /immutable:migrate to pick up the bundled vocabulary.\n"
+        )
     strict_structure_enabled = bool(
         args.strict_body
         and user_stories_section
@@ -1091,6 +1331,7 @@ def main() -> int:
                     reserved,
                     violations,
                 )
+                check_ticket_references(md_path, fm_checked, doc_type, violations)
                 if args.strict_body:
                     if strict_body_in_scope(md_path, strict_since):
                         validate_body_headings(
@@ -1105,6 +1346,12 @@ def main() -> int:
                                 user_stories_heading,
                                 normative_tokens,
                                 violations,
+                            )
+                        if doc_type == "pitch" and contract_required:
+                            check_ticket_presence(md_path, fm_checked, violations)
+                        if doc_type == "pitch" and disagreement_vocab is not None:
+                            validate_pitch_disagreement_outcomes(
+                                md_path, disagreement_vocab, violations
                             )
                     else:
                         strict_exempt_count += 1
