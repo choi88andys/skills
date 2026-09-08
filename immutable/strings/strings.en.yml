@@ -366,6 +366,83 @@ strings:
 
     Return to Stage 2 Branch B/C to rewrite the sentence.
 
+  # --------------------------------------------------------------------------
+  # prd — requirement contract (v0.11+). Rendered only in repos whose
+  # .immutable-prd/config.yml declares `requirement_contract:`.
+  # --------------------------------------------------------------------------
+
+  prd.contract.ticket_prompt_optional: |
+    Is there a tracker ticket that binds this pitch? Give its id (or `owner/repo#id`), or answer 'none'.
+    (This repo's requirement_contract.enforcement is optional — the pitch proceeds without one.)
+
+  prd.contract.ticket_prompt_required: |
+    Which tracker ticket binds this pitch? Give its id (or `owner/repo#id`).
+    This repo's requirement_contract.enforcement is required — if there is none, answer 'none — <one-line reason>'. The reason is recorded verbatim in frontmatter `references.ticket_exemption`.
+
+  prd.contract.exemption_recorded: "Proceeding without a ticket. Reason to be recorded in `references.ticket_exemption`: {reason}"
+
+  prd.contract.fetch_failed: |
+    Could not fetch the ticket:
+    {error}
+
+    {next_action}
+
+  prd.contract.section_missing: |
+    Ticket {ticket_ref} has no usable binding section, so no contract can be made:
+    {errors}
+
+    {next_action}
+
+  prd.contract.next_required_stop: "This repo is in required mode. Fix the ticket and rerun, or declare an exemption with 'none — <reason>'. Stopping here."
+  prd.contract.next_optional_continue: "Optional mode — the pitch can continue without a ticket. Continue? (Y) proceed without a ticket / (N) stop"
+
+  prd.contract.ticket_summary: |
+    Ticket {ticket_ref} — {title}
+    Version coordinate {version} (read on {read_at})
+    {section_rows}
+    Parser warnings: {warning_count}
+
+  prd.contract.section_row: "- {heading}: {item_count} item(s) in {group_count} group(s)"
+
+  prd.contract.judgement_none: "Reviewed {item_count} binding item(s) — none falls under the three judgements (not implementable / self-contradiction / conflict with a settled requirement). All are followed as written."
+
+  prd.contract.judgement_header: |
+    {finding_count} of {item_count} binding item(s) fall under a judgement. Answer per item — (a) accept the judgement / (b) reject it with a one-line reason (kept in the interview transcript only, never written to the pitch)
+
+  prd.contract.judgement_row: |
+    [{n}] {section} · {group} {ordinal} — {category}
+        item: {item_text}
+        evidence: {evidence}
+        drafted correction: {correction}
+
+  prd.contract.correction_request: |
+    ── Correction request for the ticket — copy this into a comment on {ticket_ref}. This skill never writes to the tracker. ──
+    Requirement correction request — while authoring the pitch, the items below could not be followed as written; the pitch is authored against the corrections. Absent a revised ticket within the agreed deadline, the corrections stand.
+
+    {entries}
+    ──────────────────────────────────────────────────
+
+  prd.contract.correction_entry: |
+    {n}. {section} · {group} {ordinal} — {category}
+       original: {original}
+       correction: {correction}
+       reason: {reason}
+
+  prd.contract.unaccounted_items: |
+    Some binding items of ticket {ticket_ref} are not accounted for by the pitch. Every item must be reflected in the body, classified as out of scope (handed to another pitch), or recorded as a requirement disagreement:
+    {items}
+
+    Return to the owning branch, fill the gap, then re-enter Stage 5.
+
+  prd.contract.handoff_addendum: |
+    Requirement contract:
+    - Ticket {ticket_ref}, version coordinate {version} — recorded in frontmatter `references.tickets` (no quotation in the body)
+    - Before merging: `{validator_cmd}`
+    - Has the ticket moved since? `{drift_cmd}`
+
+  prd.contract.handoff_disagreement_line: |
+    - Requirement disagreements: {disagreement_count} — while an outcome reads "{provisional}" this pitch's PR stays open. Once the correction is agreed or the deadline passes, rewrite the outcome line on the PR branch as one of "{terminal_joined}" and merge. Posting the correction request above on the ticket is the user's job.
+
   # ==========================================================================
   # adr skill
   # ==========================================================================

@@ -1,6 +1,6 @@
 ---
 name: prd
-description: Guided authoring for immutable, append-only PRD/pitch files. Conducts a grill-me style interview with context intake, domain-language check, multi-persona adversarial review, and a 90% completeness gate before writing any file. Use when a team needs to produce new spec/PRD content or version-update existing ones in an append-only SDD repo. Triggers - "/immutable:prd", "pitch 작성", "스펙 작성", "PRD 추가", "피치 만들어".
+description: Guided authoring for immutable, append-only PRD/pitch files. Conducts a grill-me style interview with context intake, domain-language check, multi-persona adversarial review, and a 90% completeness gate before writing any file. In a repo that opts into the requirement contract, also reads the bound tracker ticket's binding sections, judges each item, and records disagreements the validator gates on. Use when a team needs to produce new spec/PRD content or version-update existing ones in an append-only SDD repo. Triggers - "/immutable:prd", "pitch 작성", "스펙 작성", "PRD 추가", "피치 만들어".
 allowed-tools: Read, Write, Edit, Bash, Glob, Grep, WebFetch
 ---
 
@@ -51,6 +51,8 @@ The skill is **profile-aware** in v0.5: section headings, the gate threshold, pe
 | `gate.total` / `pass_threshold` / `criteria` | Stage 5 90% completeness gate |
 | `gate.unresolved_tag` | Stage 2/5 unresolved-answer tag — literal value sourced from the active profile per locale |
 | `gate.reject_on_unresolved` | Stage 5 hard-block flag |
+| `sections[id=requirement_disagreement]` (v0.11+) | Stage 6 body assembly — rendered only when Stage 1.6 produced ≥1 disagreement entry |
+| `requirement_contract.ticket_sections[]` / `.categories[]` / `.disagreement.*` (v0.11+) | §1.5.1 fetch bindings, Stage 1.6 judgement vocabulary, Stage 6 disagreement entry labels and outcome tokens. Read only when `.immutable-prd/config.yml` declares `requirement_contract:` |
 
 Inline profile strings (e.g., `sections[i].heading`, `personas[i].name`) remain rendered from the active profile. Stage prompts (intent questions, refusal messages, handoff blocks) are sourced from the strings catalog per the "Strings catalog & locale" section above.
 
@@ -99,7 +101,8 @@ Optional free-text argument for initial context (the user may type in any langua
 
 ```
 Stage 1: Intent Routing           — classify new / update / deprecate + confirm domain
-Stage 1.5: Context Intake (opt.)  — accept curated external context (Figma/Notion/local/Slack)
+Stage 1.5: Context Intake (opt.)  — accept curated external context (ticket/Figma/Notion/local/Slack)
+Stage 1.6: Requirement Judgement  — (contract repos only) classify each binding ticket item; draft corrections
 Stage 2: Interview                 — one question at a time, with a recommended answer
 Stage 3: Domain Language Check    — code identifier detection, terminology drift
 Stage 4: Adversarial Review       — four personas each surface at least one gap
@@ -125,6 +128,7 @@ Use Bash + Glob + Read to collect:
    - Walk up from CWD to find `.immutable-prd/config.yml` (use `scripts/find_config.sh`).
    - If config absent: prompt the user to run `/immutable:init` first, or fall back to the inferred-defaults path documented in `../SCHEMA.md`.
    - Read `team_language`, `profile:` (if v3), and other config fields.
+   - **Requirement contract (v0.11+)**: read the optional `requirement_contract` block — `enforcement` (`optional` | `required`), `tracker`, `repo`, `fetch_command`. Absent → every contract step (§1.5.1, Stage 1.6, the Stage 5 accounting rule, the Stage 6 ticket record) is skipped and nothing else changes. Present → resolve `profile.requirement_contract` and `profile.sections[id=requirement_disagreement]` with the same bundled-default fallback and source annotation as §1.bis.
    - Load profile per the resolution order in **Profile Resolution** above. Cache the parsed profile for the rest of the session.
 1.bis. **Profile schema mismatch detection** (added v0.5.7):
    - When the loaded profile is a TEAM profile (config v3 with `profile:` pointer to a repo-local file), read its `profile_schema:` value (default `1` if absent).
@@ -326,6 +330,32 @@ When the user has both a structural refactor need AND a semantic change targetin
 
 After intent is confirmed, ask whether the user has supporting materials. This stage is **opt-in** — the user can skip.
 
+### 1.5.1 Ticket intake (requirement contract, v0.11+)
+
+Runs only when the config declares `requirement_contract:` (§1.2). It comes **before** the materials prompt because the ticket is the binding input; Figma, Notion and the rest are context.
+
+1. Ask once — `prd.contract.ticket_prompt_optional` under `enforcement: optional`, `prd.contract.ticket_prompt_required` under `required`. Accept a bare id (repository = `requirement_contract.repo`) or `owner/name#id`.
+2. A negative answer (`없음`, `none`, `no`, empty):
+   - `optional` → no ticket is bound; continue to the materials prompt. Nothing about the contract appears in the pitch.
+   - `required` → the answer must carry a one-line reason (`없음 — <reason>`); ask for it if missing. Render `prd.contract.exemption_recorded` with `{reason}`; Stage 6 writes it to `references.ticket_exemption`. Continue.
+3. Otherwise fetch through the parser — one `--binding` per `profile.requirement_contract.ticket_sections[]` entry:
+
+   ```bash
+   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/requirement_contract.py" fetch \
+     --repo "<repo>" --id "<id>" --tracker "<requirement_contract.tracker>" \
+     --binding "<ticket_sections[0].id>=<ticket_sections[0].heading>" \
+     --binding "<ticket_sections[1].id>=<ticket_sections[1].heading>" \
+     > "<scratch>/contract-<id>.json"; echo "exit=$?"
+   ```
+
+   Add `--fetch-command "<requirement_contract.fetch_command>"` when the config sets it. Keep the JSON file for the rest of the run (Stages 1.6, 5 and 6 read it). Do not paste it into the conversation: the parser has already distilled the ticket, so the anti-dumping filter does not apply to it.
+4. Handle the exit code:
+   - `2` — render `prd.contract.fetch_failed` with `{error}` = the parser's stderr and `{next_action}` = `prd.contract.next_required_stop` (required: the run stops) or `prd.contract.next_optional_continue` (optional: ask; `N` stops, `Y` continues without a ticket).
+   - `1` — a binding section is missing or empty. Render `prd.contract.section_missing` with `{ticket_ref}` (`<repo>#<id>`), `{errors}` = the parser's `errors[]` one per line, and the same `{next_action}` split. A ticket without its binding sections cannot be contracted against; under `required` the only ways forward are fixing the ticket or declaring an exemption.
+   - `0` — render `prd.contract.ticket_summary` with `{ticket_ref}`, `{title}`, `{version}`, `{read_at}` from `source`, `{section_rows}` = one `prd.contract.section_row` per binding (`{heading}`, `{item_count}`, `{group_count}` = number of groups), and `{warning_count}`. Then continue to the materials prompt; Stage 1.6 follows this stage.
+
+The JSON's `sections[]` carries the ticket's non-binding text (notes, open-question lists). Stage 1.6 reads it as evidence; it is never treated as binding.
+
 ### Prompt (verbatim required)
 
 Render `prd.stage1_5.intake_prompt_verbatim` **verbatim** — do not paraphrase, shorten, reorder, or drop guardrail lines (quantity caps, rejection notices, example URLs). The verbatim contract applies to the rendered catalog value for the active locale; each locale's catalog owns its own verbatim translation. Do NOT rewrite the value at render time.
@@ -362,7 +392,48 @@ After all attachments are summarized, ask using `prd.stage1_5.scope_alignment` (
 
 ### Skip path
 
-If the user replies with a negative/empty response (e.g., `없음`, `none`, `no`, `skip`, empty line), proceed directly to Stage 2. Do not pressure for attachments.
+If the user replies with a negative/empty response (e.g., `없음`, `none`, `no`, `skip`, empty line), proceed directly to Stage 1.6 (or to Stage 2 when no ticket is bound). Do not pressure for attachments.
+
+---
+
+## Stage 1.6 — Requirement Judgement (contract repos only, v0.11+)
+
+Runs only when §1.5.1 bound a ticket. Purpose: find the binding items the pitch **cannot follow as written**, draft the correction the pitch will follow instead, and hand the author a correction request for the ticket. This stage never blocks authoring — the protocol is asynchronous: the pitch is written against the corrected text and records the disagreement.
+
+### 1.6.1 Classify every binding item
+
+For every item of every binding section (all `ticket_sections`, the QA checklist included), assign exactly one status:
+
+| Status | Meaning | Evidence you must cite |
+|---|---|---|
+| `follows` (default) | The pitch will honour the item as written. | — |
+| `profile.requirement_contract.categories[id=infeasible]` | Cannot be implemented as stated (platform, data, physics). | The concrete constraint. When uncertain, ask the user — never assert infeasibility from general knowledge alone. |
+| `…[id=self_contradiction]` | The ticket contradicts itself: another binding item, or its own non-binding text (`sections[]` — notes, open-question lists). | Both passages, quoted. |
+| `…[id=conflict]` | Contradicts a settled requirement — a normative line of an **active** pitch enumerated in §1.2. | The pitch filename and the line. |
+
+Only the three categories let the pitch deviate. Explicitly **not** findings:
+
+- "There is a better way" — offer it as a Branch E no-go classified `Deferred` (a candidate for the next requirement list), never as a disagreement.
+- "The item lacks detail" — the interview fills gaps; that is what a pitch is for.
+- A topic the ticket never raised — never flagged. The ticket binds only what it states; this stage checks no coverage against Notion, Figma, or anything else.
+
+### 1.6.2 Confirm with the user
+
+- No findings → render `prd.contract.judgement_none` with `{item_count}` and proceed to Stage 2.
+- Otherwise render `prd.contract.judgement_header` (`{item_count}`, `{finding_count}`) followed by one `prd.contract.judgement_row` per finding — `{n}`, `{section}` (binding heading), `{group}`, `{ordinal}`, `{category}` (profile label), `{item_text}`, `{evidence}`, `{correction}` (your drafted replacement sentence — one sentence, in the ticket's own register). Ask for a verdict per finding: **(a) accept** or **(b) reject with a one-line reason**. A rejection lives in the interview transcript only; it is neither written to the pitch nor reported anywhere — the tool was wrong, not the ticket.
+
+### 1.6.3 Record the disagreements and hand over the request
+
+For every accepted finding, create one disagreement entry (Stage 6 renders it):
+
+- `original` — the item's `text`, verbatim
+- `correction` — the confirmed replacement sentence
+- `reason` — `<category label> — <evidence>`
+- `outcome` — `<profile.requirement_contract.disagreement.outcome_provisional> — <today's date>`
+
+Then render `prd.contract.correction_request` with `{ticket_ref}` and `{entries}` = one `prd.contract.correction_entry` per accepted finding (`{n}`, `{section}`, `{group}`, `{ordinal}`, `{category}`, `{original}`, `{correction}`, `{reason}`). The **user** posts it on the ticket. This skill never writes to the tracker — Hard Prohibition 11.
+
+From here on the pitch is authored against the corrected text: in Stage 2 the corrected sentence is the binding item; in Stage 5 the entry accounts for that item; in Stage 6 the entry is rendered with a provisional outcome, which the validator turns into a merge gate under `--strict-body`. Settling the request — the ticket corrected, or the agreed deadline passed — is the author's act on the PR branch, rewriting the outcome as a terminal token. The plugin keeps no clock.
 
 ---
 
@@ -372,10 +443,11 @@ If the user replies with a negative/empty response (e.g., `없음`, `none`, `no`
 
 - **One question at a time.** Wait for the answer before the next.
 - **Always provide a recommended answer** with each question. Derivation priority (v0.5.6+):
-  1. **Confirmed Stage 1.5 summary** (the user explicitly curated context — most reliable).
-  2. **Industry defaults** / Apple HIG / cited vendor docs.
-  3. **Analogous active pitches in other domains** — preferred sources are small PRDs (sub-section count ≤ `profile.sections[user_stories].max_items`). Use as structural template.
-  4. **Active pitches in the same domain** — but with tier-aware handling:
+  1. **Bound ticket items** (§1.5.1 / Stage 1.6, contract repos only) — binding text, corrected where a disagreement stands. Where a binding item answers the question, the recommended answer IS that item, verbatim; it may be refined, never weakened.
+  2. **Confirmed Stage 1.5 summary** (the user explicitly curated context — most reliable).
+  3. **Industry defaults** / Apple HIG / cited vendor docs.
+  4. **Analogous active pitches in other domains** — preferred sources are small PRDs (sub-section count ≤ `profile.sections[user_stories].max_items`). Use as structural template.
+  5. **Active pitches in the same domain** — but with tier-aware handling:
      - Tier `pass` (under L1) — usable as both fact-source and structural template.
      - Tier `L1` — usable as fact-source. Avoid copying its structure (it is borderline oversized).
      - Tier `L2` / `L3` — **fact-source only, never a structural template.** Read for "this PRD says [MUST] X, ensure no contradiction" only. Do not derive sub-section count, ordering, normative density, or scope breadth from these. They are anti-pattern instances retained for backward compatibility.
@@ -593,6 +665,7 @@ The criterion only fails on L3 violation. L1/L2 are warnings that do not block b
 - Below threshold → refuse generation; loop to the relevant branch
 - **Any `<profile.gate.unresolved_tag>` tag remains anywhere** → refuse generation regardless of count
 - **`concern_scope` failed (L3)** → refuse generation regardless of count, AND offer `refactor-split` of the in-flight draft as the recovery action
+- **A ticket is bound and a binding item is unaccounted for** (v0.11+) → refuse generation regardless of count. Every item of every `ticket_sections` entry (the QA checklist included) must be one of: *reflected* — a normative line, GWT, edge-case row or no-go in the draft traces to it; *handed off* — a no-go classified "outside this pitch's scope" naming the pitch that owns it; or *contested* — a Stage 1.6 disagreement entry. Render `prd.contract.unaccounted_items` with `{ticket_ref}` and `{items}` = the unaccounted items as `<section> · <group> <ordinal> — <text>` lines, one per line, and loop to the branch that should absorb them. This is the contract's own rule ("the list is honoured in full"), not a coverage check against anything outside the ticket.
 
 ### Refusal message
 
@@ -626,6 +699,8 @@ deprecated: false
 ---
 ```
 
+**Requirement contract (v0.11+)** — when §1.5.1 bound a ticket, add `references.tickets` with one entry per bound ticket, copied from the parser's `source`: `tracker`, `repo`, `id`, `version`, `read_at`, `url`. Never copy ticket text — the tracker keeps the body at that version. When the run was exempted under `required`, write `references.ticket_exemption: <reason>` instead. Without the contract block, emit neither.
+
 ### Body assembly
 
 Start from `pitches/TEMPLATE.md`. Populate sections from interview answers, using **section headings from `profile.sections[].heading`** (looked up by `id`, rendered from the active profile — never hardcoded):
@@ -636,6 +711,7 @@ Start from `pitches/TEMPLATE.md`. Populate sections from interview answers, usin
 - `## <profile.sections[id=edge_cases].heading>` — Branch D content
 - `## <profile.sections[id=no_gos].heading>` — Branch E content
 - `## <profile.sections[id=feature_flag].heading>` — Branch F (only when used)
+- `## <profile.sections[id=requirement_disagreement].heading>` — Stage 1.6 disagreement entries (v0.11+, only when ≥1 exists; shape below)
 
 Section order MUST follow the order of entries in `profile.sections`. Skill consults `profile.sections[i].id` to know which interview branch's content fills each section.
 
@@ -676,6 +752,21 @@ Section order MUST follow the order of entries in `profile.sections`. Skill cons
 - **`consolidated`** — emit a single GWT list followed by a single bracketed-keyword list under the H2 (v0.5.2 shape). Do NOT add `### ` sub-sections in this mode.
 
 If the `structure` field is missing (profile predates v0.5.3), treat it as `per_story_grouped`.
+
+#### Disagreement section shape (v0.11+, contract repos only)
+
+Rendered only when Stage 1.6 produced ≥1 entry, at the position `profile.sections` gives it. One `### ` entry per contested item; the four bullet labels come from `profile.requirement_contract.disagreement.fields`, bold, at the head of the bullet:
+
+```
+### <tracker> <repo>#<id> · <binding heading> · <group> <ordinal>
+
+- **<fields.original>** <item text, verbatim>
+- **<fields.correction>** <the sentence this pitch follows>
+- **<fields.reason>** <category label> — <evidence>
+- **<fields.outcome>** <outcome_provisional> — <request date>
+```
+
+The outcome bullet MUST begin with `outcome_provisional` at generation time; the skill never writes a terminal outcome, because it cannot know that the request was settled. `validate_docs.py --strict-body` refuses a provisional outcome — that is what keeps the pull request open — and accepts one beginning with an `outcome_terminal` token once the author settles it on the PR branch. Never drop an entry to pass the gate.
 
 ### Required-sections guard
 
@@ -720,6 +811,7 @@ After writing, emit a handoff message by rendering `prd.stage6.handoff` with:
 - `{deprecated_line}` — for `update` intent, render `prd.stage6.deprecated_line` with `{old_file_path}` = the previous active file; for `new` / `new_domain`, substitute with an empty string
 - `{github_web_steps}` — render `common.handoff.github_web_steps`
 - `{cli_steps}` — render `common.handoff.cli_steps`
+- **Requirement contract (v0.11+)** — when a ticket was bound, append `prd.contract.handoff_addendum` with `{ticket_ref}`, `{version}`, `{validator_cmd}` (`python3 "${CLAUDE_PLUGIN_ROOT}/scripts/validate_docs.py" --type pitch --strict-body`) and `{drift_cmd}` (the `requirement_contract.py drift` line for this ticket, its version, and the same `--binding` flags as §1.5.1); when ≥1 disagreement entry exists, also `prd.contract.handoff_disagreement_line` with `{disagreement_count}`, `{provisional}` and `{terminal_joined}` (the `outcome_terminal` tokens joined with `common.separator.or`), and repeat the Stage 1.6 correction request verbatim so it is the last thing on screen.
 
 The rendered `prd.stage6.handoff` includes a **Next step** block pointing to `/immutable:design <slug>` plus a one-paragraph clarifier stating that ADR authoring is reactive (surfaced by `/immutable:plan-review-eng` Phase 3 as an OUTPUT, not authored upfront after the pitch). This anchor exists because the canonical pitch → design transition has no orchestrator-level enforcement — without it, callers reading only nearby signals (init handoffs that surface ADR as a peer entry point, CHANGELOG mentions of standalone ADR usage) tend to infer prd → adr as the next step. v0.6.5 already corrected the receiving end (`/immutable:plan-review-ceo` description); v0.7.3 closes the emitting end by adding the next-step anchor here.
 
@@ -775,6 +867,9 @@ FILES='["<pitch-relative-path>"]'   # e.g. ["pitches/state/use-riverpod.md"]
 8. **Never ingest raw dumps from context intake.** Summarize, confirm, then use the summary.
 9. **Never derive PRD structure from an L2/L3 active pitch** (v0.5.6+). Oversized PRDs are anti-pattern instances; treat them as fact-source only when answering individual interview questions, never as templates for the new draft's shape, scope, or normative density.
 10. **Never let `update` intent target an L3 PRD** (v0.5.6+). The intent menu must remove `update` when the target is L3; only `refactor-split`, `split-from`, or `new` (separate small PRD) are offerable. Bypassing this rule perpetuates the domain-charter anti-pattern.
+11. **Never write to the tracker** (v0.11+). Correction requests, registration comments, status updates — every outbound write is handed to the user as rendered text. The skill reads tickets; it never posts.
+12. **Never write a disagreement entry outside the three profile categories, with a field missing, or with a terminal outcome** (v0.11+). "A better way" is a next-list candidate, a missing field is an unfinished judgement, and a terminal outcome is a claim the skill cannot make.
+13. **Never treat a topic the ticket did not raise as a defect** (v0.11+). The contract binds the ticket's stated items only; everything else is the pitch's to decide. No coverage check against Notion, Figma, or any other source.
 
 ---
 
