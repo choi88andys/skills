@@ -416,11 +416,11 @@ strings:
         drafted correction: {correction}
 
   prd.contract.correction_request: |
-    ── Correction request for the ticket — copy this into a comment on {ticket_ref}. This skill never writes to the tracker. ──
-    Requirement correction request — while authoring the pitch, the items below could not be followed as written; the pitch is authored against the corrections. Absent a revised ticket within the agreed deadline, the corrections stand.
+    Requirement correction request — {ticket_ref} (requested {request_date})
+
+    While authoring the pitch, the items below could not be followed as written; the pitch is authored against the corrections. {response_window_line}
 
     {entries}
-    ──────────────────────────────────────────────────
 
   prd.contract.correction_entry: |
     {n}. {section} · {group} {ordinal} — {category}
@@ -442,6 +442,30 @@ strings:
 
   prd.contract.handoff_disagreement_line: |
     - Requirement disagreements: {disagreement_count} — while an outcome reads "{provisional}" this pitch's PR stays open. Once the correction is agreed or the deadline passes, rewrite the outcome line on the PR branch as one of "{terminal_joined}" and merge. Posting the correction request above on the ticket is the user's job.
+
+  prd.contract.value_propagation_note: |
+    The contested value "{value}" also appears in other binding items:
+    {items}
+    Fold them into the finding if it is the same rule; otherwise state in the evidence why they are unaffected.
+
+  prd.contract.correction_deferral_warning: |
+    The correction defers instead of deciding: "{correction}"
+    ({pattern_hint})
+    A correction must be the sentence that becomes the requirement if the ticket stays silent past the response window. Decide the value or wording now and rewrite it. If the decision is not yours to make, ask the user — never copy the ticket's open question into the correction.
+
+  prd.contract.response_window_line: "Response window per protocol: {response_window} from the request date. Absent a revised ticket within it, the corrections below stand."
+
+  prd.contract.handoff_request_file: "- Correction request file: `{path}` — post its content on the ticket as-is (posting is the user's job)"
+
+  prd.contract.handoff_gap_line: |
+    - Handoff gaps — items handed to a pitch that does not exist yet. That pitch must land in the same PR, or the items lose their active statement at merge:
+    {gaps}
+
+  prd.stage6.supersede_gap: |
+    The superseded `{old_file}` defined content that the new draft neither carries nor hands off to an existing active pitch:
+    {missing}
+
+    Deprecating the old file would leave that content without an active pitch. Carry it, hand it to an existing pitch, or close the gap with a sibling pitch in the same PR that also supersedes the old file — then continue.
 
   # ==========================================================================
   # adr skill

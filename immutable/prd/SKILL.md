@@ -417,6 +417,8 @@ Only the three categories let the pitch deviate. Explicitly **not** findings:
 - "The item lacks detail" — the interview fills gaps; that is what a pitch is for.
 - A topic the ticket never raised — never flagged. The ticket binds only what it states; this stage checks no coverage against Notion, Figma, or anything else.
 
+**Value propagation.** When a finding turns on a literal value — an amount, a count, a duration, a threshold — search every other binding item, both sections, for the same value. Each hit is either folded into the finding (same rule, same correction) or named in the finding's evidence with the reason it is unaffected. Render `prd.contract.value_propagation_note` with `{value}` and `{items}` so the user sees the sweep. The first real run left the Epic's general "1,000원 이상" minimum firm while contesting the coupon-case "1,000원 미만" — the two are the same number, and a pitch that settles one and keeps the other contradicts itself the moment the value moves.
+
 ### 1.6.2 Confirm with the user
 
 - No findings → render `prd.contract.judgement_none` with `{item_count}` and proceed to Stage 2.
@@ -431,7 +433,17 @@ For every accepted finding, create one disagreement entry (Stage 6 renders it):
 - `reason` — `<category label> — <evidence>`
 - `outcome` — `<profile.requirement_contract.disagreement.outcome_provisional> — <today's date>`
 
-Then render `prd.contract.correction_request` with `{ticket_ref}` and `{entries}` = one `prd.contract.correction_entry` per accepted finding (`{n}`, `{section}`, `{group}`, `{ordinal}`, `{category}`, `{original}`, `{correction}`, `{reason}`). The **user** posts it on the ticket. This skill never writes to the tracker — Hard Prohibition 11.
+**The correction is a decision, not a question.** It is the complete sentence the pitch follows from now on, and it becomes the requirement if the ticket stays silent past the response window — that is the protocol's default path, and a sentence that defers ("확인 필요", "협의", "확정한다", "TBD") cannot be confirmed by silence. Before accepting a correction, match it against `profile.requirement_contract.disagreement.deferral_patterns[]`; on a hit render `prd.contract.correction_deferral_warning` with `{correction}` and `{pattern_hint}` and re-draft. When the right value is genuinely open — the Epic itself leaves it to development, or two sources disagree — the developer decides it **here**, in the interview, and the correction states that decision; the request then invites the ticket to object, which is exactly what the response window is for. Nowhere else in the body may the contested item be described as pending: no edge-case row "until the threshold is settled", no hedged normative. The body follows the correction. The validator refuses a deferring correction under `--strict-body`.
+
+Then render `prd.contract.correction_request` with `{ticket_ref}`, `{request_date}` (today), `{response_window_line}` (render `prd.contract.response_window_line` with `{response_window}` = `requirement_contract.response_window` from the config, or an empty string when the config does not set it — the plugin keeps no calendar), and `{entries}` = one `prd.contract.correction_entry` per accepted finding (`{n}`, `{section}`, `{group}`, `{ordinal}`, `{category}`, `{original}`, `{correction}`, `{reason}`). **Also write the same rendered text to a file** so it survives the conversation and can be pasted as-is:
+
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/scripts/feature_slug.sh"
+mkdir -p .claude/immutable/contract
+# path: .claude/immutable/contract/${FEATURE_SLUG}-<tracker>-<ticket id>.md  (transient namespace, gitignored by the starters)
+```
+
+It is written in ticket register for the ticket's reader — original, correction, reason, request date, response window — and carries none of the pitch's internal state (no outcome line). On the first write in a repo that does not ignore `.claude/immutable/`, surface `common.transient_namespace_hint`. The **user** posts it on the ticket. This skill never writes to the tracker — Hard Prohibition 11.
 
 From here on the pitch is authored against the corrected text: in Stage 2 the corrected sentence is the binding item; in Stage 5 the entry accounts for that item; in Stage 6 the entry is rendered with a provisional outcome, which the validator turns into a merge gate under `--strict-body`. Settling the request — the ticket corrected, or the agreed deadline passed — is the author's act on the PR branch, rewriting the outcome as a terminal token. The plugin keeps no clock.
 
@@ -665,7 +677,7 @@ The criterion only fails on L3 violation. L1/L2 are warnings that do not block b
 - Below threshold → refuse generation; loop to the relevant branch
 - **Any `<profile.gate.unresolved_tag>` tag remains anywhere** → refuse generation regardless of count
 - **`concern_scope` failed (L3)** → refuse generation regardless of count, AND offer `refactor-split` of the in-flight draft as the recovery action
-- **A ticket is bound and a binding item is unaccounted for** (v0.11+) → refuse generation regardless of count. Every item of every `ticket_sections` entry (the QA checklist included) must be one of: *reflected* — a normative line, GWT, edge-case row or no-go in the draft traces to it; *handed off* — a no-go classified "outside this pitch's scope" naming the pitch that owns it; or *contested* — a Stage 1.6 disagreement entry. Render `prd.contract.unaccounted_items` with `{ticket_ref}` and `{items}` = the unaccounted items as `<section> · <group> <ordinal> — <text>` lines, one per line, and loop to the branch that should absorb them. This is the contract's own rule ("the list is honoured in full"), not a coverage check against anything outside the ticket.
+- **A ticket is bound and a binding item is unaccounted for** (v0.11+) → refuse generation regardless of count. Every item of every `ticket_sections` entry (the QA checklist included) must be one of: *reflected* — a normative line, GWT, edge-case row or no-go in the draft traces to it; *handed off* — a no-go classified "outside this pitch's scope" naming an **existing active pitch** (one the §1.2 enumeration listed, by filename); or *contested* — a Stage 1.6 disagreement entry. A target that does not exist yet is **not** a handoff: classify that item as a `Deferred` no-go whose condition is "authored in the same pull request as this pitch", and Stage 6 lists every such gap in the handoff (`prd.contract.handoff_gap_line`) — a pitch that hands its display rules to a sibling nobody has written leaves them without an active statement the moment it merges. Render `prd.contract.unaccounted_items` with `{ticket_ref}` and `{items}` = the unaccounted items as `<section> · <group> <ordinal> — <text>` lines, one per line, and loop to the branch that should absorb them. This is the contract's own rule ("the list is honoured in full"), not a coverage check against anything outside the ticket.
 
 ### Refusal message
 
@@ -803,6 +815,10 @@ Algorithm:
 
 Previously written pitches are append-only and out of scope — the guard runs only on the in-flight generation.
 
+### Supersede completeness guard (v0.11+, `update` intent only)
+
+Deprecating the previous pitch removes the only active statement of everything it bound. Before writing, compare the superseded file against the draft: every `### ` sub-section and every bracketed normative of the old pitch must be (a) carried into the draft, (b) handed off to an **existing** active pitch in a no-go, or (c) listed as a gap to be closed in the same pull request by a sibling pitch that also declares `supersedes: <old file>` (fan-out is permitted — `../SCHEMA.md` "Mutability policy"). Anything else is a hole: render `prd.stage6.supersede_gap` with `{old_file}` and `{missing}` (one line per uncarried sub-section or normative) and loop to Stage 2 or Branch E. The first real run superseded the pitch that defined the reward-tab display while handing that display to a pitch that did not exist yet.
+
 ### Handoff output
 
 After writing, emit a handoff message by rendering `prd.stage6.handoff` with:
@@ -811,7 +827,7 @@ After writing, emit a handoff message by rendering `prd.stage6.handoff` with:
 - `{deprecated_line}` — for `update` intent, render `prd.stage6.deprecated_line` with `{old_file_path}` = the previous active file; for `new` / `new_domain`, substitute with an empty string
 - `{github_web_steps}` — render `common.handoff.github_web_steps`
 - `{cli_steps}` — render `common.handoff.cli_steps`
-- **Requirement contract (v0.11+)** — when a ticket was bound, append `prd.contract.handoff_addendum` with `{ticket_ref}`, `{version}`, `{validator_cmd}` (`python3 "${CLAUDE_PLUGIN_ROOT}/scripts/validate_docs.py" --type pitch --strict-body`) and `{drift_cmd}` (the `requirement_contract.py drift` line for this ticket, its version, and the same `--binding` flags as §1.5.1); when ≥1 disagreement entry exists, also `prd.contract.handoff_disagreement_line` with `{disagreement_count}`, `{provisional}` and `{terminal_joined}` (the `outcome_terminal` tokens joined with `common.separator.or`), and repeat the Stage 1.6 correction request verbatim so it is the last thing on screen.
+- **Requirement contract (v0.11+)** — when a ticket was bound, append `prd.contract.handoff_addendum` with `{ticket_ref}`, `{version}`, `{validator_cmd}` (`python3 "${CLAUDE_PLUGIN_ROOT}/scripts/validate_docs.py" --type pitch --strict-body`) and `{drift_cmd}` (the `requirement_contract.py drift` line for this ticket, its version, and the same `--binding` flags as §1.5.1); when ≥1 disagreement entry exists, also `prd.contract.handoff_disagreement_line` with `{disagreement_count}`, `{provisional}` and `{terminal_joined}` (the `outcome_terminal` tokens joined with `common.separator.or`) and `prd.contract.handoff_request_file` with `{path}` = the file §1.6.3 wrote; when Stage 5 recorded gaps (handoff targets that do not exist yet), `prd.contract.handoff_gap_line` with `{gaps}` = one line per gap naming the item and the sibling pitch that must land in the same PR.
 
 The rendered `prd.stage6.handoff` includes a **Next step** block pointing to `/immutable:design <slug>` plus a one-paragraph clarifier stating that ADR authoring is reactive (surfaced by `/immutable:plan-review-eng` Phase 3 as an OUTPUT, not authored upfront after the pitch). This anchor exists because the canonical pitch → design transition has no orchestrator-level enforcement — without it, callers reading only nearby signals (init handoffs that surface ADR as a peer entry point, CHANGELOG mentions of standalone ADR usage) tend to infer prd → adr as the next step. v0.6.5 already corrected the receiving end (`/immutable:plan-review-ceo` description); v0.7.3 closes the emitting end by adding the next-step anchor here.
 
