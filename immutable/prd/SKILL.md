@@ -409,7 +409,7 @@ For every item of every binding section (all `ticket_sections`, the QA checklist
 | `follows` (default) | The pitch will honour the item as written. | — |
 | `profile.requirement_contract.categories[id=infeasible]` | Cannot be implemented as stated (platform, data, physics). | The concrete constraint. When uncertain, ask the user — never assert infeasibility from general knowledge alone. |
 | `…[id=self_contradiction]` | The ticket contradicts itself: another binding item, or its own non-binding text (`sections[]` — notes, open-question lists). | Both passages, quoted. |
-| `…[id=conflict]` | Contradicts a settled requirement — a normative line of an **active** pitch enumerated in §1.2. | The pitch filename and the line. |
+| `…[id=conflict]` | Contradicts a settled requirement — a normative line of an **active** pitch enumerated in §1.2, **excluding the pitch this run supersedes** (`update` intent): its normatives are the ones being replaced, so a difference from them is the point of the update, not a conflict. | The pitch filename and the line. |
 
 Only the three categories let the pitch deviate. Explicitly **not** findings:
 
@@ -884,7 +884,7 @@ FILES='["<pitch-relative-path>"]'   # e.g. ["pitches/state/use-riverpod.md"]
 9. **Never derive PRD structure from an L2/L3 active pitch** (v0.5.6+). Oversized PRDs are anti-pattern instances; treat them as fact-source only when answering individual interview questions, never as templates for the new draft's shape, scope, or normative density.
 10. **Never let `update` intent target an L3 PRD** (v0.5.6+). The intent menu must remove `update` when the target is L3; only `refactor-split`, `split-from`, or `new` (separate small PRD) are offerable. Bypassing this rule perpetuates the domain-charter anti-pattern.
 11. **Never write to the tracker** (v0.11+). Correction requests, registration comments, status updates — every outbound write is handed to the user as rendered text. The skill reads tickets; it never posts.
-12. **Never write a disagreement entry outside the three profile categories, with a field missing, or with a terminal outcome** (v0.11+). "A better way" is a next-list candidate, a missing field is an unfinished judgement, and a terminal outcome is a claim the skill cannot make.
+12. **Never write a disagreement entry outside the profile's `requirement_contract.categories`, with a field missing, or with a terminal outcome** (v0.11+). The bundled profiles ship the protocol's three; a team that agrees a further category with its counterpart adds it to the profile, never to this file. "A better way" is a next-list candidate, a missing field is an unfinished judgement, and a terminal outcome is a claim the skill cannot make.
 13. **Never treat a topic the ticket did not raise as a defect** (v0.11+). The contract binds the ticket's stated items only; everything else is the pitch's to decide. No coverage check against Notion, Figma, or any other source.
 
 ---
