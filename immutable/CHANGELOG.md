@@ -2,7 +2,7 @@
 
 All notable changes to the `immutable` plugin are documented in this file. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Version is canonically declared in `.claude-plugin/plugin.json`.
 
-## [0.11.0] — 2026-09-08
+## [0.11.0] — 2026-09-09
 
 Adds the **requirement contract**: a pitch can be authored against a tracker ticket whose designated sections bind it, and the plugin makes sure the pitch cannot silently diverge from those sections — at authoring time, at merge time, and after the ticket moves. Opt-in per repo; a repo without the config block sees no change anywhere.
 
