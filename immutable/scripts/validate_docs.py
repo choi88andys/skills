@@ -42,6 +42,18 @@ Coverage (matches SCHEMA.md "Validation invariants"):
      `### `. Off by default to preserve backward compatibility with v0.4 repos
      authored before the profile system existed.
 
+  9. Requirement contract (v0.11+) — `references.tickets[]` entries carry
+     non-empty string `tracker` / `id` / `version` (always on); under
+     `--strict-body` and the `--strict-since` scope, with the config's
+     `requirement_contract.enforcement: required`, every pitch dated on or
+     after `requirement_contract.since` (when set) carries a ticket reference
+     or a `references.ticket_exemption`; and, once the
+     config opts into the contract, a pitch's disagreement section
+     (`profile.sections[id=requirement_disagreement]`) holds ≥1 `### ` entry
+     whose four labelled bullets are present and whose outcome begins with a
+     terminal token — a provisional outcome is a violation, which is the
+     merge gate that keeps a pitch PR open until the request is settled.
+
 Not covered (deferred): cycle detection on supersede chains.
 
 Besides validating, `--list-active` prints the repo's active (non-deprecated)
@@ -114,6 +126,10 @@ GIVEN_WHEN_THEN_RE = {
 }
 
 DOC_TYPES = ("pitch", "adr")
+REPO_SLUG_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$")
+ENFORCEMENT_VALUES = ("optional", "required")
+TICKET_REQUIRED_KEYS = ("tracker", "id", "version")
+DISAGREEMENT_FIELDS = ("original", "correction", "reason", "outcome")
 REPO_MODES = ("two-repo-spec", "two-repo-app", "single-repo")
 
 
@@ -141,7 +157,11 @@ def load_config(path: Path) -> dict[str, Any]:
     try:
         with path.open("r", encoding="utf-8") as fh:
             data = yaml.safe_load(fh) or {}
-    except yaml.YAMLError as exc:
+    except (yaml.YAMLError, ValueError) as exc:
+        # ValueError: PyYAML builds a date object for any unquoted scalar shaped
+        # like one and lets `datetime` raise on `2026-13-01` — a traceback out of
+        # the validator instead of a config error, for `since` and
+        # `strict_body_since` alike.
         die(f"config.yml failed to parse: {exc}")
         raise AssertionError("unreachable")
 
@@ -166,7 +186,63 @@ def load_config(path: Path) -> dict[str, Any]:
         if missing_paths:
             die(f"config.yml repo_mode=single-repo requires {sorted(missing_paths)}")
 
+    # v0.11+: the optional requirement-contract block. A malformed block is
+    # fatal, like a malformed cutoff — a gate that silently degrades to "off"
+    # is the failure this validator exists to prevent.
+    contract = data.get("requirement_contract")
+    if contract is not None:
+        if not isinstance(contract, dict):
+            die("config.yml requirement_contract must be a mapping")
+        enforcement = contract.get("enforcement", "optional")
+        if enforcement not in ENFORCEMENT_VALUES:
+            die(
+                f"config.yml requirement_contract.enforcement must be one of "
+                f"{list(ENFORCEMENT_VALUES)}, got {enforcement!r}"
+            )
+        repo = contract.get("repo")
+        if repo is not None and not REPO_SLUG_RE.match(str(repo)):
+            die(f"config.yml requirement_contract.repo must be OWNER/NAME, got {repo!r}")
+        fetch_command = contract.get("fetch_command")
+        if fetch_command is not None and (
+            not isinstance(fetch_command, str) or not fetch_command.strip()
+        ):
+            die("config.yml requirement_contract.fetch_command must be a non-empty string")
+        since = contract.get("since")
+        if since is not None:
+            validate_date_field(str(since).strip(), "config.yml requirement_contract.since")
+        window = contract.get("response_window")
+        if window is not None and (not isinstance(window, str) or not window.strip()):
+            die("config.yml requirement_contract.response_window must be a non-empty string")
+
     return data
+
+
+def validate_date_field(value: str, source: str) -> str:
+    """A zero-padded, real YYYY-MM-DD, or a fatal error — never a silent skip."""
+    if not _DATE_RE.match(value):
+        die(f"{source} must be a zero-padded YYYY-MM-DD date, got {value!r}.")
+    try:
+        datetime.date.fromisoformat(value)
+    except ValueError:
+        die(f"{source} {value!r} is not a real calendar date.")
+    return value
+
+
+def contract_since(contract: dict[str, Any] | None) -> str | None:
+    """`requirement_contract.since` — the adoption date. Pitches whose filename
+    date is before it predate the contract and are exempt from the
+    `required` presence rule (they cannot cite a ticket that never bound
+    them, and they are append-only). Validated in load_config."""
+    if not contract or contract.get("since") is None:
+        return None
+    return str(contract["since"]).strip()
+
+
+def config_contract(config: dict[str, Any]) -> dict[str, Any] | None:
+    """The validated `requirement_contract` block, or None when the repo has
+    not opted in. Callers treat None as "every contract check is a no-op"."""
+    block = config.get("requirement_contract")
+    return block if isinstance(block, dict) else None
 
 
 def load_profile(config: dict[str, Any], repo_root: Path) -> dict[str, Any]:
@@ -279,6 +355,50 @@ def profile_user_stories_section(profile: dict[str, Any]) -> dict[str, Any] | No
         if isinstance(entry, dict) and entry.get("id") == "user_stories":
             return entry
     return None
+
+
+def profile_disagreement_vocabulary(profile: dict[str, Any]) -> dict[str, Any] | None:
+    """What the disagreement-outcome check needs from the profile (v0.11+):
+    the section heading plus field labels and outcome tokens. None when any
+    of it is missing — the caller then skips the check with a warning rather
+    than inventing labels."""
+    if not profile:
+        return None
+    heading = None
+    for entry in profile.get("sections") or []:
+        if isinstance(entry, dict) and entry.get("id") == "requirement_disagreement":
+            heading = str(entry.get("heading") or "").strip()
+    block = (profile.get("requirement_contract") or {}).get("disagreement") or {}
+    fields = block.get("fields") or {}
+    provisional = block.get("outcome_provisional")
+    terminal = block.get("outcome_terminal") or []
+    deferral: list[tuple[str, re.Pattern[str]]] = []
+    for entry in block.get("deferral_patterns") or []:
+        if not isinstance(entry, dict) or not entry.get("regex"):
+            continue
+        try:
+            deferral.append((str(entry.get("id") or "deferral"), re.compile(str(entry["regex"]))))
+        except re.error as exc:
+            sys.stderr.write(
+                f"warning: requirement_contract.disagreement.deferral_patterns[{entry.get('id')}] "
+                f"is an invalid regex ({exc}); skipped.\n"
+            )
+    if (
+        not heading
+        or not all(isinstance(fields.get(k), str) and fields[k].strip() for k in DISAGREEMENT_FIELDS)
+        or not isinstance(provisional, str)
+        or not provisional.strip()
+        or not isinstance(terminal, list)
+        or not terminal
+    ):
+        return None
+    return {
+        "heading": heading,
+        "fields": {k: str(fields[k]).strip() for k in DISAGREEMENT_FIELDS},
+        "provisional": provisional.strip(),
+        "terminal": [str(t).strip() for t in terminal if str(t).strip()],
+        "deferral": deferral,  # optional; empty when the profile has none
+    }
 
 
 def profile_normative_tokens(profile: dict[str, Any]) -> list[str]:
@@ -518,13 +638,7 @@ def resolve_strict_since(
         if args.strict_since is not None
         else "config strict_body_since"
     )
-    if not _DATE_RE.match(cutoff):
-        die(f"{source} must be a zero-padded YYYY-MM-DD date, got {cutoff!r}.")
-    try:
-        datetime.date.fromisoformat(cutoff)
-    except ValueError:
-        die(f"{source} {cutoff!r} is not a real calendar date.")
-    return cutoff
+    return validate_date_field(cutoff, source)
 
 
 def strict_body_in_scope(path: Path, cutoff: str | None) -> bool:
@@ -651,6 +765,223 @@ def check_references(
                 violations,
                 f"{path}: references.pitches file not found: {value} (searched {pitches_ref_root})",
             )
+
+
+def check_ticket_references(
+    path: Path,
+    fm: dict[str, Any],
+    doc_type: str,
+    violations: list[str],
+) -> None:
+    """Shape of `references.tickets` / `references.ticket_exemption` (v0.11+).
+
+    Always on, for pitches: a ticket record that lacks its version coordinate
+    cannot be drift-checked, and a validator that accepts it would let the
+    contract silently degrade to "some ticket, some time".
+    """
+    if doc_type != "pitch":
+        return
+    refs = fm.get("references") or {}
+    if not isinstance(refs, dict):
+        return  # check_references already reports non-list pitches; keep one voice
+    tickets = refs.get("tickets")
+    if tickets is not None:
+        if not isinstance(tickets, list):
+            warn(violations, f"{path}: references.tickets must be a list")
+        else:
+            for i, entry in enumerate(tickets):
+                if not isinstance(entry, dict):
+                    warn(violations, f"{path}: references.tickets[{i}] must be a mapping")
+                    continue
+                missing = [
+                    k for k in TICKET_REQUIRED_KEYS
+                    if not isinstance(entry.get(k), (str, int)) or not str(entry.get(k)).strip()
+                ]
+                if missing:
+                    warn(
+                        violations,
+                        f"{path}: references.tickets[{i}] missing non-empty {missing} "
+                        f"(a record without its version coordinate cannot be drift-checked)",
+                    )
+                check_ticket_ledger(path, i, entry, violations)
+    exemption = refs.get("ticket_exemption")
+    if exemption is not None and (not isinstance(exemption, str) or not exemption.strip()):
+        warn(violations, f"{path}: references.ticket_exemption must be a non-empty reason string")
+
+
+def _ledger_items_ok(items: Any) -> bool:
+    return items is None or (
+        isinstance(items, list) and bool(items) and all(isinstance(x, int) and x > 0 for x in items)
+    )
+
+
+def check_ticket_ledger(path: Path, i: int, entry: dict[str, Any], violations: list[str]) -> None:
+    """Shape of the accounting ledger under a ticket record (v0.11+):
+    `covers` = mapping of binding id → list of {group, items?, shared?};
+    `delegates` = list of {binding, group, items?, to, why?}. Semantics
+    (does the group exist, is every item claimed) are `requirement_contract.py
+    coverage`'s job — it needs the live ticket; this is the static half."""
+    where = f"{path}: references.tickets[{i}]"
+    covers = entry.get("covers")
+    if covers is not None:
+        if not isinstance(covers, dict):
+            warn(violations, f"{where}.covers must be a mapping of binding id → list of {{group, items?, shared?}}")
+        else:
+            for binding, decls in covers.items():
+                if not isinstance(decls, list):
+                    warn(violations, f"{where}.covers.{binding} must be a list")
+                    continue
+                for j, d in enumerate(decls):
+                    if not isinstance(d, dict) or "group" not in d:
+                        warn(violations, f"{where}.covers.{binding}[{j}] must be a mapping with `group`")
+                        continue
+                    if not _ledger_items_ok(d.get("items")):
+                        warn(violations, f"{where}.covers.{binding}[{j}].items must be a non-empty list of positive integers")
+                    if "shared" in d and not isinstance(d["shared"], bool):
+                        warn(violations, f"{where}.covers.{binding}[{j}].shared must be a boolean")
+    delegates = entry.get("delegates")
+    if delegates is not None:
+        if not isinstance(delegates, list):
+            warn(violations, f"{where}.delegates must be a list")
+        else:
+            for j, d in enumerate(delegates):
+                if not isinstance(d, dict) or "binding" not in d or "group" not in d:
+                    warn(violations, f"{where}.delegates[{j}] must be a mapping with `binding` and `group`")
+                    continue
+                if not isinstance(d.get("to"), str) or not d["to"].strip():
+                    warn(violations, f"{where}.delegates[{j}].to must name who owns the literal (e.g. Figma)")
+                if not _ledger_items_ok(d.get("items")):
+                    warn(violations, f"{where}.delegates[{j}].items must be a non-empty list of positive integers")
+
+
+def check_ticket_presence(path: Path, fm: dict[str, Any], violations: list[str]) -> None:
+    """`enforcement: required` — a pitch cites a ticket or says why it cannot.
+    Runs under --strict-body within the --strict-since scope AND, when the
+    config sets `requirement_contract.since`, only for pitches dated on or
+    after it — the strict-since window is about body structure and typically
+    predates contract adoption, so without its own cutoff the presence rule
+    would retroactively fail every pitch written between the two dates."""
+    refs = fm.get("references") or {}
+    if not isinstance(refs, dict):
+        refs = {}
+    tickets = refs.get("tickets")
+    exemption = refs.get("ticket_exemption")
+    has_ticket = isinstance(tickets, list) and len(tickets) > 0
+    has_exemption = isinstance(exemption, str) and bool(exemption.strip())
+    if not has_ticket and not has_exemption:
+        warn(
+            violations,
+            f"{path}: requirement_contract.enforcement is `required` but the pitch "
+            f"records neither references.tickets nor references.ticket_exemption",
+        )
+
+
+def _labelled_bullet_re(label: str) -> re.Pattern[str]:
+    """`- **<label>** <text>` — optional emphasis around the label, optional
+    colon after it; the label itself is matched literally."""
+    return re.compile(
+        rf"^\s*[-*]\s+[\*_]{{0,3}}{re.escape(label)}[\*_]{{0,3}}\s*[:：]?\s*(.*)$"
+    )
+
+
+def validate_pitch_disagreement_outcomes(
+    path: Path,
+    vocab: dict[str, Any],
+    violations: list[str],
+) -> None:
+    """The requirement-contract merge gate (v0.11+).
+
+    When the disagreement section (H2 == `vocab["heading"]`) exists, it must
+    hold ≥1 `### ` entry, and every entry must carry the four labelled bullets
+    with an outcome that BEGINS with a terminal token. An outcome beginning
+    with the provisional token is a violation: the request it records is still
+    open, so the pitch may not merge yet. Runs under --strict-body within the
+    --strict-since scope.
+    """
+    text = path.read_text(encoding="utf-8")
+    fm_match = FRONTMATTER_RE.match(text)
+    body = text[fm_match.end():] if fm_match else text
+    body = FENCED_CODE_RE.sub("", body)
+    lines = body.splitlines()
+
+    target = vocab["heading"]
+    slice_start: int | None = None
+    slice_end = len(lines)
+    for idx, line in enumerate(lines):
+        m = HEADING_RE.match(line)
+        if not m:
+            continue
+        level = len(m.group(1))
+        title = m.group(2).strip()
+        if slice_start is None:
+            if level == 2 and title == target:
+                slice_start = idx
+        elif level <= 2:
+            slice_end = idx
+            break
+    if slice_start is None:
+        return  # no disagreement → nothing to gate
+
+    slice_lines = lines[slice_start + 1 : slice_end]
+    entries: list[tuple[int, str]] = []
+    for idx, line in enumerate(slice_lines):
+        m = HEADING_RE.match(line)
+        if m and len(m.group(1)) == 3:
+            entries.append((idx, m.group(2).strip()))
+
+    issues: list[str] = []
+    if not entries:
+        issues.append(f"`## {target}` — section present but holds no `### ` entry")
+
+    fields = vocab["fields"]
+    field_res = {k: _labelled_bullet_re(v) for k, v in fields.items()}
+    provisional = vocab["provisional"]
+    terminal = vocab["terminal"]
+    for e_i, (e_start, e_title) in enumerate(entries):
+        e_end = entries[e_i + 1][0] if e_i + 1 < len(entries) else len(slice_lines)
+        found: dict[str, str] = {}
+        for line in slice_lines[e_start + 1 : e_end]:
+            for key, pattern in field_res.items():
+                if key in found:
+                    continue
+                m = pattern.match(line)
+                if m:
+                    found[key] = m.group(1).strip()
+                    break
+        missing = [fields[k] for k in DISAGREEMENT_FIELDS if k not in found]
+        if missing:
+            issues.append(f"### {e_title} — missing bullet(s): {', '.join(missing)}")
+        # The correction becomes the requirement if the ticket stays silent past
+        # the response window; one that defers cannot be confirmed by silence,
+        # so it is not a correction.
+        correction = found.get("correction")
+        if correction is not None:
+            for pat_id, pat in vocab.get("deferral", []):
+                m = pat.search(correction)
+                if m:
+                    excerpt = correction if len(correction) <= 80 else correction[:77] + "..."
+                    issues.append(
+                        f"### {e_title} — `{fields['correction']}` defers instead of deciding "
+                        f"(matched deferral_patterns[{pat_id}] on {m.group(0)!r}): {excerpt}"
+                    )
+                    break
+        outcome = found.get("outcome")
+        if outcome is None:
+            continue
+        if outcome.startswith(provisional):
+            issues.append(
+                f"### {e_title} — outcome is `{provisional}` (correction request still open); "
+                f"settle it as one of {terminal} before merging"
+            )
+        elif not any(outcome.startswith(t) for t in terminal):
+            issues.append(
+                f"### {e_title} — outcome must begin with one of {terminal} "
+                f"(or `{provisional}` while open); got: {outcome[:60]}"
+            )
+
+    if issues:
+        bullet = "\n  - " + "\n  - ".join(issues)
+        warn(violations, f"{path}: requirement-contract disagreement violation:{bullet}")
 
 
 def validate_pitch_user_stories_structure(
@@ -1037,6 +1368,24 @@ def main() -> int:
         else ""
     )
     normative_tokens = profile_normative_tokens(profile)
+    contract = config_contract(config)
+    contract_required = bool(contract and contract.get("enforcement", "optional") == "required")
+    since_contract = contract_since(contract)
+    contract_exempt_count = 0
+    disagreement_vocab = profile_disagreement_vocabulary(profile) if contract else None
+    if contract and args.strict_body and disagreement_vocab is None:
+        sys.stderr.write(
+            "warning: requirement_contract is declared in config.yml but the active "
+            "profile lacks sections[id=requirement_disagreement] or "
+            "requirement_contract.disagreement — the disagreement-outcome check is "
+            "skipped. Run /immutable:migrate to pick up the bundled vocabulary.\n"
+        )
+    elif contract and args.strict_body and disagreement_vocab is not None and not disagreement_vocab["deferral"]:
+        sys.stderr.write(
+            "warning: the active profile has no requirement_contract.disagreement."
+            "deferral_patterns — corrections that defer instead of deciding are not "
+            "checked. Run /immutable:migrate to pick up the bundled patterns.\n"
+        )
     strict_structure_enabled = bool(
         args.strict_body
         and user_stories_section
@@ -1091,6 +1440,7 @@ def main() -> int:
                     reserved,
                     violations,
                 )
+                check_ticket_references(md_path, fm_checked, doc_type, violations)
                 if args.strict_body:
                     if strict_body_in_scope(md_path, strict_since):
                         validate_body_headings(
@@ -1106,6 +1456,15 @@ def main() -> int:
                                 normative_tokens,
                                 violations,
                             )
+                        if doc_type == "pitch" and contract_required:
+                            if strict_body_in_scope(md_path, since_contract):
+                                check_ticket_presence(md_path, fm_checked, violations)
+                            else:
+                                contract_exempt_count += 1
+                        if doc_type == "pitch" and disagreement_vocab is not None:
+                            validate_pitch_disagreement_outcomes(
+                                md_path, disagreement_vocab, violations
+                            )
                     else:
                         strict_exempt_count += 1
                 collected.append((md_path, fm_checked))
@@ -1120,6 +1479,11 @@ def main() -> int:
     elif args.strict_since is not None and not args.strict_body:
         sys.stderr.write(
             "warning: --strict-since has no effect without --strict-body.\n"
+        )
+    if args.strict_body and contract_required and since_contract is not None:
+        sys.stderr.write(
+            f"note: requirement_contract.since {since_contract}: {contract_exempt_count} "
+            f"pitch(es) predate the contract; presence rule not applied to them.\n"
         )
     if args.domain is not None:
         sys.stderr.write("warning: --domain has no effect without --list-active.\n")
