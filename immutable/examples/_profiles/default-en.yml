@@ -10,7 +10,9 @@
 # v1 → v2 (v0.5.6): added `sections[].max_items`, top-level `anti_monolith` block,
 # `adr.anti_monolith` block, new gate criterion `concern_scope`. v1 profiles auto-
 # fallback (anti-monolith thresholds derived from `sections[user_stories].max_items`).
-profile_schema: 2
+# v2 → v3 (v0.11.0): added `sections[requirement_disagreement]` and the top-level
+# `requirement_contract` block. Both are inert unless config.yml opts in.
+profile_schema: 3
 
 locale: en
 
@@ -53,6 +55,11 @@ sections:
     required: true
     min_items: 1
     description: "≥1 item classified as deferred / intentionally-not-provided / outside-scope."
+  - id: requirement_disagreement
+    heading: "Requirement Disagreements"
+    required: false
+    min_items: 0
+    description: "Only in repos with requirement_contract enabled, and only when the pitch cannot follow a binding ticket item as written. One `### ` entry per item — four bullets: original, correction, reason, outcome. A provisional outcome blocks merge (validator --strict-body)."
   - id: feature_flag
     heading: "Feature Flag"
     required: false
@@ -237,6 +244,45 @@ anti_monolith:
       action: block
       sub_sections: 8
       normative_lines: 40
+
+# Requirement contract (v0.11.0 / profile_schema 3). See default-ko.yml for
+# per-field notes. Inert unless config.yml declares `requirement_contract:`.
+requirement_contract:
+  ticket_sections:
+    - id: acceptance
+      heading: "Acceptance Criteria"
+    - id: qa_checklist
+      heading: "QA Checklist"
+  categories:
+    - id: infeasible
+      label: "Not implementable"
+    - id: self_contradiction
+      label: "Self-contradiction"
+    - id: conflict
+      label: "Conflict with a settled requirement"
+  disagreement:
+    fields:
+      original: "Original"
+      correction: "Correction"
+      reason: "Reason"
+      outcome: "Outcome"
+    outcome_provisional: "Provisional"
+    outcome_terminal:
+      - "Agreed"
+      - "Deadline passed"
+    # A correction becomes the requirement if the ticket stays silent past the
+    # response window, so it must be a decision; a deferral cannot be confirmed
+    # by silence. Matched against the correction bullet only.
+    deferral_patterns:
+      - id: confirm_later
+        regex: '\b(to be (confirmed|decided|settled|determined)|will be (confirmed|decided|settled)|pending (confirmation|decision))\b'
+        hint: "postpones the decision — the correction must state the value or sentence chosen now"
+      - id: negotiate
+        regex: '\b(to be (agreed|discussed|negotiated)|under (discussion|review)|subject to (agreement|review))\b'
+        hint: "conditions the correction on a discussion — write the developer's decision, not the discussion"
+      - id: undecided
+        regex: '\bTBD\b|\bTBC\b|\bundecided\b|\?\?'
+        hint: "an undecided marker — a disagreement correction cannot be undecided"
 
 domain_allowlist:
   source: "pitches/README.md"

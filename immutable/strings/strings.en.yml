@@ -366,6 +366,118 @@ strings:
 
     Return to Stage 2 Branch B/C to rewrite the sentence.
 
+  # --------------------------------------------------------------------------
+  # prd — requirement contract (v0.11+). Rendered only in repos whose
+  # .immutable-prd/config.yml declares `requirement_contract:`.
+  # --------------------------------------------------------------------------
+
+  prd.contract.ticket_prompt_optional: |
+    Is there a tracker ticket that binds this pitch? Give its id (or `owner/repo#id`), or answer 'none'.
+    (This repo's requirement_contract.enforcement is optional — the pitch proceeds without one.)
+
+  prd.contract.ticket_prompt_required: |
+    Which tracker ticket binds this pitch? Give its id (or `owner/repo#id`).
+    This repo's requirement_contract.enforcement is required — if there is none, answer 'none — <one-line reason>'. The reason is recorded verbatim in frontmatter `references.ticket_exemption`.
+
+  prd.contract.exemption_recorded: "Proceeding without a ticket. Reason to be recorded in `references.ticket_exemption`: {reason}"
+
+  prd.contract.fetch_failed: |
+    Could not fetch the ticket:
+    {error}
+
+    {next_action}
+
+  prd.contract.section_missing: |
+    Ticket {ticket_ref} has no usable binding section, so no contract can be made:
+    {errors}
+
+    {next_action}
+
+  prd.contract.next_required_stop: "This repo is in required mode. Fix the ticket and rerun, or declare an exemption with 'none — <reason>'. Stopping here."
+  prd.contract.next_optional_continue: "Optional mode — the pitch can continue without a ticket. Continue? (Y) proceed without a ticket / (N) stop"
+
+  prd.contract.ticket_summary: |
+    Ticket {ticket_ref} — {title}
+    Version coordinate {version} (read on {read_at})
+    {section_rows}
+    Parser warnings: {warning_count}
+
+  prd.contract.section_row: "- {heading}: {item_count} item(s) in {group_count} group(s)"
+
+  prd.contract.judgement_none: "Reviewed {item_count} binding item(s) — none falls under the three judgements (not implementable / self-contradiction / conflict with a settled requirement). All are followed as written."
+
+  prd.contract.judgement_header: |
+    {finding_count} of {item_count} binding item(s) fall under a judgement. Answer per item — (a) accept the judgement / (b) reject it with a one-line reason (kept in the interview transcript only, never written to the pitch)
+
+  prd.contract.judgement_row: |
+    [{n}] {section} · {group} {ordinal} — {category}
+        item: {item_text}
+        evidence: {evidence}
+        drafted correction: {correction}
+
+  prd.contract.correction_request: |
+    Requirement correction request — {ticket_ref} (requested {request_date})
+
+    While authoring the pitch, the items below could not be followed as written; the pitch is authored against the corrections. {response_window_line}
+
+    {entries}
+
+  prd.contract.correction_entry: |
+    {n}. {section} · {group} {ordinal} — {category}
+       original: {original}
+       correction: {correction}
+       reason: {reason}
+
+  prd.contract.unaccounted_items: |
+    Items declared in frontmatter `covers` are not reflected in the body (no normative line, GWT, edge-case row or disagreement entry traces to them):
+    {items}
+
+    Reflect them or drop them from the declaration, then re-enter Stage 5. Items a sibling pitch owns are simply not declared here.
+
+  prd.contract.handoff_addendum: |
+    Requirement contract:
+    - Ticket {ticket_ref}, version coordinate {version} — recorded in frontmatter `references.tickets` (no quotation in the body)
+    - Before merging: `{validator_cmd}`
+    - Has the ticket moved since? `{drift_cmd}`
+
+  prd.contract.handoff_disagreement_line: |
+    - Requirement disagreements: {disagreement_count} — while an outcome reads "{provisional}" this pitch's PR stays open. Once the correction is agreed or the deadline passes, rewrite the outcome line on the PR branch as one of "{terminal_joined}" and merge. Posting the correction request above on the ticket is the user's job.
+
+  prd.contract.value_propagation_note: |
+    The contested value "{value}" also appears in other binding items:
+    {items}
+    Fold them into the finding if it is the same rule; otherwise state in the evidence why they are unaffected.
+
+  prd.contract.correction_deferral_warning: |
+    The correction defers instead of deciding: "{correction}"
+    ({pattern_hint})
+    A correction must be the sentence that becomes the requirement if the ticket stays silent past the response window. Decide the value or wording now and rewrite it. If the decision is not yours to make, ask the user — never copy the ticket's open question into the correction.
+
+  prd.contract.response_window_line: "Response window per protocol: {response_window} from the request date. Absent a revised ticket within it, the corrections below stand."
+
+  prd.contract.handoff_request_file: "- Correction request file: `{path}` — post its content on the ticket as-is (posting is the user's job)"
+
+  prd.contract.handoff_gap_line: |
+    - Uncovered items — Epic items no pitch citing this ticket owns yet. Put them in `covers` when the sibling pitch is written:
+    {gaps}
+
+  prd.stage6.supersede_gap: |
+    The superseded `{old_file}` defined content that the new draft neither carries nor hands off to an existing active pitch:
+    {missing}
+
+    Deprecating the old file would leave that content without an active pitch. Carry it, hand it to an existing pitch, or close the gap with a sibling pitch in the same PR that also supersedes the old file — then continue.
+
+  prd.contract.coverage_summary: |
+    Ticket {ticket_ref} accounting (over the set of pitches citing it): {covered}/{total} items are owned by a pitch.
+    Uncovered (no pitch owns them yet):
+    {uncovered_lines}
+    Overlaps (claimed by more than one pitch without shared agreement):
+    {overlap_lines}
+    Declarations the ticket does not have:
+    {stale_lines}
+
+  prd.contract.handoff_coverage_line: "- Accounting: {covered}/{total} items owned within the set — re-check: `{coverage_cmd}`"
+
   # ==========================================================================
   # adr skill
   # ==========================================================================

@@ -10,7 +10,7 @@ Single plugin hosting the Spec-Driven Development toolkit with append-only guara
 |---|---|---|---|
 | [`init/`](init/) | `/immutable:init` | Bootstrap a starter (six modes: spec / app / single × ko / en) | Writes only into the user's CWD; never overwrites |
 | [`office-hours/`](office-hours/) | `/immutable:office-hours` | Premise challenge + ≥3 alternatives + transient design-doc note | Writes one transient note under `.claude/immutable/office-hours/` (gitignored) |
-| [`prd/`](prd/) | `/immutable:prd` | WHAT — product pitches (6-stage interview, 4 personas, 8-criterion gate) | Append-only + supersede |
+| [`prd/`](prd/) | `/immutable:prd` | WHAT — product pitches (6-stage interview, 4 personas, 8-criterion gate; opt-in requirement contract against a tracker ticket) | Append-only + supersede |
 | [`design/`](design/) | `/immutable:design` | App-side context handoff (lightweight; pitch is the design artifact) | Writes one transient handoff note (gitignored) |
 | [`plan-review-ceo/`](plan-review-ceo/) | `/immutable:plan-review-ceo` | Scope challenge + 11-section adversarial review of pitch + linked ADRs | Writes one transient review note (gitignored) |
 | [`plan-review-eng/`](plan-review-eng/) | `/immutable:plan-review-eng` | 4-section engineering review (architecture / code / test / perf) + worktree analysis | Writes one transient review note (gitignored) |
@@ -130,6 +130,56 @@ Deliberate boundaries:
 Hooks load at session start — restart the session after enabling or updating
 the plugin.
 
+## Requirement contract (opt-in, v0.11.0)
+
+A pitch can be authored against a tracker ticket whose designated sections
+**bind** it — in the pilot, a GitHub Epic's acceptance and QA-checklist
+sections. Declare it once in `.immutable-prd/config.yml`:
+
+```yaml
+requirement_contract:
+  enforcement: optional        # optional | required
+  tracker: github
+  repo: my-org/task-tracker
+  since: 2026-09-08            # under required, pitches dated before this are exempt
+  response_window: "2영업일"    # rendered into correction requests; the plugin keeps no clock
+  # fetch_command: "python3 tools/ticket.py {id}"   # any command printing the ticket-input JSON
+```
+
+What then happens, and what deliberately does not:
+
+- **`/immutable:prd`** fetches the ticket through `scripts/requirement_contract.py`,
+  judges every binding item (followed, or one of three admissible deviations:
+  not implementable / self-contradiction / conflict with a settled requirement),
+  hands the author a correction request to post, and writes the pitch against
+  the corrected text. The pitch records the ticket's identity and **version
+  coordinate** in `references.tickets[]` — never its text; the tracker keeps
+  the body at that version.
+- **A disagreement is a section, not a blocker.** Each deviation becomes an
+  entry with original, correction, reason and a *provisional* outcome. The
+  validator (`--strict-body`) refuses a provisional outcome, so the pitch's
+  pull request stays open until the author rewrites it as *agreed* or
+  *deadline passed* on the PR branch. The section stays afterwards: it tells a
+  later reader the difference from the ticket was deliberate.
+- **Accounting is a ledger over the set.** Each pitch declares in its ticket
+  record which binding groups or items it reflects (`covers`) or reflects in
+  substance while the literal lives elsewhere (`delegates`, e.g. copy → Figma);
+  `requirement_contract.py coverage` reconciles every pitch citing the ticket
+  against the live items, so no pitch enumerates its siblings.
+- **Drift** — `requirement_contract.py drift --id <id> --version <recorded> …`
+  re-reads the ticket and reports, item by item, what moved since the pitch
+  was written (exit 1), or that nothing binding did (exit 0). Where it runs —
+  a spec repo's PR check, a tracker-side bot on ticket edits — is the
+  consuming repo's decision; the plugin ships the parser and the exit codes.
+- **Not in the plugin**: any clock (business-day deadlines live with the
+  tracker), any write to the tracker, and any coverage check against sources
+  the ticket does not name — a topic the ticket never raised is not a defect.
+
+Vocabulary (which headings bind, the category labels, the outcome tokens)
+lives in the profile; the built-in adapter needs the `gh` CLI, a custom one
+needs whatever it needs. Full contract: [`SCHEMA.md`](SCHEMA.md), "Requirement
+contract".
+
 ## Design heritage
 
 `immutable` is built from two layered fusions.
@@ -167,6 +217,14 @@ Before v0.6.0, the plugin shipped only the artifact-authoring skills (`prd`, `ad
 ## Ship positioning
 
 `/immutable:ship` is intentionally **minimum-viable**. It guarantees chain integrity at PR time — verifies the eng review APPROVED, auto-includes the pitch and linked ADR paths in the PR body, and guards against common ship-time mistakes (dirty tree, failing tests, protected branch). It does NOT carry cross-session learnings capture, worktree-policy enforcement, or team-specific telemetry. Teams that want those layers should add them as hooks or wrapper skills around the `/immutable:ship` invocation rather than maintaining a parallel ship path.
+
+## What v0.11.0 changed (vs. v0.10.1)
+
+- The opt-in **requirement contract** above: `scripts/requirement_contract.py`
+  (parse / fetch / drift, pluggable adapters), `/immutable:prd` Stages 1.5.1
+  and 1.6, validator invariant 9 (the disagreement merge gate), profile
+  schema 3, and the `requirement_contract:` config block.
+- A repo that does not declare the block sees no change anywhere.
 
 ## What v0.6.0 changed (vs. v0.5.8)
 

@@ -2,6 +2,20 @@
 domain: <도메인명>
 supersedes: null
 deprecated: false
+# requirement_contract 가 켜진 레포에서만 (v0.11+): 티켓의 식별자와 버전 좌표.
+# 본문 인용은 하지 않는다 — 트래커가 그 버전의 본문을 보관한다.
+# references:
+#   tickets:
+#     - tracker: github
+#       repo: my-org/task-tracker
+#       id: "3755"
+#       version: "2026-09-08T05:25:01Z"
+#       read_at: 2026-09-08
+#       covers:                       # 이 pitch 가 반영하는 구속 묶음·항목 (라벨은 티켓 그대로)
+#         acceptance:
+#           - group: 적립
+#       delegates:                    # 실질은 반영, 문면은 다른 곳이 정함
+#         - { binding: qa_checklist, group: 이용 안내·쿠폰 표기, items: [2], to: Figma }
 ---
 
 # <Pitch 제목>
@@ -46,6 +60,23 @@ traceability 보존). `consolidated` 모드를 쓰려면 이 섹션을 TEMPLATE�
 ## 범위 제외 (No-gos)
 
 - 이 Pitch에서 **절대 다루지 않을** 것 (현재 제외 항목을 명시적으로 기록)
+
+## 요구사항 이견 (선택)
+
+<!--
+requirement_contract 가 켜진 레포에서, 티켓의 구속 항목을 그대로 따를 수 없을
+때만 작성 — 판정은 구현 불가 / 자기모순 / 확정된 다른 요구사항과의 충돌 세 가지뿐.
+항목마다 `### ` 엔트리 하나. 「결과」가 「잠정」인 동안 이 pitch 의 PR 은 머지하지
+않는다 (validator --strict-body 가 막는다). 해소되면 「합의」 또는 「기한 경과」로
+고쳐 쓰고 섹션은 남긴다 — 나중 독자에게 "이 차이는 의도된 것"을 말해 준다.
+-->
+
+### <트래커 레포#번호 · 섹션 · 그룹 번호>
+
+- **원문** <티켓 문장 그대로>
+- **정정** <이 pitch 가 따르는 문장>
+- **사유** <자기모순 | 구현 불가 | 확정된 다른 요구사항과의 충돌> — <근거>
+- **결과** 잠정 — 정정 요청 YYYY-MM-DD
 
 ## Feature Flag (선택)
 

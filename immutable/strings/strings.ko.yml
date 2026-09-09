@@ -394,6 +394,118 @@ strings:
 
     Stage 2 Branch B/C로 돌아가 해당 문장을 재작성해주세요.
 
+  # --------------------------------------------------------------------------
+  # prd — requirement contract (v0.11+). Rendered only in repos whose
+  # .immutable-prd/config.yml declares `requirement_contract:`.
+  # --------------------------------------------------------------------------
+
+  prd.contract.ticket_prompt_optional: |
+    이 pitch 를 구속하는 트래커 티켓이 있습니까? 있으면 번호(또는 `owner/repo#번호`)를, 없으면 '없음'.
+    (이 레포의 requirement_contract.enforcement 는 optional — 티켓 없이도 진행됩니다)
+
+  prd.contract.ticket_prompt_required: |
+    이 pitch 를 구속하는 트래커 티켓 번호(또는 `owner/repo#번호`)를 알려주세요.
+    이 레포의 requirement_contract.enforcement 는 required 입니다 — 티켓이 없다면 '없음 — <사유 한 줄>' 로 답해주세요. 사유는 frontmatter `references.ticket_exemption` 에 그대로 기록됩니다.
+
+  prd.contract.exemption_recorded: "티켓 없이 진행합니다. `references.ticket_exemption` 에 기록될 사유: {reason}"
+
+  prd.contract.fetch_failed: |
+    티켓을 가져오지 못했습니다:
+    {error}
+
+    {next_action}
+
+  prd.contract.section_missing: |
+    티켓 {ticket_ref} 에 구속 섹션이 없거나 비어 있어 계약을 맺을 수 없습니다:
+    {errors}
+
+    {next_action}
+
+  prd.contract.next_required_stop: "이 레포는 required 모드입니다. 티켓을 고친 뒤 다시 실행하거나, '없음 — <사유>' 로 면제를 선언해주세요. 여기서 중단합니다."
+  prd.contract.next_optional_continue: "optional 모드이므로 티켓 없이 계속할 수 있습니다. 계속할까요? (Y) 티켓 없이 진행 / (N) 중단"
+
+  prd.contract.ticket_summary: |
+    티켓 {ticket_ref} — {title}
+    버전 좌표 {version} (읽은 날짜 {read_at})
+    {section_rows}
+    파서 경고 {warning_count}건
+
+  prd.contract.section_row: "- {heading}: 항목 {item_count}개, 묶음 {group_count}개"
+
+  prd.contract.judgement_none: "구속 항목 {item_count}개를 검토했습니다 — 세 판정(구현 불가 / 자기모순 / 확정된 다른 요구사항과의 충돌)에 걸리는 항목이 없습니다. 전부 그대로 따릅니다."
+
+  prd.contract.judgement_header: |
+    구속 항목 {item_count}개 중 {finding_count}개가 판정에 걸렸습니다. 항목마다 답해주세요 — (a) 판정 인정 / (b) 판정 거부 + 사유 한 줄 (인터뷰 기록에만 남고 pitch 에는 쓰이지 않습니다)
+
+  prd.contract.judgement_row: |
+    [{n}] {section} · {group} {ordinal} — {category}
+        항목: {item_text}
+        근거: {evidence}
+        정정안: {correction}
+
+  prd.contract.correction_request: |
+    요구사항 정정 요청 — {ticket_ref} (요청일 {request_date})
+
+    pitch 작성 중 아래 항목을 그대로 따를 수 없어 정정안 기준으로 pitch 를 씁니다. {response_window_line}
+
+    {entries}
+
+  prd.contract.correction_entry: |
+    {n}. {section} · {group} {ordinal} — {category}
+       원문: {original}
+       정정: {correction}
+       사유: {reason}
+
+  prd.contract.unaccounted_items: |
+    프론트매터 `covers` 에 선언했지만 본문에 반영되지 않은 항목이 있습니다 (규범 줄·GWT·엣지 케이스·이견 어디에도 대응이 없음):
+    {items}
+
+    본문에 담거나 선언에서 빼고 Stage 5 를 재진행해주세요. 형제 pitch 가 맡을 항목은 선언하지 않으면 됩니다.
+
+  prd.contract.handoff_addendum: |
+    요구사항 계약:
+    - 티켓 {ticket_ref}, 버전 좌표 {version} — frontmatter `references.tickets` 에 기록됨 (본문 인용 없음)
+    - 머지 전 확인: `{validator_cmd}`
+    - 티켓이 그 뒤 바뀌었는지: `{drift_cmd}`
+
+  prd.contract.handoff_disagreement_line: |
+    - 요구사항 이견 {disagreement_count}건 — 결과가 「{provisional}」인 동안 이 pitch 의 PR 은 머지하지 않습니다. 정정이 합의되거나 기한이 지나면 PR 브랜치에서 결과 줄을 「{terminal_joined}」 중 하나로 고쳐 쓴 뒤 머지하세요. 위의 정정 요청을 티켓에 올리는 것은 사용자 몫입니다.
+
+  prd.contract.value_propagation_note: |
+    판정에 걸린 값 "{value}" 을 다른 구속 항목에서도 찾았습니다:
+    {items}
+    같은 규칙이면 이견에 함께 넣고, 무관하다면 그 이유를 근거에 적습니다.
+
+  prd.contract.correction_deferral_warning: |
+    정정 문장이 결정이 아니라 보류입니다: "{correction}"
+    ({pattern_hint})
+    정정은 티켓이 기한 안에 답하지 않으면 그대로 요구사항이 되는 문장이어야 합니다. 값이나 문장을 지금 정해 다시 써주세요. 정하기 어려우면 그 결정은 사용자에게 묻습니다 — 티켓의 미결을 정정에 옮겨 적지 않습니다.
+
+  prd.contract.response_window_line: "규약상 응답 기한: 요청일로부터 {response_window}. 기한 안에 수정본이 없으면 아래 정정대로 확정됩니다."
+
+  prd.contract.handoff_request_file: "- 정정 요청 파일: `{path}` — 이 내용을 그대로 티켓 코멘트로 올리면 됩니다 (올리는 것은 사용자 몫)"
+
+  prd.contract.handoff_gap_line: |
+    - 미배정 항목 — 같은 티켓을 인용하는 어느 pitch 도 아직 맡지 않은 Epic 항목입니다. 형제 pitch 를 쓸 때 `covers` 에 올리세요:
+    {gaps}
+
+  prd.stage6.supersede_gap: |
+    supersede 대상 `{old_file}` 이 정하던 내용 중 새 초안에 없고, 존재하는 활성 pitch 로 인계되지도 않은 것이 있습니다:
+    {missing}
+
+    옛 파일이 폐기되면 이 내용을 정하는 활성 pitch 가 사라집니다. 초안에 담거나, 존재하는 pitch 로 인계하거나, 같은 PR 에서 옛 파일을 함께 supersede 하는 형제 pitch 로 공백을 메운 뒤 다시 진행해주세요.
+
+  prd.contract.coverage_summary: |
+    티켓 {ticket_ref} 정산 (같은 티켓을 인용하는 pitch 집합 기준): {covered}/{total} 항목이 어느 pitch 에 속합니다.
+    미배정 (아직 어느 pitch 도 맡지 않음):
+    {uncovered_lines}
+    중복 (shared 합의 없이 둘 이상이 맡음):
+    {overlap_lines}
+    티켓에 없는 선언:
+    {stale_lines}
+
+  prd.contract.handoff_coverage_line: "- 정산: {covered}/{total} 항목이 집합 안에서 배정됨 — 다시 확인: `{coverage_cmd}`"
+
   # ==========================================================================
   # adr skill
   # ==========================================================================

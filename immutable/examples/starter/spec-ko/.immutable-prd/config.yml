@@ -43,3 +43,19 @@ templates:
 # or identifier regex without touching skill code.
 #
 # profile: .immutable-prd/profile.yml
+
+# Requirement contract (v0.11+, optional).
+#
+# Declare this when pitches in this repo are authored against tracker tickets
+# whose designated sections bind them (immutable/SCHEMA.md "Requirement
+# contract"). Absent → /immutable:prd never mentions tickets and the validator
+# checks nothing new. The binding headings, the three deviation categories and
+# the disagreement vocabulary come from the profile.
+#
+# requirement_contract:
+#   enforcement: optional        # optional | required
+#   tracker: github              # label recorded in each pitch's references.tickets[]
+#   repo: my-org/task-tracker    # default repository for a bare ticket id
+#   since: 2026-01-01            # adoption date — under required, older pitches are exempt
+#   response_window: "2 business days"   # rendered verbatim into correction requests; no clock
+#   # fetch_command: "python3 tools/ticket.py {id}"   # custom adapter; unset → gh api graphql
