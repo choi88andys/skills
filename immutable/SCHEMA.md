@@ -213,6 +213,10 @@ requirement_contract:
   # are append-only and cannot be edited into compliance. Inclusive; a
   # malformed date is fatal. Omit only in a repo with no pre-contract pitches.
   since: 2026-09-08
+  # Optional, free text rendered verbatim into every correction request ("응답
+  # 기한: 요청일로부터 2영업일"). The plugin keeps no calendar; the wording is the
+  # organisation's protocol, so it is data here.
+  response_window: "2영업일"
   # Optional adapter: a command printing the ticket-input JSON documented in
   # scripts/requirement_contract.py. `{repo}` and `{id}` are substituted per
   # argv element and the command runs WITHOUT a shell. Unset → the built-in
@@ -360,7 +364,7 @@ Checked at generation time by the `/immutable:prd` and `/immutable:adr` skills, 
 9. **Requirement contract (v0.11+)** — three checks. The first is a frontmatter-shape check and always runs; the other two are no-ops for a repo without a `requirement_contract:` config block:
    - *always on*: a `references.tickets` list, when present, holds mappings each carrying non-empty string `tracker`, `id`, `version`; `references.ticket_exemption`, when present, is a non-empty string.
    - *`--strict-body`, within the `--strict-since` scope, and — when `requirement_contract.since` is set — only for pitches dated on or after it*: under `enforcement: required` every pitch carries a non-empty `references.tickets` or a `ticket_exemption`. The `--strict-since` window is about body structure and usually predates contract adoption; without its own cutoff the presence rule would retroactively fail every pitch written between the two dates (measured 2026-09-08: six pitches in the pilot repo). The exemption count is printed to stderr.
-   - *`--strict-body`, within the `--strict-since` scope*: a pitch whose disagreement section (`profile.sections[id=requirement_disagreement].heading`) exists holds ≥1 `### ` entry, and every entry carries the four labelled bullets (`profile.requirement_contract.disagreement.fields`) with an outcome that begins with a terminal token (`outcome_terminal`). An outcome beginning with `outcome_provisional` is a violation — this is the merge gate that keeps a pitch PR open until its correction request is settled. When the active profile lacks the vocabulary (a team profile not yet migrated), the check is skipped with a stderr warning, never silently.
+   - *`--strict-body`, within the `--strict-since` scope*: a pitch whose disagreement section (`profile.sections[id=requirement_disagreement].heading`) exists holds ≥1 `### ` entry, and every entry carries the four labelled bullets (`profile.requirement_contract.disagreement.fields`) with an outcome that begins with a terminal token (`outcome_terminal`). An outcome beginning with `outcome_provisional` is a violation — this is the merge gate that keeps a pitch PR open until its correction request is settled. The correction bullet must also be a **decision**: one matching a `disagreement.deferral_patterns[]` regex ("확인 필요", "협의", "확정한다", "TBD" and their English counterparts in the bundled profiles) is a violation, because a correction becomes the requirement when the ticket stays silent past the response window, and a deferral cannot be confirmed by silence. When the active profile lacks the vocabulary (a team profile not yet migrated), each missing part is skipped with a stderr warning, never silently.
 
 **Profile awareness** (v0.5+): the CI validator loads the profile via the same resolution order as the skills — config.yml `profile:` → bundled `default-<team_language>.yml` → hardcoded last-resort defaults. v2 configs get the bundled default automatically; no config bump required.
 
@@ -498,6 +502,10 @@ requirement_contract:
     fields: { original: "<label>", correction: "<label>", reason: "<label>", outcome: "<label>" }
     outcome_provisional: "<token>"   # an open request — validator blocks merge
     outcome_terminal: ["<token>", "<token>"]   # agreed / deadline passed
+    deferral_patterns:               # phrases that make a correction a deferral, not a decision
+      - id: <name>
+        regex: '<PCRE>'
+        hint: "<why this is not a decision>"
 
 # Domain allowlist policy (points at `pitches/README.md`).
 domain_allowlist:
@@ -656,9 +664,9 @@ The first design quoted the binding sentences into the pitch so CI could compare
 ### Authoring flow (`/immutable:prd`)
 
 1. **Intake** (Stage 1.5.1) — under `enforcement: optional` the skill asks whether a ticket binds this pitch; under `required` it insists, or records a one-line `ticket_exemption`. The ticket is fetched through the adapter and its binding sections are summarised (counts, warnings, and any missing section — a ticket without the binding sections cannot be contracted against and is refused as such).
-2. **Judgement** (Stage 1.6) — every binding item is classified as *followed* or as one of the three profile categories: not implementable; self-contradictory against the ticket's own text, non-binding notes included; or in conflict with a settled requirement, meaning an active pitch's normative line. Only those three let the pitch deviate. "A better way exists" is not one and is routed to the next requirement list. Each confirmed deviation gets a drafted correction and a reason, and the skill hands the author a correction request to post on the ticket. It never posts.
+2. **Judgement** (Stage 1.6) — every binding item is classified as *followed* or as one of the three profile categories: not implementable; self-contradictory against the ticket's own text, non-binding notes included; or in conflict with a settled requirement, meaning an active pitch's normative line. Only those three let the pitch deviate. "A better way exists" is not one and is routed to the next requirement list. A finding that turns on a literal value sweeps the other binding items for the same value (value propagation). Each confirmed deviation gets a drafted correction — a **decision**, the sentence that becomes the requirement if the ticket stays silent, never a deferral — and a reason, and the skill writes the correction request both to the conversation and to `.claude/immutable/contract/<slug>-<tracker>-<id>.md` in ticket register (request date, the configured response window, original / correction / reason per item) for the author to post. It never posts.
 3. **Interview** — the binding items, corrected where a deviation stands, become the highest-priority source for recommended answers.
-4. **Gate** (Stage 5) — a bound pitch accounts for every binding item: reflected in the body, listed as out of this pitch's scope with a handoff target, or recorded as a disagreement. Anything else refuses generation, exactly as an unresolved tag does.
+4. **Gate** (Stage 5) — a bound pitch accounts for every binding item: reflected in the body, handed off to an **existing** active pitch, or recorded as a disagreement. A handoff to a pitch that does not exist yet is a gap, recorded as a deferred no-go bound to "the same pull request" and listed in the handoff. Anything else refuses generation, exactly as an unresolved tag does. For `update` intent, Stage 6 additionally checks that nothing the superseded pitch bound is left without an active statement (carried, handed off, or closed by a same-PR sibling that also supersedes the old file).
 5. **Output** (Stage 6) — `references.tickets[]` in the frontmatter; the disagreement section only when there is a disagreement.
 
 ### The disagreement section

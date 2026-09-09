@@ -142,6 +142,7 @@ requirement_contract:
   tracker: github
   repo: my-org/task-tracker
   since: 2026-09-08            # under required, pitches dated before this are exempt
+  response_window: "2영업일"    # rendered into correction requests; the plugin keeps no clock
   # fetch_command: "python3 tools/ticket.py {id}"   # any command printing the ticket-input JSON
 ```
 

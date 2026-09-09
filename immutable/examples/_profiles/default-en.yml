@@ -270,6 +270,19 @@ requirement_contract:
     outcome_terminal:
       - "Agreed"
       - "Deadline passed"
+    # A correction becomes the requirement if the ticket stays silent past the
+    # response window, so it must be a decision; a deferral cannot be confirmed
+    # by silence. Matched against the correction bullet only.
+    deferral_patterns:
+      - id: confirm_later
+        regex: '\b(to be (confirmed|decided|settled|determined)|will be (confirmed|decided|settled)|pending (confirmation|decision))\b'
+        hint: "postpones the decision — the correction must state the value or sentence chosen now"
+      - id: negotiate
+        regex: '\b(to be (agreed|discussed|negotiated)|under (discussion|review)|subject to (agreement|review))\b'
+        hint: "conditions the correction on a discussion — write the developer's decision, not the discussion"
+      - id: undecided
+        regex: '\bTBD\b|\bTBC\b|\bundecided\b|\?\?'
+        hint: "an undecided marker — a disagreement correction cannot be undecided"
 
 domain_allowlist:
   source: "pitches/README.md"

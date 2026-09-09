@@ -210,6 +210,9 @@ def load_config(path: Path) -> dict[str, Any]:
         since = contract.get("since")
         if since is not None:
             validate_date_field(str(since).strip(), "config.yml requirement_contract.since")
+        window = contract.get("response_window")
+        if window is not None and (not isinstance(window, str) or not window.strip()):
+            die("config.yml requirement_contract.response_window must be a non-empty string")
 
     return data
 
@@ -369,6 +372,17 @@ def profile_disagreement_vocabulary(profile: dict[str, Any]) -> dict[str, Any] |
     fields = block.get("fields") or {}
     provisional = block.get("outcome_provisional")
     terminal = block.get("outcome_terminal") or []
+    deferral: list[tuple[str, re.Pattern[str]]] = []
+    for entry in block.get("deferral_patterns") or []:
+        if not isinstance(entry, dict) or not entry.get("regex"):
+            continue
+        try:
+            deferral.append((str(entry.get("id") or "deferral"), re.compile(str(entry["regex"]))))
+        except re.error as exc:
+            sys.stderr.write(
+                f"warning: requirement_contract.disagreement.deferral_patterns[{entry.get('id')}] "
+                f"is an invalid regex ({exc}); skipped.\n"
+            )
     if (
         not heading
         or not all(isinstance(fields.get(k), str) and fields[k].strip() for k in DISAGREEMENT_FIELDS)
@@ -383,6 +397,7 @@ def profile_disagreement_vocabulary(profile: dict[str, Any]) -> dict[str, Any] |
         "fields": {k: str(fields[k]).strip() for k in DISAGREEMENT_FIELDS},
         "provisional": provisional.strip(),
         "terminal": [str(t).strip() for t in terminal if str(t).strip()],
+        "deferral": deferral,  # optional; empty when the profile has none
     }
 
 
@@ -890,6 +905,20 @@ def validate_pitch_disagreement_outcomes(
         missing = [fields[k] for k in DISAGREEMENT_FIELDS if k not in found]
         if missing:
             issues.append(f"### {e_title} — missing bullet(s): {', '.join(missing)}")
+        # The correction becomes the requirement if the ticket stays silent past
+        # the response window; one that defers cannot be confirmed by silence,
+        # so it is not a correction.
+        correction = found.get("correction")
+        if correction is not None:
+            for pat_id, pat in vocab.get("deferral", []):
+                m = pat.search(correction)
+                if m:
+                    excerpt = correction if len(correction) <= 80 else correction[:77] + "..."
+                    issues.append(
+                        f"### {e_title} — `{fields['correction']}` defers instead of deciding "
+                        f"(matched deferral_patterns[{pat_id}] on {m.group(0)!r}): {excerpt}"
+                    )
+                    break
         outcome = found.get("outcome")
         if outcome is None:
             continue
@@ -1304,6 +1333,12 @@ def main() -> int:
             "profile lacks sections[id=requirement_disagreement] or "
             "requirement_contract.disagreement — the disagreement-outcome check is "
             "skipped. Run /immutable:migrate to pick up the bundled vocabulary.\n"
+        )
+    elif contract and args.strict_body and disagreement_vocab is not None and not disagreement_vocab["deferral"]:
+        sys.stderr.write(
+            "warning: the active profile has no requirement_contract.disagreement."
+            "deferral_patterns — corrections that defer instead of deciding are not "
+            "checked. Run /immutable:migrate to pick up the bundled patterns.\n"
         )
     strict_structure_enabled = bool(
         args.strict_body

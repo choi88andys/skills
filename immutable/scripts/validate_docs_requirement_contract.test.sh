@@ -30,13 +30,14 @@ RIG="$(cd "$RIG" && pwd)"
 REPO="$RIG/repo"; P="$REPO/pitches/reward"
 mkdir -p "$REPO/.immutable-prd" "$P"
 
-write_config() {  # write_config <enforcement|none> [profile-line] [since]
+write_config() {  # write_config <enforcement|none> [profile-line] [since] [extra-contract-line]
   {
     echo "version: 3"; echo "repo_mode: two-repo-spec"; echo "team_language: ko"; echo "pitches_path: pitches/"
     if [ -n "${2:-}" ]; then echo "$2"; fi
     if [ "$1" != "none" ]; then
       echo "requirement_contract:"; echo "  enforcement: $1"; echo "  tracker: github"; echo "  repo: acme/tracker"
       if [ -n "${3:-}" ]; then echo "  since: $3"; fi
+      if [ -n "${4:-}" ]; then echo "  $4"; fi
     fi
   } >"$REPO/.immutable-prd/config.yml"
 }
@@ -262,9 +263,88 @@ $OUT"
   fi
 done
 
+# C9 — a correction that DEFERS is not a correction: the pilot's first real
+# pitch wrote "기준액은 바리스온 측과 대조해 확정한다", which cannot be confirmed
+# by silence. It is flagged (confirm_later); a decisive sentence with the same
+# shape passes; the pattern applies to the correction bullet only (the same
+# words in 사유 are fine).
+mkpitch 2026-02-09-deferring.md "$TICKET" '## 요구사항 이견
+
+### 항목
+
+- **원문** 최종 결제 금액이 1,000원 미만이 된 주문건은 제외된다
+- **정정** 최종 결제 금액이 적립 제외 기준액 미만이 된 주문건은 제외된다 — 기준액은 바리스온 측과 대조해 확정한다
+- **사유** 자기모순 — 비고 미해결이 기준을 미정으로 둠
+- **결과** 합의 — 9/10'
+mkpitch 2026-02-10-deciding.md "$TICKET" '## 요구사항 이견
+
+### 항목
+
+- **원문** 최종 결제 금액이 1,000원 미만이 된 주문건은 제외된다
+- **정정** 최종 결제 금액이 1,000원 미만이 된 주문건은 제외된다 — 일반 쿠폰 사용 주문에도 같은 기준액을 적용한다
+- **사유** 자기모순 — 비고 미해결이 기준을 미정으로 두고 있어 확인 필요라고 적혀 있음
+- **결과** 합의 — 9/10'
+write_config required "" 2026-02-04
+run --type pitch --strict-body --strict-since 2026-02-01
+if [ "$RC" -eq 1 ] && [ "$(count)" = "6" ] && [ "$(hits 'deferring.md')" = "1" ] && grep -qF "defers instead of deciding (matched deferral_patterns[confirm_later] on '대조해 확정')" <<<"$OUT" \
+  && [ "$(hits 'deciding.md')" = "0" ]; then
+  pass "C9 deferring correction flagged; decisive one clean; 사유 wording not matched"
+else
+  fail "C9 deferral" "rc=$RC violations=$(count)
+$OUT"
+fi
+rm -f "$P/2026-02-09-deferring.md" "$P/2026-02-10-deciding.md"
+
+# C10 — profile without deferral_patterns: the check is skipped WITH a warning.
+cat >"$REPO/.immutable-prd/profile.yml" <<'YML'
+profile_schema: 3
+locale: ko
+sections:
+  - id: background
+    heading: "배경과 문제"
+    required: true
+  - id: user_stories
+    heading: "사용자 스토리 및 수용 조건"
+    required: true
+    structure: per_story_grouped
+  - id: edge_cases
+    heading: "엣지 케이스"
+    required: true
+  - id: no_gos
+    heading: "범위 제외 (No-gos)"
+    required: true
+  - id: requirement_disagreement
+    heading: "요구사항 이견"
+    required: false
+requirement_contract:
+  disagreement:
+    fields: { original: "원문", correction: "정정", reason: "사유", outcome: "결과" }
+    outcome_provisional: "잠정"
+    outcome_terminal: ["합의", "기한 경과"]
+YML
+write_config required "profile: .immutable-prd/profile.yml" 2026-02-04
+run --type pitch --strict-body --strict-since 2026-02-01
+if [ "$RC" -eq 1 ] && grep -qF 'no requirement_contract.disagreement.deferral_patterns' <<<"$OUT" && [ "$(hits 'provisional.md')" = "1" ]; then
+  pass "C10 profile without deferral_patterns: deferral check skipped with a warning, gate still on"
+else
+  fail "C10 deferral vocabulary missing" "rc=$RC
+$OUT"
+fi
+rm -f "$REPO/.immutable-prd/profile.yml"
+
+# C11 — response_window must be a non-empty string when present.
+write_config required "" "" 'response_window: ""'
+run --type pitch
+if [ "$RC" -eq 1 ] && grep -qF 'error: config.yml requirement_contract.response_window' <<<"$OUT"; then
+  pass "C11 empty response_window is fatal"
+else
+  fail "C11 response_window" "rc=$RC
+$OUT"
+fi
+
 echo
 if [ "$FAILURES" -eq 0 ]; then
-  echo "all 13 cases passed."
+  echo "all 16 cases passed."
   exit 0
 fi
 echo "$FAILURES case(s) failed."
