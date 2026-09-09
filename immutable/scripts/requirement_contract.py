@@ -61,7 +61,9 @@ Output contract (`schema: 1`) — always JSON on stdout, even on failure:
   bindings[]   one per `--binding`, in caller order: `id`, `heading`, `found`,
                the matched heading's `matched_heading` / `level` / `line`,
                `groups[]` of `items[]`, and `item_count`
-  items        `ordinal` (1-based within the section, across groups), `group`,
+  items        `ordinal` (1-based within the section, across groups — a sort
+               key), `in_group` (1-based within its group — the number the
+               ledger's `items` and every `<group> <n>` reference use), `group`,
                `depth`, `checkbox`, `checked`, `struck`, `text`, `line`
   sections[]   the whole outline, binding or not, each with its raw slice —
                the non-binding context a judgement needs to spot a
@@ -86,7 +88,7 @@ only):
     acceptance:
       - group: 적립             # a whole group (label as the ticket writes it;
       - group: 주문·결제 화면   #   null = the items before any label)
-        items: [1]              # or only these in-group ordinals (1-based)
+        items: [1]              # or only these in-group ordinals (the parser's in_group)
         shared: true            # claimed by another pitch too, on purpose
   delegates:                    # reflected in substance, literal owned elsewhere
     - binding: qa_checklist
@@ -102,7 +104,9 @@ item), `overlaps[]` (claimed by several without `shared` on every side),
 `stale[]` (a declaration naming a binding, group or ordinal the ticket does
 not have — a drift symptom), `shared[]` (informational), `version_mismatch[]`
 (a pitch recorded a version other than the live one; run `drift` for
-detail), `covered` / `total` counts. Exit 0 when every item is claimed
+detail), `covered` / `total` counts. An item row names the item by
+`binding`, `group`, `in_group` — the ledger's coordinate — plus `ordinal` and
+`text`. Exit 0 when every item is claimed
 exactly once (or shared by agreement) and nothing is stale; 1 otherwise;
 2 on adapter or file errors.
 
@@ -313,6 +317,7 @@ def parse_section(
                 plain += 1
             current_item = {
                 "ordinal": ordinal,
+                "in_group": len(current_group["items"]) + 1,
                 "group": current_group["label"],
                 "depth": len(indent.expandtabs(4)) // 2,
                 "checkbox": is_checkbox,
@@ -602,7 +607,7 @@ def pick_items(binding: dict[str, Any], wanted: Counter) -> list[dict[str, Any]]
         for it in g["items"]:
             if left.get(it["text"], 0) > 0:
                 left[it["text"]] -= 1
-                picked.append({"ordinal": it["ordinal"], "group": it["group"], "text": it["text"]})
+                picked.append({"ordinal": it["ordinal"], "in_group": it["in_group"], "group": it["group"], "text": it["text"]})
     return picked
 
 
@@ -709,12 +714,12 @@ def ticket_entry_for(fm: dict[str, Any], args: argparse.Namespace) -> dict[str, 
 
 
 def item_index(parsed: dict[str, Any]) -> dict[tuple[str, str | None, int], dict[str, Any]]:
-    """(binding id, group label, in-group ordinal) → item, for every binding item."""
+    """(binding id, group label, in_group) → item — the ledger's coordinate, as the parser prints it."""
     index: dict[tuple[str, str | None, int], dict[str, Any]] = {}
     for b in parsed["bindings"]:
         for g in b["groups"]:
-            for k, it in enumerate(g["items"], start=1):
-                index[(b["id"], g["label"], k)] = {**it, "binding": b["id"], "in_group": k}
+            for it in g["items"]:
+                index[(b["id"], g["label"], it["in_group"])] = {**it, "binding": b["id"]}
     return index
 
 
@@ -798,7 +803,7 @@ def compute_coverage(
 
     def describe(key: tuple[str, str | None, int]) -> dict[str, Any]:
         it = index[key]
-        return {"binding": key[0], "group": key[1], "item": key[2], "ordinal": it["ordinal"], "text": it["text"]}
+        return {"binding": key[0], "group": key[1], "in_group": key[2], "ordinal": it["ordinal"], "text": it["text"]}
 
     uncovered = [describe(k) for k in sorted(index, key=lambda k: index[k]["ordinal"] + (0 if k[0] == bindings[0][0] else 10_000)) if not claims[k]]
     overlaps: list[dict[str, Any]] = []

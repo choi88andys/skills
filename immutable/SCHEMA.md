@@ -292,7 +292,7 @@ references:
         acceptance:
           - group: 적립         # a whole group, label verbatim from the ticket
           - group: 주문·결제 화면
-            items: [1]        # or only these in-group ordinals
+            items: [1]        # or only these in-group ordinals (the parser's in_group)
             shared: true      # one sentence, two pitches — by agreement
       delegates:              # reflected in substance; the literal is owned elsewhere
         - binding: qa_checklist
@@ -314,7 +314,7 @@ references:
 - A deprecated doc's references are frozen — no back-edits allowed. If the referenced pitch is superseded, the ADR stays pointing at the old filename (history snapshot) unless a new ADR is issued.
 - `references.tickets` (pitch only, v0.11+) records the identity and the version coordinate of every ticket whose binding sections this pitch honours — and **no ticket text**. The tracker keeps the body at that version; `scripts/requirement_contract.py drift` re-reads it. `tracker`, `id`, `version` are required non-empty strings; `repo`, `read_at`, `url` are informational.
 - `references.ticket_exemption` (pitch only, v0.11+) is the one-line reason a pitch cites no ticket. Under `requirement_contract.enforcement: required` the validator demands one of the two.
-- `references.tickets[].covers` / `.delegates` (pitch only, v0.11+) form the **ledger**: accounting of the ticket's binding items happens across the *set* of pitches citing it, so a pitch declares only what it owns and never enumerates its siblings' items. Group labels are the ticket's, verbatim (the parser's `bindings[].groups[].label`); `items` are 1-based ordinals within the group; `shared: true` on every claimant marks a sentence two pitches legitimately share. `scripts/requirement_contract.py coverage` reconciles the set against the live ticket; the validator checks the shape only.
+- `references.tickets[].covers` / `.delegates` (pitch only, v0.11+) form the **ledger**: accounting of the ticket's binding items happens across the *set* of pitches citing it, so a pitch declares only what it owns and never enumerates its siblings' items. Group labels are the ticket's, verbatim (the parser's `bindings[].groups[].label`); `items` are 1-based ordinals within the group — the parser's `in_group`, never its section-wide `ordinal`, which is only a sort key; `shared: true` on every claimant marks a sentence two pitches legitimately share. `scripts/requirement_contract.py coverage` reconciles the set against the live ticket; the validator checks the shape only.
 
 ---
 
@@ -696,6 +696,8 @@ One `### ` entry per contested item; four labelled bullets whose labels come fro
 - **사유** 자기모순 — <why, citing the ticket text it contradicts>
 - **결과** 잠정 — 정정 요청 2026-09-08
 ```
+
+The header's last number is the item's position within its group — the parser's `in_group` — so 「적립 7」 is the seventh item under 적립: the number a reader counts on the ticket and the same number the ledger's `items` uses.
 
 The outcome bullet is the merge gate. While it begins with `outcome_provisional` the pitch is a **pull request that stays open**; before merge the author rewrites it as one of `outcome_terminal` — agreed, with the date the ticket was corrected; or deadline passed, the pitch's correction stands and the item moves to the next list — and `validate_docs.py --strict-body` refuses anything else. The section is kept after resolution, not removed: it is what tells a later reader that the difference between pitch and ticket was deliberate, which matters most in the deadline case, where the ticket may still carry the old wording. All of this editing happens on the PR branch, so the append-only rule is untouched, and no supersede is spent on bookkeeping.
 

@@ -488,9 +488,28 @@ else
   fail "C24 coverage membership" "rc=$RC $(q '(len(d["pitches"]), d["version_mismatch"], d["warnings"])')"
 fi
 
+# C25 — one item coordinate: `in_group` restarts at 1 in every group while
+# `ordinal` runs on across the section, and a coverage row names the item by
+# the same `in_group` the ledger's `items` uses. The second seven-pitch run's
+# correction request cited a five-item group's item as "11" — the section-wide
+# number, which a reader of the ticket cannot resolve.
+run parse "$RIG/epic.md" --binding "$B_ACC" --binding "$B_QA"
+GOT="$(q '[(it["group"], it["ordinal"], it["in_group"]) for b in d["bindings"] for g in b["groups"] for it in g["items"] if it["in_group"] == 1 or it["ordinal"] == 3]')"
+WANT="[('적립', 1, 1), ('적립', 3, 3), ('발급', 4, 1), ('표시', 1, 1), ('시점', 3, 1)]"
+RC_PARSE=$RC
+mkledger p8.md '      covers:' '        acceptance:' '          - group: 발급' '            items: [2]'
+cov "$RIG/pitches/p8.md"
+GOT2="$(q '([(u["group"], u["in_group"], u["ordinal"]) for u in d["uncovered"] if u["group"] == "발급"], "item" in d["uncovered"][0])')"
+if [ "$RC_PARSE" -eq 0 ] && [ "$GOT" = "$WANT" ] && [ "$GOT2" = "([('발급', 1, 4), ('발급', 3, 6), ('발급', 4, 7), ('발급', 5, 8)], False)" ]; then
+  pass "C25 one item coordinate: in_group restarts per group; coverage rows carry it, not a separate 'item'"
+else
+  fail "C25 item coordinate" "parse: $GOT
+coverage: $GOT2"
+fi
+
 echo
 if [ "$FAILURES" -eq 0 ]; then
-  echo "all 24 cases passed."
+  echo "all 25 cases passed."
   exit 0
 fi
 echo "$FAILURES case(s) failed."
