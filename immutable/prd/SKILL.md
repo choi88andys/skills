@@ -677,7 +677,7 @@ The criterion only fails on L3 violation. L1/L2 are warnings that do not block b
 - Below threshold → refuse generation; loop to the relevant branch
 - **Any `<profile.gate.unresolved_tag>` tag remains anywhere** → refuse generation regardless of count
 - **`concern_scope` failed (L3)** → refuse generation regardless of count, AND offer `refactor-split` of the in-flight draft as the recovery action
-- **A ticket is bound and a binding item is unaccounted for** (v0.11+) → refuse generation regardless of count. Every item of every `ticket_sections` entry (the QA checklist included) must be one of: *reflected* — a normative line, GWT, edge-case row or no-go in the draft traces to it; *handed off* — a no-go classified "outside this pitch's scope" naming an **existing active pitch** (one the §1.2 enumeration listed, by filename); or *contested* — a Stage 1.6 disagreement entry. A target that does not exist yet is **not** a handoff: classify that item as a `Deferred` no-go naming the domain (or planned pitch) that will own it, and Stage 6 lists every such gap in the handoff (`prd.contract.handoff_gap_line`) so the Epic's still-unowned items stay visible. The condition tightens to "authored in the same pull request as this pitch" only when the item was bound by the pitch this one supersedes (the Stage 6 supersede completeness guard) — a pitch that hands its display rules to a sibling nobody has written leaves them without an active statement the moment it merges. Items the Epic raises for another domain (a push notification, a badge) may wait for that domain's pitch; deferring them is not a gap in this pitch, only in the Epic's coverage, which the handoff line records. Render `prd.contract.unaccounted_items` with `{ticket_ref}` and `{items}` = the unaccounted items as `<section> · <group> <ordinal> — <text>` lines, one per line, and loop to the branch that should absorb them. This is the contract's own rule ("the list is honoured in full"), not a coverage check against anything outside the ticket.
+- **A ticket is bound** (v0.11+) → accounting is by **ledger**, at the level of the **set** of pitches that cite the ticket — never by per-item no-gos. This pitch declares in `references.tickets[].covers` the binding groups (or in-group item numbers) it *reflects* — a contested item counts as reflected through its correction — and in `references.tickets[].delegates` the items it reflects in substance while the literal is owned elsewhere (copy → Figma, an identifier → the backend spec), naming the owner. Items in neither belong to a sibling and need **no** no-go here: the 범위 제외 section carries at most ONE bullet saying that the rest of the Epic is owned by sibling pitches citing the same ticket, **without filenames** (an append-only list of siblings rots the moment one more is written). Group labels are copied verbatim from the parser's `bindings[].groups[].label`. Then run `requirement_contract.py coverage` over every pitch in the repo plus this draft (the §8 command) and refuse generation when: (1) a declared group or item is not actually reflected in the draft — render `prd.contract.unaccounted_items` with the declared-but-unreflected items; (2) the report lists `overlaps` (two pitches claim an item without `shared: true` on both sides) or `stale` (a declaration naming a group or item the ticket does not have). `uncovered` items are the Epic's remaining gaps, not this pitch's defect: render `prd.contract.coverage_summary`, carry them into the handoff (`prd.contract.handoff_gap_line`), and refuse only when the user says this pitch is the last of the set. One sentence that genuinely spans two pitches (one item, two screens) is claimed by both with `shared: true`. The Stage 6 supersede completeness guard still applies to what the superseded pitch used to state. This is the contract's own rule ("the list is honoured in full"), not a coverage check against anything outside the ticket.
 
 ### Refusal message
 
@@ -711,7 +711,32 @@ deprecated: false
 ---
 ```
 
-**Requirement contract (v0.11+)** — when §1.5.1 bound a ticket, add `references.tickets` with one entry per bound ticket, copied from the parser's `source`: `tracker`, `repo`, `id`, `version`, `read_at`, `url`. Never copy ticket text — the tracker keeps the body at that version. When the run was exempted under `required`, write `references.ticket_exemption: <reason>` instead. Without the contract block, emit neither.
+**Requirement contract (v0.11+)** — when §1.5.1 bound a ticket, add `references.tickets` with one entry per bound ticket, copied from the parser's `source`: `tracker`, `repo`, `id`, `version`, `read_at`, `url`, plus the Stage 5 ledger — `covers` (binding id → list of `{group, items?, shared?}`) and `delegates` (list of `{binding, group, items?, to, why?}`), group labels verbatim from the parser. Never copy ticket text — the tracker keeps the body at that version. When the run was exempted under `required`, write `references.ticket_exemption: <reason>` instead. Without the contract block, emit neither.
+
+```yaml
+references:
+  tickets:
+    - tracker: github
+      repo: my-org/task-tracker
+      id: "3755"
+      version: "2026-09-08T05:25:01Z"
+      read_at: 2026-09-09
+      url: https://github.com/my-org/task-tracker/issues/3755
+      covers:
+        acceptance:
+          - group: 적립
+          - group: 주문·결제 화면
+            items: [1]
+            shared: true
+        qa_checklist:
+          - group: 적립 시점
+      delegates:
+        - binding: qa_checklist
+          group: 이용 안내·쿠폰 표기
+          items: [2]
+          to: Figma
+          why: 카드 문구의 진실 소스는 시안
+```
 
 ### Body assembly
 
@@ -827,7 +852,7 @@ After writing, emit a handoff message by rendering `prd.stage6.handoff` with:
 - `{deprecated_line}` — for `update` intent, render `prd.stage6.deprecated_line` with `{old_file_path}` = the previous active file; for `new` / `new_domain`, substitute with an empty string
 - `{github_web_steps}` — render `common.handoff.github_web_steps`
 - `{cli_steps}` — render `common.handoff.cli_steps`
-- **Requirement contract (v0.11+)** — when a ticket was bound, append `prd.contract.handoff_addendum` with `{ticket_ref}`, `{version}`, `{validator_cmd}` (`python3 "${CLAUDE_PLUGIN_ROOT}/scripts/validate_docs.py" --type pitch --strict-body`) and `{drift_cmd}` (the `requirement_contract.py drift` line for this ticket, its version, and the same `--binding` flags as §1.5.1); when ≥1 disagreement entry exists, also `prd.contract.handoff_disagreement_line` with `{disagreement_count}`, `{provisional}` and `{terminal_joined}` (the `outcome_terminal` tokens joined with `common.separator.or`) and `prd.contract.handoff_request_file` with `{path}` = the file §1.6.3 wrote; when Stage 5 recorded gaps (handoff targets that do not exist yet), `prd.contract.handoff_gap_line` with `{gaps}` = one line per gap naming the item and the sibling pitch that must land in the same PR.
+- **Requirement contract (v0.11+)** — when a ticket was bound, append `prd.contract.handoff_addendum` with `{ticket_ref}`, `{version}`, `{validator_cmd}` (`python3 "${CLAUDE_PLUGIN_ROOT}/scripts/validate_docs.py" --type pitch --strict-body`) and `{drift_cmd}` (the `requirement_contract.py drift` line for this ticket, its version, and the same `--binding` flags as §1.5.1); when ≥1 disagreement entry exists, also `prd.contract.handoff_disagreement_line` with `{disagreement_count}`, `{provisional}` and `{terminal_joined}` (the `outcome_terminal` tokens joined with `common.separator.or`) and `prd.contract.handoff_request_file` with `{path}` = the file §1.6.3 wrote; always `prd.contract.handoff_coverage_line` with `{covered}`, `{total}` and `{coverage_cmd}` (the `requirement_contract.py coverage` line over `pitches/**/*.md`); when the report left `uncovered` items, `prd.contract.handoff_gap_line` with `{gaps}` = one `<binding> · <group> <item> — <text>` line each — the Epic's items no pitch in the set owns yet.
 
 The rendered `prd.stage6.handoff` includes a **Next step** block pointing to `/immutable:design <slug>` plus a one-paragraph clarifier stating that ADR authoring is reactive (surfaced by `/immutable:plan-review-eng` Phase 3 as an OUTPUT, not authored upfront after the pitch). This anchor exists because the canonical pitch → design transition has no orchestrator-level enforcement — without it, callers reading only nearby signals (init handoffs that surface ADR as a peer entry point, CHANGELOG mentions of standalone ADR usage) tend to infer prd → adr as the next step. v0.6.5 already corrected the receiving end (`/immutable:plan-review-ceo` description); v0.7.3 closes the emitting end by adding the next-step anchor here.
 

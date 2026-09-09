@@ -288,6 +288,18 @@ references:
       version: "2026-09-08T05:25:01Z"   # opaque version coordinate; equality is its only operation
       read_at: 2026-09-08
       url: https://github.com/my-org/task-tracker/issues/3755
+      covers:                 # the ledger: which binding items THIS pitch reflects
+        acceptance:
+          - group: 적립         # a whole group, label verbatim from the ticket
+          - group: 주문·결제 화면
+            items: [1]        # or only these in-group ordinals
+            shared: true      # one sentence, two pitches — by agreement
+      delegates:              # reflected in substance; the literal is owned elsewhere
+        - binding: qa_checklist
+          group: 이용 안내·쿠폰 표기
+          items: [2]
+          to: Figma
+          why: 카드 문구의 진실 소스는 시안
   ticket_exemption: <reason>  # pitch, v0.11+: why no ticket binds this pitch (required-mode only)
 ---
 ```
@@ -302,6 +314,7 @@ references:
 - A deprecated doc's references are frozen — no back-edits allowed. If the referenced pitch is superseded, the ADR stays pointing at the old filename (history snapshot) unless a new ADR is issued.
 - `references.tickets` (pitch only, v0.11+) records the identity and the version coordinate of every ticket whose binding sections this pitch honours — and **no ticket text**. The tracker keeps the body at that version; `scripts/requirement_contract.py drift` re-reads it. `tracker`, `id`, `version` are required non-empty strings; `repo`, `read_at`, `url` are informational.
 - `references.ticket_exemption` (pitch only, v0.11+) is the one-line reason a pitch cites no ticket. Under `requirement_contract.enforcement: required` the validator demands one of the two.
+- `references.tickets[].covers` / `.delegates` (pitch only, v0.11+) form the **ledger**: accounting of the ticket's binding items happens across the *set* of pitches citing it, so a pitch declares only what it owns and never enumerates its siblings' items. Group labels are the ticket's, verbatim (the parser's `bindings[].groups[].label`); `items` are 1-based ordinals within the group; `shared: true` on every claimant marks a sentence two pitches legitimately share. `scripts/requirement_contract.py coverage` reconciles the set against the live ticket; the validator checks the shape only.
 
 ---
 
@@ -362,7 +375,7 @@ Checked at generation time by the `/immutable:prd` and `/immutable:adr` skills, 
    - *pitch / ADR (CI validator, opt-in)*: `scripts/validate_docs.py --strict-body` scans all pitch and ADR files and flags the same missing-heading violations post-hoc. The v0.5.3+ pitch user-stories structure check activates under the same flag (profile-gated on `per_story_grouped`). Off by default for backward compatibility with v0.4 repos authored before the profile system existed. The bundled starter workflow leaves it off, matching that default; a repo bootstrapped fresh has no pre-profile legacy, so appending `--strict-body` to the workflow's validate step is safe and checks strictly more.
    - *date cutoff for `--strict-body` (v0.9.0+)*: because `--strict-body` scans **every** file, switching it on in a repo with legacy docs lights up every one that predates a later structural requirement — and those docs are append-only, so they cannot simply be edited into shape. `--strict-since YYYY-MM-DD` (or the config field `strict_body_since`) restricts the body checks to files whose **filename date** is on or after the cutoff; older files are exempt. This enforces structure on new docs without rewriting append-only history — forward enforcement, not retroactive. The cutoff is inclusive (a file dated exactly on it is checked); a file with no leading date in its name is fail-closed to in-scope; and a malformed cutoff is fatal, never silently ignored. The exemption count is printed to stderr so the scoping is visible, not silent. The CLI flag overrides the config field.
 9. **Requirement contract (v0.11+)** — three checks. The first is a frontmatter-shape check and always runs; the other two are no-ops for a repo without a `requirement_contract:` config block:
-   - *always on*: a `references.tickets` list, when present, holds mappings each carrying non-empty string `tracker`, `id`, `version`; `references.ticket_exemption`, when present, is a non-empty string.
+   - *always on*: a `references.tickets` list, when present, holds mappings each carrying non-empty string `tracker`, `id`, `version`; a `covers` ledger, when present, is a mapping of binding id → list of `{group, items?, shared?}` and `delegates` a list of `{binding, group, items?, to}` with `to` non-empty; `references.ticket_exemption`, when present, is a non-empty string. Whether the declared groups exist and whether every item is claimed exactly once is `requirement_contract.py coverage`'s job — it needs the live ticket.
    - *`--strict-body`, within the `--strict-since` scope, and — when `requirement_contract.since` is set — only for pitches dated on or after it*: under `enforcement: required` every pitch carries a non-empty `references.tickets` or a `ticket_exemption`. The `--strict-since` window is about body structure and usually predates contract adoption; without its own cutoff the presence rule would retroactively fail every pitch written between the two dates (measured 2026-09-08: six pitches in the pilot repo). The exemption count is printed to stderr.
    - *`--strict-body`, within the `--strict-since` scope*: a pitch whose disagreement section (`profile.sections[id=requirement_disagreement].heading`) exists holds ≥1 `### ` entry, and every entry carries the four labelled bullets (`profile.requirement_contract.disagreement.fields`) with an outcome that begins with a terminal token (`outcome_terminal`). An outcome beginning with `outcome_provisional` is a violation — this is the merge gate that keeps a pitch PR open until its correction request is settled. The correction bullet must also be a **decision**: one matching a `disagreement.deferral_patterns[]` regex ("확인 필요", "협의", "확정한다", "TBD" and their English counterparts in the bundled profiles) is a violation, because a correction becomes the requirement when the ticket stays silent past the response window, and a deferral cannot be confirmed by silence. When the active profile lacks the vocabulary (a team profile not yet migrated), each missing part is skipped with a stderr warning, never silently.
 
@@ -653,7 +666,7 @@ Three shapes, all owned here; everything around them belongs to the consuming re
 |---|---|---|
 | Ticket input — `id`, `title`, `url`, `body` (markdown), `version` (opaque string), optional `history[]` | printed by an adapter command; contract in `scripts/requirement_contract.py` | `fetch` / `drift` |
 | Parsed contract — `bindings[].groups[].items[].text`, `sections[]`, `warnings[]`, `errors[]` | JSON from `requirement_contract.py parse` / `fetch` | `/immutable:prd` judgement, `drift` |
-| Pitch record — `references.tickets[]` (identity + version, no text) and the `requirement_disagreement` body section | pitch frontmatter and body, formats in this file | the validator; every later reader |
+| Pitch record — `references.tickets[]` (identity + version + the `covers` / `delegates` ledger, no text) and the `requirement_disagreement` body section | pitch frontmatter and body, formats in this file | the validator (shape), `coverage` (reconciliation), every later reader |
 
 Deliberately **not** in the plugin: a clock (business-day deadlines and holiday calendars live with the tracker), posting to the tracker (a correction request is handed to the author to post), and any coverage check against sources the ticket does not name — a topic the ticket never raised is not a defect; the pitch fills it.
 
@@ -666,7 +679,7 @@ The first design quoted the binding sentences into the pitch so CI could compare
 1. **Intake** (Stage 1.5.1) — under `enforcement: optional` the skill asks whether a ticket binds this pitch; under `required` it insists, or records a one-line `ticket_exemption`. The ticket is fetched through the adapter and its binding sections are summarised (counts, warnings, and any missing section — a ticket without the binding sections cannot be contracted against and is refused as such).
 2. **Judgement** (Stage 1.6) — every binding item is classified as *followed* or as one of the three profile categories: not implementable; self-contradictory against the ticket's own text, non-binding notes included; or in conflict with a settled requirement, meaning an active pitch's normative line. Only those three let the pitch deviate. "A better way exists" is not one and is routed to the next requirement list. A finding that turns on a literal value sweeps the other binding items for the same value (value propagation). Each confirmed deviation gets a drafted correction — a **decision**, the sentence that becomes the requirement if the ticket stays silent, never a deferral — and a reason, and the skill writes the correction request both to the conversation and to `.claude/immutable/contract/<slug>-<tracker>-<id>.md` in ticket register (request date, the configured response window, original / correction / reason per item) for the author to post. It never posts.
 3. **Interview** — the binding items, corrected where a deviation stands, become the highest-priority source for recommended answers.
-4. **Gate** (Stage 5) — a bound pitch accounts for every binding item: reflected in the body, handed off to an **existing** active pitch, or recorded as a disagreement. A handoff to a pitch that does not exist yet is a gap, recorded as a deferred no-go naming the owning domain and listed in the handoff; it is bound to "the same pull request" only when the superseded pitch used to state it. Anything else refuses generation, exactly as an unresolved tag does. For `update` intent, Stage 6 additionally checks that nothing the superseded pitch bound is left without an active statement (carried, handed off, or closed by a same-PR sibling that also supersedes the old file).
+4. **Gate** (Stage 5) — accounting is by **ledger over the set**. Each pitch declares in `references.tickets[].covers` the groups (or in-group items) it reflects — a contested item counts through its correction — and in `delegates` the items it reflects in substance while the literal is owned elsewhere (copy → Figma). Items it does not declare belong to a sibling and need no per-item no-go; one sentence spanning two pitches is claimed by both with `shared: true`. `requirement_contract.py coverage` reconciles every pitch citing the ticket against the live items: `overlaps` and `stale` declarations refuse generation, `uncovered` items are the Epic's remaining gaps carried into the handoff (they refuse only for the last pitch of the set). Why a ledger and not per-item no-gos: the first seven-pitch run produced 62 out-of-scope bullets of which 48 pointed at siblings, a badge pitch with 6 normatives and 8 handoffs, and handoffs written before their target existed that became false when it did — the set is the unit the Epic binds, so the set is the unit that must be reconciled. For `update` intent, Stage 6 additionally checks that nothing the superseded pitch bound is left without an active statement (carried, owned by a sibling in the set, or closed by a same-PR sibling that also supersedes the old file).
 5. **Output** (Stage 6) — `references.tickets[]` in the frontmatter; the disagreement section only when there is a disagreement.
 
 ### The disagreement section
@@ -685,6 +698,15 @@ One `### ` entry per contested item; four labelled bullets whose labels come fro
 ```
 
 The outcome bullet is the merge gate. While it begins with `outcome_provisional` the pitch is a **pull request that stays open**; before merge the author rewrites it as one of `outcome_terminal` — agreed, with the date the ticket was corrected; or deadline passed, the pitch's correction stands and the item moves to the next list — and `validate_docs.py --strict-body` refuses anything else. The section is kept after resolution, not removed: it is what tells a later reader that the difference between pitch and ticket was deliberate, which matters most in the deadline case, where the ticket may still carry the old wording. All of this editing happens on the PR branch, so the append-only rule is untouched, and no supersede is spent on bookkeeping.
+
+### Reconciling the set
+
+```
+python3 scripts/requirement_contract.py coverage --repo <owner/name> --id <id> \
+  --binding acceptance="완료 조건" --binding qa_checklist="QA 통과 리스트" pitches/**/*.md
+```
+
+Every file given that cites the ticket forms the set (others are ignored, so the whole `pitches/` tree can be passed). Exit 0 when every binding item is claimed exactly once — or by several pitches that all say `shared: true` — and no declaration names a group or item the ticket lacks; 1 otherwise, with `uncovered[]`, `overlaps[]`, `stale[]` listed; 2 on adapter or file errors. A pitch whose recorded version is not the live one is reported in `version_mismatch[]` as a warning — `drift` says what moved. Run it in the spec repo's PR check next to `drift`; PyYAML is needed for this subcommand only (it reads frontmatter).
 
 ### Drift, and how consumers wire it
 

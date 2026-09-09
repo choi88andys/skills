@@ -11,6 +11,11 @@ deprecated: false
 #       id: "3755"
 #       version: "2026-09-08T05:25:01Z"
 #       read_at: 2026-09-08
+#       covers:                       # 이 pitch 가 반영하는 구속 묶음·항목 (라벨은 티켓 그대로)
+#         acceptance:
+#           - group: 적립
+#       delegates:                    # 실질은 반영, 문면은 다른 곳이 정함
+#         - { binding: qa_checklist, group: 이용 안내·쿠폰 표기, items: [2], to: Figma }
 ---
 
 # <Pitch 제목>

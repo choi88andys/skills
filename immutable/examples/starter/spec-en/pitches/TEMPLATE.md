@@ -11,6 +11,11 @@ deprecated: false
 #       id: "3755"
 #       version: "2026-09-08T05:25:01Z"
 #       read_at: 2026-09-08
+#       covers:                       # binding groups/items THIS pitch reflects (labels verbatim)
+#         acceptance:
+#           - group: Accrual
+#       delegates:                    # reflected in substance; literal owned elsewhere
+#         - { binding: qa_checklist, group: Coupon card copy, items: [2], to: Figma }
 ---
 
 # <Pitch title>

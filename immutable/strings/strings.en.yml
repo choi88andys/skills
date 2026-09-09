@@ -429,10 +429,10 @@ strings:
        reason: {reason}
 
   prd.contract.unaccounted_items: |
-    Some binding items of ticket {ticket_ref} are not accounted for by the pitch. Every item must be reflected in the body, classified as out of scope (handed to another pitch), or recorded as a requirement disagreement:
+    Items declared in frontmatter `covers` are not reflected in the body (no normative line, GWT, edge-case row or disagreement entry traces to them):
     {items}
 
-    Return to the owning branch, fill the gap, then re-enter Stage 5.
+    Reflect them or drop them from the declaration, then re-enter Stage 5. Items a sibling pitch owns are simply not declared here.
 
   prd.contract.handoff_addendum: |
     Requirement contract:
@@ -458,7 +458,7 @@ strings:
   prd.contract.handoff_request_file: "- Correction request file: `{path}` — post its content on the ticket as-is (posting is the user's job)"
 
   prd.contract.handoff_gap_line: |
-    - Handoff gaps — items handed to a pitch that does not exist yet. That pitch must land in the same PR, or the items lose their active statement at merge:
+    - Uncovered items — Epic items no pitch citing this ticket owns yet. Put them in `covers` when the sibling pitch is written:
     {gaps}
 
   prd.stage6.supersede_gap: |
@@ -466,6 +466,17 @@ strings:
     {missing}
 
     Deprecating the old file would leave that content without an active pitch. Carry it, hand it to an existing pitch, or close the gap with a sibling pitch in the same PR that also supersedes the old file — then continue.
+
+  prd.contract.coverage_summary: |
+    Ticket {ticket_ref} accounting (over the set of pitches citing it): {covered}/{total} items are owned by a pitch.
+    Uncovered (no pitch owns them yet):
+    {uncovered_lines}
+    Overlaps (claimed by more than one pitch without shared agreement):
+    {overlap_lines}
+    Declarations the ticket does not have:
+    {stale_lines}
+
+  prd.contract.handoff_coverage_line: "- Accounting: {covered}/{total} items owned within the set — re-check: `{coverage_cmd}`"
 
   # ==========================================================================
   # adr skill

@@ -161,6 +161,11 @@ What then happens, and what deliberately does not:
   pull request stays open until the author rewrites it as *agreed* or
   *deadline passed* on the PR branch. The section stays afterwards: it tells a
   later reader the difference from the ticket was deliberate.
+- **Accounting is a ledger over the set.** Each pitch declares in its ticket
+  record which binding groups or items it reflects (`covers`) or reflects in
+  substance while the literal lives elsewhere (`delegates`, e.g. copy → Figma);
+  `requirement_contract.py coverage` reconciles every pitch citing the ticket
+  against the live items, so no pitch enumerates its siblings.
 - **Drift** — `requirement_contract.py drift --id <id> --version <recorded> …`
   re-reads the ticket and reports, item by item, what moved since the pitch
   was written (exit 1), or that nothing binding did (exit 0). Where it runs —
