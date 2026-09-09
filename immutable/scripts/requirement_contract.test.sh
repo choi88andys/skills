@@ -434,9 +434,63 @@ else
   fail "C21 drift without history" "rc=$RC $(q 'd["warnings"]')"
 fi
 
+# ---- coverage: the ledger each pitch keeps vs. the ticket's items ----------
+# Fixture ticket (epic.md): acceptance = 적립 (3 items) + 발급 (5 items);
+# QA = 표시 (2) + 시점 (1). Total 11.
+gh_json "$RIG/epic.md" "$RIG/gh.json" "2026-09-08T05:25:01Z" "2026-09-08T05:25:01Z=$RIG/epic.md"
+cat >"$RIG/bin/gh" <<SH2
+#!/usr/bin/env bash
+cat "$RIG/gh.json"
+SH2
+mkdir -p "$RIG/pitches"
+mkledger() {  # mkledger <file> <yaml-lines...>  — a pitch whose frontmatter cites 3755 with the given ledger lines
+  local f="$RIG/pitches/$1"; shift
+  { echo '---'; echo 'domain: reward'; echo 'supersedes: null'; echo 'deprecated: false'; echo 'references:'; echo '  tickets:'
+    echo '    - tracker: github'; echo '      repo: acme/tracker'; echo '      id: 3755'; echo '      version: "2026-09-08T05:25:01Z"'
+    printf '%s\n' "$@"; echo '---'; echo; echo '# body'; } >"$f"
+}
+mkledger p1.md '      covers:' '        acceptance:' '          - group: 적립' '          - group: 발급' '            items: [1, 2, 3, 4]' '        qa_checklist:' '          - group: 시점' '            shared: true' \
+               '      delegates:' '        - binding: acceptance' '          group: 발급' '          items: [5]' '          to: Figma' '          why: 문구는 시안이 정한다'
+mkledger p2.md '      covers:' '        qa_checklist:' '          - group: 표시' '          - group: 시점' '            shared: true'
+cov() { fetch_stub coverage --repo acme/tracker --id 3755 --binding "$B_ACC" --binding "$B_QA" "$@"; }
+
+# C22 — full coverage across two pitches: every item claimed once (one shared
+# by agreement), a delegate counts as claimed, exit 0.
+cov "$RIG/pitches/p1.md" "$RIG/pitches/p2.md"
+if [ "$RC" -eq 0 ] && [ "$(q '(d["total"], d["covered"], len(d["uncovered"]), len(d["overlaps"]), len(d["stale"]), [(s["group"], sorted(s["claimed_by"])) for s in d["shared"]], [(p["covers"], p["delegates"]) for p in d["pitches"]])')" = "(11, 11, 0, 0, 0, [('시점', ['$RIG/pitches/p1.md', '$RIG/pitches/p2.md'])], [(8, 1), (3, 0)])" ]; then
+  pass "C22 coverage: full set → exit 0; delegate counts; shared-by-agreement is not an overlap"
+else
+  fail "C22 coverage full" "rc=$RC $(q '(d["total"], d["covered"], d["uncovered"], d["overlaps"], d["stale"], d["shared"], d["pitches"])')"
+fi
+
+# C23 — defects: an unshared double claim is an overlap, a group the ticket
+# lacks is stale, items nobody claims are uncovered; exit 1.
+mkledger p3.md '      covers:' '        acceptance:' '          - group: 적립'
+mkledger p4.md '      covers:' '        acceptance:' '          - group: 없는묶음' '          - group: 발급' '            items: [9]'
+cov "$RIG/pitches/p1.md" "$RIG/pitches/p3.md" "$RIG/pitches/p4.md"
+if [ "$RC" -eq 1 ] && [ "$(q '(d["covered"], [u["group"] for u in d["uncovered"]], len(d["overlaps"]), sorted(set(o["group"] for o in d["overlaps"])), len(d["stale"]))')" = "(9, ['표시', '표시'], 3, ['적립'], 2)" ] \
+  && [ "$(q 'any("없는묶음" in s for s in d["stale"]) and any("item 9 not in" in s for s in d["stale"])')" = "True" ]; then
+  pass "C23 coverage: overlap (3 items), stale group + stale item, uncovered 표시 ×2 → exit 1"
+else
+  fail "C23 coverage defects" "rc=$RC $(q '(d["covered"], d["uncovered"], d["overlaps"], d["stale"])')"
+fi
+
+# C24 — set membership and versions: a pitch citing another ticket is not in the
+# set; a pitch with an older recorded version is reported (warning, not failure);
+# a file without frontmatter is skipped with a warning.
+mkledger p5.md '      covers: {}'; sed -i '' 's/id: 3755/id: 9999/' "$RIG/pitches/p5.md"
+mkledger p6.md '      covers: {}'; sed -i '' 's/2026-09-08T05:25:01Z/2026-01-01T00:00:00Z/' "$RIG/pitches/p6.md"
+printf '# no frontmatter\n' >"$RIG/pitches/p7.md"
+cov "$RIG/pitches/p1.md" "$RIG/pitches/p2.md" "$RIG/pitches/p5.md" "$RIG/pitches/p6.md" "$RIG/pitches/p7.md"
+if [ "$RC" -eq 0 ] && [ "$(q '(len(d["pitches"]), [m["pitch"].rsplit("/",1)[1] for m in d["version_mismatch"]], any("no readable frontmatter" in w for w in d["warnings"]), any("recorded a version other than the live one" in w for w in d["warnings"]))')" = "(3, ['p6.md'], True, True)" ]; then
+  pass "C24 coverage: other-ticket pitch excluded, version mismatch warned, frontmatter-less file skipped"
+else
+  fail "C24 coverage membership" "rc=$RC $(q '(len(d["pitches"]), d["version_mismatch"], d["warnings"])')"
+fi
+
 echo
 if [ "$FAILURES" -eq 0 ]; then
-  echo "all 21 cases passed."
+  echo "all 24 cases passed."
   exit 0
 fi
 echo "$FAILURES case(s) failed."

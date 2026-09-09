@@ -14,9 +14,12 @@ an item is or what its text is:
     by item, so a requirement cannot move underneath a pitch unnoticed.
 
 Subcommands
-  parse   read a ticket body from a file (`-` = stdin) and emit JSON
-  fetch   obtain the ticket through an adapter, then parse; adds `source`
-  drift   fetch the ticket and compare it with a recorded version coordinate
+  parse     read a ticket body from a file (`-` = stdin) and emit JSON
+  fetch     obtain the ticket through an adapter, then parse; adds `source`
+  drift     fetch the ticket and compare it with a recorded version coordinate
+  coverage  fetch the ticket and reconcile the pitches that cite it: every
+            binding item must be claimed by exactly one pitch (or shared by
+            agreement), via the pitches' frontmatter ledgers
 
 Nothing tracker-specific is baked in beyond one default adapter:
 
@@ -75,6 +78,34 @@ differ), `history_available` (the recorded body could be retrieved),
 proves the change touched only non-binding text), and per binding `added[]`,
 `removed[]`, `unchanged` (item texts compared as multisets).
 
+`coverage` reads the ledger each pitch keeps in its frontmatter under the
+matching `references.tickets[]` entry (PyYAML needed for this subcommand
+only):
+
+  covers:                       # what THIS pitch reflects, by binding id
+    acceptance:
+      - group: 적립             # a whole group (label as the ticket writes it;
+      - group: 주문·결제 화면   #   null = the items before any label)
+        items: [1]              # or only these in-group ordinals (1-based)
+        shared: true            # claimed by another pitch too, on purpose
+  delegates:                    # reflected in substance, literal owned elsewhere
+    - binding: qa_checklist
+      group: 이용 안내·쿠폰 표기
+      items: [2]
+      to: Figma
+      why: 문구의 진실 소스는 시안
+
+Accounting is per SET — every pitch file given that cites the ticket — so a
+pitch never has to enumerate what its siblings own. Output: `pitches[]`
+(path, recorded version, claim counts), `uncovered[]` (no pitch claims the
+item), `overlaps[]` (claimed by several without `shared` on every side),
+`stale[]` (a declaration naming a binding, group or ordinal the ticket does
+not have — a drift symptom), `shared[]` (informational), `version_mismatch[]`
+(a pitch recorded a version other than the live one; run `drift` for
+detail), `covered` / `total` counts. Exit 0 when every item is claimed
+exactly once (or shared by agreement) and nothing is stale; 1 otherwise;
+2 on adapter or file errors.
+
 `text` is the ONE canonical form every consumer compares: NFC-normalised,
 outer whitespace stripped, inner whitespace runs collapsed to a single
 space, inline markdown kept verbatim. A struck item keeps its `~~`;
@@ -126,6 +157,7 @@ HEADING_QUOTES = "「」『』\"'“”‘’"
 EXCERPT_LEN = 60
 ADAPTER_TIMEOUT_SECONDS = 60
 HISTORY_PAGE = 100
+FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---\n", re.DOTALL)
 
 # The built-in GitHub adapter. `userContentEdits` holds the FULL body after each
 # edit (the creation counts as the first edit), which is what lets `drift` show
@@ -635,6 +667,169 @@ def compute_drift(
 
 
 # --------------------------------------------------------------------------
+# coverage — the set of pitches citing a ticket vs. the ticket's items
+# --------------------------------------------------------------------------
+
+
+def load_frontmatter_yaml(path: str) -> dict[str, Any] | None:
+    """A pitch's frontmatter as a mapping, or None when absent/malformed.
+    PyYAML is imported here, not at module top, so parse/fetch/drift stay
+    dependency-free."""
+    try:
+        import yaml  # type: ignore
+    except ImportError:
+        adapter_fail("`coverage` needs PyYAML to read pitch frontmatter (pip install pyyaml)")
+    try:
+        text = open(path, "rb").read().decode("utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        adapter_fail(f"cannot read pitch {path}: {exc}")
+    m = FRONTMATTER_RE.match(text)
+    if not m:
+        return None
+    try:
+        fm = yaml.safe_load(m.group(1))
+    except Exception:  # yaml errors and date ValueErrors alike
+        return None
+    return fm if isinstance(fm, dict) else None
+
+
+def ticket_entry_for(fm: dict[str, Any], args: argparse.Namespace) -> dict[str, Any] | None:
+    refs = fm.get("references") or {}
+    for entry in (refs.get("tickets") or []) if isinstance(refs, dict) else []:
+        if not isinstance(entry, dict):
+            continue
+        if str(entry.get("id")) != args.id:
+            continue
+        if str(entry.get("tracker", "github")) != args.tracker:
+            continue
+        if args.repo and entry.get("repo") and str(entry["repo"]) != args.repo:
+            continue
+        return entry
+    return None
+
+
+def item_index(parsed: dict[str, Any]) -> dict[tuple[str, str | None, int], dict[str, Any]]:
+    """(binding id, group label, in-group ordinal) → item, for every binding item."""
+    index: dict[tuple[str, str | None, int], dict[str, Any]] = {}
+    for b in parsed["bindings"]:
+        for g in b["groups"]:
+            for k, it in enumerate(g["items"], start=1):
+                index[(b["id"], g["label"], k)] = {**it, "binding": b["id"], "in_group": k}
+    return index
+
+
+def resolve_declaration(
+    index: dict[tuple[str, str | None, int], dict[str, Any]],
+    binding: str, group: Any, items: Any, where: str, stale: list[str],
+) -> list[tuple[str, str | None, int]]:
+    """Keys a `covers`/`delegates` entry denotes; stale parts are reported, not guessed."""
+    label = None if group is None else norm_text(str(group))
+    keys = sorted(k for k in index if k[0] == binding and k[1] == label)
+    if not keys:
+        known = sorted({k[0] for k in index})
+        if binding not in known:
+            stale.append(f"{where}: binding {binding!r} is not one of {known}")
+        else:
+            groups = sorted({str(k[1]) for k in index if k[0] == binding})
+            stale.append(f"{where}: group {label!r} not in {binding} — groups on the ticket: {groups}")
+        return []
+    if items is None:
+        return keys
+    if not isinstance(items, list) or not all(isinstance(i, int) and i > 0 for i in items):
+        stale.append(f"{where}: items must be a list of positive in-group ordinals, got {items!r}")
+        return []
+    have = {k[2] for k in keys}
+    out: list[tuple[str, str | None, int]] = []
+    for i in items:
+        if i not in have:
+            stale.append(f"{where}: item {i} not in {binding} · {label!r} (the group has {len(have)})")
+        else:
+            out.append((binding, label, i))
+    return out
+
+
+def compute_coverage(
+    ticket: dict[str, Any], bindings: list[tuple[str, str]], pitch_paths: list[str], args: argparse.Namespace
+) -> dict[str, Any]:
+    parsed = parse_body(ticket["body"], bindings)
+    index = item_index(parsed)
+    claims: dict[tuple[str, str | None, int], list[dict[str, Any]]] = {k: [] for k in index}
+    stale: list[str] = []
+    warnings: list[str] = list(parsed["warnings"])
+    errors: list[str] = list(parsed["errors"])
+    pitches_out: list[dict[str, Any]] = []
+    mismatch: list[dict[str, Any]] = []
+
+    for path in pitch_paths:
+        fm = load_frontmatter_yaml(path)
+        if fm is None:
+            warnings.append(f"{path}: no readable frontmatter; skipped")
+            continue
+        entry = ticket_entry_for(fm, args)
+        if entry is None:
+            continue  # cites another ticket, or none — not part of this set
+        n_cov = n_del = 0
+        covers = entry.get("covers") or {}
+        if not isinstance(covers, dict):
+            stale.append(f"{path}: covers must be a mapping of binding id → list")
+            covers = {}
+        for binding, decls in covers.items():
+            if not isinstance(decls, list):
+                stale.append(f"{path}: covers.{binding} must be a list")
+                continue
+            for d in decls:
+                if not isinstance(d, dict) or "group" not in d:
+                    stale.append(f"{path}: covers.{binding} entry must be a mapping with `group`: {d!r}")
+                    continue
+                for key in resolve_declaration(index, str(binding), d.get("group"), d.get("items"), f"{path} covers.{binding}", stale):
+                    claims[key].append({"pitch": path, "kind": "covers", "shared": bool(d.get("shared", False))})
+                    n_cov += 1
+        for d in entry.get("delegates") or []:
+            if not isinstance(d, dict) or "binding" not in d or "group" not in d or not str(d.get("to") or "").strip():
+                stale.append(f"{path}: delegates entry needs `binding`, `group`, `to`: {d!r}")
+                continue
+            for key in resolve_declaration(index, str(d["binding"]), d.get("group"), d.get("items"), f"{path} delegates", stale):
+                claims[key].append({"pitch": path, "kind": "delegates", "to": str(d["to"]), "shared": bool(d.get("shared", False))})
+                n_del += 1
+        recorded = str(entry.get("version") or "")
+        if recorded != ticket["version"]:
+            mismatch.append({"pitch": path, "recorded_version": recorded, "current_version": ticket["version"]})
+        pitches_out.append({"path": path, "recorded_version": recorded, "covers": n_cov, "delegates": n_del})
+
+    def describe(key: tuple[str, str | None, int]) -> dict[str, Any]:
+        it = index[key]
+        return {"binding": key[0], "group": key[1], "item": key[2], "ordinal": it["ordinal"], "text": it["text"]}
+
+    uncovered = [describe(k) for k in sorted(index, key=lambda k: index[k]["ordinal"] + (0 if k[0] == bindings[0][0] else 10_000)) if not claims[k]]
+    overlaps: list[dict[str, Any]] = []
+    shared: list[dict[str, Any]] = []
+    for k, cs in claims.items():
+        if len(cs) < 2:
+            continue
+        row = {**describe(k), "claimed_by": [c["pitch"] for c in cs]}
+        (shared if all(c["shared"] for c in cs) else overlaps).append(row)
+    total = len(index)
+    if mismatch:
+        warnings.append(
+            f"{len(mismatch)} pitch(es) recorded a version other than the live one — run `drift` to see what moved"
+        )
+    return {
+        "schema": SCHEMA,
+        "source": None,
+        "total": total,
+        "covered": total - len(uncovered),
+        "pitches": pitches_out,
+        "uncovered": uncovered,
+        "overlaps": overlaps,
+        "shared": shared,
+        "stale": stale,
+        "version_mismatch": mismatch,
+        "warnings": warnings,
+        "errors": errors,
+    }
+
+
+# --------------------------------------------------------------------------
 # CLI
 # --------------------------------------------------------------------------
 
@@ -716,6 +911,11 @@ def main(argv: list[str] | None = None) -> int:
     p_drift.add_argument("--version", required=True, metavar="RECORDED", help="the version coordinate the pitch recorded")
     add_common(p_drift)
 
+    p_cov = sub.add_parser("coverage", help="reconcile the pitches citing the ticket against its binding items")
+    add_ticket(p_cov)
+    p_cov.add_argument("pitches", nargs="+", metavar="PITCH.md", help="pitch files to consider (those citing the ticket form the set)")
+    add_common(p_cov)
+
     args = parser.parse_args(argv)
     bindings = parse_binding_args(parser, args.binding)
 
@@ -736,6 +936,12 @@ def main(argv: list[str] | None = None) -> int:
         result["source"] = source_block(args, ticket)
         emit(result, args.compact)
         return 1 if result["errors"] else 0
+
+    if args.command == "coverage":
+        result = compute_coverage(ticket, bindings, args.pitches, args)
+        result["source"] = source_block(args, ticket)
+        emit(result, args.compact)
+        return 1 if (result["uncovered"] or result["overlaps"] or result["stale"] or result["errors"]) else 0
 
     recorded = args.version.strip()
     if not recorded:

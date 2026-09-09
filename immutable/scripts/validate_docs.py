@@ -803,9 +803,55 @@ def check_ticket_references(
                         f"{path}: references.tickets[{i}] missing non-empty {missing} "
                         f"(a record without its version coordinate cannot be drift-checked)",
                     )
+                check_ticket_ledger(path, i, entry, violations)
     exemption = refs.get("ticket_exemption")
     if exemption is not None and (not isinstance(exemption, str) or not exemption.strip()):
         warn(violations, f"{path}: references.ticket_exemption must be a non-empty reason string")
+
+
+def _ledger_items_ok(items: Any) -> bool:
+    return items is None or (
+        isinstance(items, list) and bool(items) and all(isinstance(x, int) and x > 0 for x in items)
+    )
+
+
+def check_ticket_ledger(path: Path, i: int, entry: dict[str, Any], violations: list[str]) -> None:
+    """Shape of the accounting ledger under a ticket record (v0.11+):
+    `covers` = mapping of binding id → list of {group, items?, shared?};
+    `delegates` = list of {binding, group, items?, to, why?}. Semantics
+    (does the group exist, is every item claimed) are `requirement_contract.py
+    coverage`'s job — it needs the live ticket; this is the static half."""
+    where = f"{path}: references.tickets[{i}]"
+    covers = entry.get("covers")
+    if covers is not None:
+        if not isinstance(covers, dict):
+            warn(violations, f"{where}.covers must be a mapping of binding id → list of {{group, items?, shared?}}")
+        else:
+            for binding, decls in covers.items():
+                if not isinstance(decls, list):
+                    warn(violations, f"{where}.covers.{binding} must be a list")
+                    continue
+                for j, d in enumerate(decls):
+                    if not isinstance(d, dict) or "group" not in d:
+                        warn(violations, f"{where}.covers.{binding}[{j}] must be a mapping with `group`")
+                        continue
+                    if not _ledger_items_ok(d.get("items")):
+                        warn(violations, f"{where}.covers.{binding}[{j}].items must be a non-empty list of positive integers")
+                    if "shared" in d and not isinstance(d["shared"], bool):
+                        warn(violations, f"{where}.covers.{binding}[{j}].shared must be a boolean")
+    delegates = entry.get("delegates")
+    if delegates is not None:
+        if not isinstance(delegates, list):
+            warn(violations, f"{where}.delegates must be a list")
+        else:
+            for j, d in enumerate(delegates):
+                if not isinstance(d, dict) or "binding" not in d or "group" not in d:
+                    warn(violations, f"{where}.delegates[{j}] must be a mapping with `binding` and `group`")
+                    continue
+                if not isinstance(d.get("to"), str) or not d["to"].strip():
+                    warn(violations, f"{where}.delegates[{j}].to must name who owns the literal (e.g. Figma)")
+                if not _ledger_items_ok(d.get("items")):
+                    warn(violations, f"{where}.delegates[{j}].items must be a non-empty list of positive integers")
 
 
 def check_ticket_presence(path: Path, fm: dict[str, Any], violations: list[str]) -> None:

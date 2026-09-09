@@ -342,9 +342,48 @@ else
 $OUT"
 fi
 
+# C12 — ledger shape (always on): `covers` must be a mapping of lists of
+# {group, items?, shared?}; `delegates` entries need binding/group/to. The
+# semantics (does the group exist) belong to `requirement_contract.py coverage`.
+mkpitch 2026-02-11-ledger-bad.md 'references:
+  tickets:
+    - tracker: github
+      id: "3755"
+      version: "v"
+      covers:
+        - group: 적립
+      delegates:
+        - binding: acceptance
+          group: 발급' ""
+mkpitch 2026-02-12-ledger-ok.md 'references:
+  tickets:
+    - tracker: github
+      id: "3755"
+      version: "v"
+      covers:
+        acceptance:
+          - group: 적립
+          - group: 발급
+            items: [1, 2]
+            shared: true
+      delegates:
+        - binding: qa_checklist
+          group: 표시
+          items: [2]
+          to: Figma' ""
+write_config required "" 2026-02-04
+run --type pitch
+if [ "$RC" -eq 1 ] && [ "$(hits 'ledger-bad.md')" = "2" ] && grep -qF 'covers must be a mapping of binding id' <<<"$OUT" && grep -qF 'delegates[0].to must name who owns the literal' <<<"$OUT" && [ "$(hits 'ledger-ok.md')" = "0" ]; then
+  pass "C12 ledger shape: covers-as-list and delegate-without-to flagged; well-formed ledger clean"
+else
+  fail "C12 ledger shape" "rc=$RC
+$OUT"
+fi
+rm -f "$P/2026-02-11-ledger-bad.md" "$P/2026-02-12-ledger-ok.md"
+
 echo
 if [ "$FAILURES" -eq 0 ]; then
-  echo "all 16 cases passed."
+  echo "all 17 cases passed."
   exit 0
 fi
 echo "$FAILURES case(s) failed."
