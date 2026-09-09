@@ -51,4 +51,5 @@ templates:
 #   enforcement: optional        # optional | required
 #   tracker: github              # label recorded in each pitch's references.tickets[]
 #   repo: my-org/task-tracker    # default repository for a bare ticket id
+#   since: 2026-01-01            # adoption date — under required, older pitches are exempt
 #   # fetch_command: "python3 tools/ticket.py {id}"   # custom adapter; unset → gh api graphql

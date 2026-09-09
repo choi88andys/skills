@@ -30,12 +30,13 @@ RIG="$(cd "$RIG" && pwd)"
 REPO="$RIG/repo"; P="$REPO/pitches/reward"
 mkdir -p "$REPO/.immutable-prd" "$P"
 
-write_config() {  # write_config <enforcement|none> [profile-line]
+write_config() {  # write_config <enforcement|none> [profile-line] [since]
   {
     echo "version: 3"; echo "repo_mode: two-repo-spec"; echo "team_language: ko"; echo "pitches_path: pitches/"
     if [ -n "${2:-}" ]; then echo "$2"; fi
     if [ "$1" != "none" ]; then
       echo "requirement_contract:"; echo "  enforcement: $1"; echo "  tracker: github"; echo "  repo: acme/tracker"
+      if [ -n "${3:-}" ]; then echo "  since: $3"; fi
     fi
   } >"$REPO/.immutable-prd/config.yml"
 }
@@ -229,9 +230,41 @@ $OUT"
   fi
 done
 
+# C7 — `since`: the presence rule applies only to pitches dated on/after the
+# adoption date, so a repo that adopts the contract with pitches already inside
+# its --strict-since window does not fail all of them retroactively. none.md
+# (2026-02-03) predates since=2026-02-04 → exempt, counted; a copy dated on the
+# boundary is still checked (inclusive). The disagreement gate is unaffected.
+mkpitch 2026-02-04-none-on-boundary.md "" ""
+write_config required "" 2026-02-04
+run --type pitch --strict-body --strict-since 2026-02-01
+if [ "$RC" -eq 1 ] && [ "$(count)" = "6" ] && [ "$(hits 'none.md')" = "0" ] && [ "$(hits 'none-on-boundary.md')" = "1" ] \
+  && [ "$(hits 'provisional.md')" = "1" ] && grep -qF 'requirement_contract.since 2026-02-04: 3 pitch(es) predate the contract' <<<"$OUT"; then
+  pass "C7 since: pre-adoption pitches exempt (3 reported: bound/exempt/none), boundary date checked, gate unaffected"
+else
+  fail "C7 since" "rc=$RC violations=$(count)
+$OUT"
+fi
+rm -f "$P/2026-02-04-none-on-boundary.md"
+
+# C8 — a malformed `since` is fatal, like a malformed --strict-since — and it
+# is a config ERROR, never a traceback: `2026-13-01` is shaped like a date, so
+# PyYAML itself raises while building it (ValueError, not YAMLError), which
+# used to escape load_config for `strict_body_since` too.
+for bad in "2026-13-01" "yesterday" "2026-2-4"; do
+  write_config required "" "$bad"
+  run --type pitch
+  if [ "$RC" -eq 1 ] && grep -qF 'error: config.yml' <<<"$OUT" && ! grep -qF 'violation(s) found' <<<"$OUT" && ! grep -qF 'Traceback' <<<"$OUT"; then
+    pass "C8 malformed since ($bad) is fatal"
+  else
+    fail "C8 malformed since ($bad)" "rc=$RC
+$OUT"
+  fi
+done
+
 echo
 if [ "$FAILURES" -eq 0 ]; then
-  echo "all 8 cases passed."
+  echo "all 13 cases passed."
   exit 0
 fi
 echo "$FAILURES case(s) failed."

@@ -208,6 +208,11 @@ requirement_contract:
   tracker: github
   # Default repository for a bare ticket id (the GitHub adapter needs it).
   repo: my-org/task-tracker
+  # Adoption date. Under `required`, only pitches whose filename date is on or
+  # after it must cite a ticket — the ones written before the contract existed
+  # are append-only and cannot be edited into compliance. Inclusive; a
+  # malformed date is fatal. Omit only in a repo with no pre-contract pitches.
+  since: 2026-09-08
   # Optional adapter: a command printing the ticket-input JSON documented in
   # scripts/requirement_contract.py. `{repo}` and `{id}` are substituted per
   # argv element and the command runs WITHOUT a shell. Unset → the built-in
@@ -354,7 +359,7 @@ Checked at generation time by the `/immutable:prd` and `/immutable:adr` skills, 
    - *date cutoff for `--strict-body` (v0.9.0+)*: because `--strict-body` scans **every** file, switching it on in a repo with legacy docs lights up every one that predates a later structural requirement — and those docs are append-only, so they cannot simply be edited into shape. `--strict-since YYYY-MM-DD` (or the config field `strict_body_since`) restricts the body checks to files whose **filename date** is on or after the cutoff; older files are exempt. This enforces structure on new docs without rewriting append-only history — forward enforcement, not retroactive. The cutoff is inclusive (a file dated exactly on it is checked); a file with no leading date in its name is fail-closed to in-scope; and a malformed cutoff is fatal, never silently ignored. The exemption count is printed to stderr so the scoping is visible, not silent. The CLI flag overrides the config field.
 9. **Requirement contract (v0.11+)** — three checks. The first is a frontmatter-shape check and always runs; the other two are no-ops for a repo without a `requirement_contract:` config block:
    - *always on*: a `references.tickets` list, when present, holds mappings each carrying non-empty string `tracker`, `id`, `version`; `references.ticket_exemption`, when present, is a non-empty string.
-   - *`--strict-body`, within the `--strict-since` scope*: under `enforcement: required` every pitch carries a non-empty `references.tickets` or a `ticket_exemption`. Scoped like the other body checks because legacy pitches predate the policy.
+   - *`--strict-body`, within the `--strict-since` scope, and — when `requirement_contract.since` is set — only for pitches dated on or after it*: under `enforcement: required` every pitch carries a non-empty `references.tickets` or a `ticket_exemption`. The `--strict-since` window is about body structure and usually predates contract adoption; without its own cutoff the presence rule would retroactively fail every pitch written between the two dates (measured 2026-09-08: six pitches in the pilot repo). The exemption count is printed to stderr.
    - *`--strict-body`, within the `--strict-since` scope*: a pitch whose disagreement section (`profile.sections[id=requirement_disagreement].heading`) exists holds ≥1 `### ` entry, and every entry carries the four labelled bullets (`profile.requirement_contract.disagreement.fields`) with an outcome that begins with a terminal token (`outcome_terminal`). An outcome beginning with `outcome_provisional` is a violation — this is the merge gate that keeps a pitch PR open until its correction request is settled. When the active profile lacks the vocabulary (a team profile not yet migrated), the check is skipped with a stderr warning, never silently.
 
 **Profile awareness** (v0.5+): the CI validator loads the profile via the same resolution order as the skills — config.yml `profile:` → bundled `default-<team_language>.yml` → hardcoded last-resort defaults. v2 configs get the bundled default automatically; no config bump required.

@@ -45,8 +45,9 @@ Coverage (matches SCHEMA.md "Validation invariants"):
   9. Requirement contract (v0.11+) — `references.tickets[]` entries carry
      non-empty string `tracker` / `id` / `version` (always on); under
      `--strict-body` and the `--strict-since` scope, with the config's
-     `requirement_contract.enforcement: required`, every pitch carries a
-     ticket reference or a `references.ticket_exemption`; and, once the
+     `requirement_contract.enforcement: required`, every pitch dated on or
+     after `requirement_contract.since` (when set) carries a ticket reference
+     or a `references.ticket_exemption`; and, once the
      config opts into the contract, a pitch's disagreement section
      (`profile.sections[id=requirement_disagreement]`) holds ≥1 `### ` entry
      whose four labelled bullets are present and whose outcome begins with a
@@ -156,7 +157,11 @@ def load_config(path: Path) -> dict[str, Any]:
     try:
         with path.open("r", encoding="utf-8") as fh:
             data = yaml.safe_load(fh) or {}
-    except yaml.YAMLError as exc:
+    except (yaml.YAMLError, ValueError) as exc:
+        # ValueError: PyYAML builds a date object for any unquoted scalar shaped
+        # like one and lets `datetime` raise on `2026-13-01` — a traceback out of
+        # the validator instead of a config error, for `since` and
+        # `strict_body_since` alike.
         die(f"config.yml failed to parse: {exc}")
         raise AssertionError("unreachable")
 
@@ -202,8 +207,32 @@ def load_config(path: Path) -> dict[str, Any]:
             not isinstance(fetch_command, str) or not fetch_command.strip()
         ):
             die("config.yml requirement_contract.fetch_command must be a non-empty string")
+        since = contract.get("since")
+        if since is not None:
+            validate_date_field(str(since).strip(), "config.yml requirement_contract.since")
 
     return data
+
+
+def validate_date_field(value: str, source: str) -> str:
+    """A zero-padded, real YYYY-MM-DD, or a fatal error — never a silent skip."""
+    if not _DATE_RE.match(value):
+        die(f"{source} must be a zero-padded YYYY-MM-DD date, got {value!r}.")
+    try:
+        datetime.date.fromisoformat(value)
+    except ValueError:
+        die(f"{source} {value!r} is not a real calendar date.")
+    return value
+
+
+def contract_since(contract: dict[str, Any] | None) -> str | None:
+    """`requirement_contract.since` — the adoption date. Pitches whose filename
+    date is before it predate the contract and are exempt from the
+    `required` presence rule (they cannot cite a ticket that never bound
+    them, and they are append-only). Validated in load_config."""
+    if not contract or contract.get("since") is None:
+        return None
+    return str(contract["since"]).strip()
 
 
 def config_contract(config: dict[str, Any]) -> dict[str, Any] | None:
@@ -594,13 +623,7 @@ def resolve_strict_since(
         if args.strict_since is not None
         else "config strict_body_since"
     )
-    if not _DATE_RE.match(cutoff):
-        die(f"{source} must be a zero-padded YYYY-MM-DD date, got {cutoff!r}.")
-    try:
-        datetime.date.fromisoformat(cutoff)
-    except ValueError:
-        die(f"{source} {cutoff!r} is not a real calendar date.")
-    return cutoff
+    return validate_date_field(cutoff, source)
 
 
 def strict_body_in_scope(path: Path, cutoff: str | None) -> bool:
@@ -772,8 +795,11 @@ def check_ticket_references(
 
 def check_ticket_presence(path: Path, fm: dict[str, Any], violations: list[str]) -> None:
     """`enforcement: required` — a pitch cites a ticket or says why it cannot.
-    Runs under --strict-body within the --strict-since scope (a body policy
-    that legacy pitches predate)."""
+    Runs under --strict-body within the --strict-since scope AND, when the
+    config sets `requirement_contract.since`, only for pitches dated on or
+    after it — the strict-since window is about body structure and typically
+    predates contract adoption, so without its own cutoff the presence rule
+    would retroactively fail every pitch written between the two dates."""
     refs = fm.get("references") or {}
     if not isinstance(refs, dict):
         refs = {}
@@ -1269,6 +1295,8 @@ def main() -> int:
     normative_tokens = profile_normative_tokens(profile)
     contract = config_contract(config)
     contract_required = bool(contract and contract.get("enforcement", "optional") == "required")
+    since_contract = contract_since(contract)
+    contract_exempt_count = 0
     disagreement_vocab = profile_disagreement_vocabulary(profile) if contract else None
     if contract and args.strict_body and disagreement_vocab is None:
         sys.stderr.write(
@@ -1348,7 +1376,10 @@ def main() -> int:
                                 violations,
                             )
                         if doc_type == "pitch" and contract_required:
-                            check_ticket_presence(md_path, fm_checked, violations)
+                            if strict_body_in_scope(md_path, since_contract):
+                                check_ticket_presence(md_path, fm_checked, violations)
+                            else:
+                                contract_exempt_count += 1
                         if doc_type == "pitch" and disagreement_vocab is not None:
                             validate_pitch_disagreement_outcomes(
                                 md_path, disagreement_vocab, violations
@@ -1367,6 +1398,11 @@ def main() -> int:
     elif args.strict_since is not None and not args.strict_body:
         sys.stderr.write(
             "warning: --strict-since has no effect without --strict-body.\n"
+        )
+    if args.strict_body and contract_required and since_contract is not None:
+        sys.stderr.write(
+            f"note: requirement_contract.since {since_contract}: {contract_exempt_count} "
+            f"pitch(es) predate the contract; presence rule not applied to them.\n"
         )
     if args.domain is not None:
         sys.stderr.write("warning: --domain has no effect without --list-active.\n")
