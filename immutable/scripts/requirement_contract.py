@@ -26,6 +26,17 @@ Nothing tracker-specific is baked in beyond one default adapter:
   * Which headings bind is passed by the caller — `--binding ID=HEADING`,
     repeatable — and the plugin sources those from the active profile, so a
     team's tracker template is data, not code.
+  * Whether a declared section MUST be there is data too — `--optional-binding
+    ID`, repeatable, naming an id already declared with `--binding`; the
+    plugin sources it from `ticket_sections[].required` in the same profile.
+    A required section that the ticket does not supply is an error (exit 1);
+    an optional one is a warning, `found: false`, `item_count: 0`, and a row
+    in `absent[]`. Requiredness is per section and per team because a ticket
+    whose template was never filled in is the consuming organisation's
+    problem, not a property of the parser: refusing is right at authoring
+    time, where the author is told why and fills the ticket, and wrong in a
+    reconciliation run, where it turns the build red through no fault of the
+    pitch under review.
   * How a ticket is obtained is an *adapter*: any command that prints the
     ticket-input JSON below. `--fetch-command` (or the consuming repo's
     `requirement_contract.fetch_command`) names it; the placeholders `{repo}`
@@ -56,11 +67,17 @@ Everything the parser recognises is plain GitHub-flavoured markdown:
   * HTML comments are removed first (issue templates ship their guidance in
     them), and fenced code never yields headings, groups, or items.
 
-Output contract (`schema: 1`) — always JSON on stdout, even on failure:
+Output contract (`schema: 2`) — always JSON on stdout, even on failure:
 
-  bindings[]   one per `--binding`, in caller order: `id`, `heading`, `found`,
+  bindings[]   one per `--binding`, in caller order: `id`, `heading`,
+               `required` (false when `--optional-binding` named it), `found`,
                the matched heading's `matched_heading` / `level` / `line`,
                `groups[]` of `items[]`, and `item_count`
+  absent[]     every declared binding the ticket supplies no items for —
+               `id`, `heading`, `required`, `why`. Emitted by every
+               subcommand, `coverage` and `drift` included: a section that
+               merely vanished from a reconciliation report is how a check
+               goes quietly fail-open
   items        `ordinal` (1-based within the section, across groups — a sort
                key), `in_group` (1-based within its group — the number the
                ledger's `items` and every `<group> <n>` reference use), `group`,
@@ -116,9 +133,10 @@ space, inline markdown kept verbatim. A struck item keeps its `~~`;
 `struck: true` says so.
 
 Exit codes
-  parse/fetch  0 every binding section found with ≥1 item · 1 a binding
-               section is missing or empty (JSON still emitted, so the caller
-               renders `errors` instead of guessing) · 2 usage or adapter error
+  parse/fetch  0 every REQUIRED binding section found with ≥1 item · 1 a
+               required binding section is missing or empty (JSON still
+               emitted, so the caller renders `errors` instead of guessing) ·
+               2 usage or adapter error
   drift        0 no drift, or drift proven to touch no binding item · 1 a
                binding item changed, or the change could not be examined
                (no history for the recorded version) · 2 usage or adapter error
@@ -143,7 +161,7 @@ import unicodedata
 from collections import Counter
 from typing import Any
 
-SCHEMA = 1
+SCHEMA = 2
 
 HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
 FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
@@ -357,7 +375,7 @@ def parse_section(
     return groups, ordinal
 
 
-def parse_body(body: str, bindings: list[tuple[str, str]]) -> dict[str, Any]:
+def parse_body(body: str, bindings: list[tuple[str, str, bool]]) -> dict[str, Any]:
     lines = preprocess(body)
     fenced = fenced_lines(lines)
     heads = outline(lines, fenced)
@@ -369,16 +387,22 @@ def parse_body(body: str, bindings: list[tuple[str, str]]) -> dict[str, Any]:
 
     binding_of_line: dict[int, str] = {}
     out_bindings: list[dict[str, Any]] = []
-    for bid, heading in bindings:
+    for bid, heading, required in bindings:
         label = f"{bid} ({heading})"
         matches = by_key.get(norm_heading(heading), [])
         if not matches:
             present = ", ".join(f"{'#' * h['level']} {h['title']}" for h in heads) or "(no headings at all)"
-            errors.append(f"binding section not found: {label} — headings present: {present}")
+            if required:
+                errors.append(f"binding section not found: {label} — headings present: {present}")
+            else:
+                warnings.append(
+                    f"optional binding section absent: {label} — headings present: {present}"
+                )
             out_bindings.append(
                 {
                     "id": bid,
                     "heading": heading,
+                    "required": required,
                     "found": False,
                     "matched_heading": None,
                     "level": None,
@@ -395,11 +419,16 @@ def parse_body(body: str, bindings: list[tuple[str, str]]) -> dict[str, Any]:
         binding_of_line[head["line"]] = bid
         groups, count = parse_section(lines, fenced, head, label, warnings)
         if count == 0:
-            errors.append(f"binding section has no list items: {label} (line {head['line'] + 1})")
+            where = f"{label} (line {head['line'] + 1})"
+            if required:
+                errors.append(f"binding section has no list items: {where}")
+            else:
+                warnings.append(f"optional binding section has no list items: {where}")
         out_bindings.append(
             {
                 "id": bid,
                 "heading": heading,
+                "required": required,
                 "found": True,
                 "matched_heading": head["title"],
                 "level": head["level"],
@@ -423,10 +452,31 @@ def parse_body(body: str, bindings: list[tuple[str, str]]) -> dict[str, Any]:
         "schema": SCHEMA,
         "source": None,
         "bindings": out_bindings,
+        "absent": absent_bindings(out_bindings),
         "sections": sections,
         "warnings": warnings,
         "errors": errors,
     }
+
+
+def absent_bindings(out_bindings: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Declared bindings the ticket supplies no items for, required or not.
+
+    Every subcommand reports this. An optional section that is simply missing
+    from a reconciliation report reads as "nothing to reconcile there", which
+    is indistinguishable from "reconciled clean" — the shape that let a
+    malformed ticket record pass silently before v0.12.
+    """
+    return [
+        {
+            "id": b["id"],
+            "heading": b["heading"],
+            "required": b["required"],
+            "why": "section not found" if not b["found"] else "section has no list items",
+        }
+        for b in out_bindings
+        if not b["found"] or not b["item_count"]
+    ]
 
 
 def binding_texts(parsed: dict[str, Any]) -> dict[str, list[str]]:
@@ -612,7 +662,7 @@ def pick_items(binding: dict[str, Any], wanted: Counter) -> list[dict[str, Any]]
 
 
 def compute_drift(
-    ticket: dict[str, Any], recorded: str, bindings: list[tuple[str, str]]
+    ticket: dict[str, Any], recorded: str, bindings: list[tuple[str, str, bool]]
 ) -> dict[str, Any]:
     current = parse_body(ticket["body"], bindings)
     result: dict[str, Any] = {
@@ -624,13 +674,14 @@ def compute_drift(
         "history_available": True,
         "binding_changed": False,
         "bindings": [],
+        "absent": current["absent"],
         "warnings": list(current["warnings"]),
         "errors": [],
     }
     if not result["drift"]:
         result["bindings"] = [
-            {"id": b["id"], "heading": b["heading"], "added": [], "removed": [],
-             "unchanged": b["item_count"]}
+            {"id": b["id"], "heading": b["heading"], "required": b["required"],
+             "added": [], "removed": [], "unchanged": b["item_count"]}
             for b in current["bindings"]
         ]
         return result
@@ -645,8 +696,8 @@ def compute_drift(
             f"cannot tell which items changed — re-read the ticket"
         )
         result["bindings"] = [
-            {"id": b["id"], "heading": b["heading"], "added": [], "removed": [],
-             "unchanged": None}
+            {"id": b["id"], "heading": b["heading"], "required": b["required"],
+             "added": [], "removed": [], "unchanged": None}
             for b in current["bindings"]
         ]
         return result
@@ -665,8 +716,8 @@ def compute_drift(
         if added or removed:
             result["binding_changed"] = True
         result["bindings"].append(
-            {"id": bid, "heading": b["heading"], "added": added, "removed": removed,
-             "unchanged": unchanged}
+            {"id": bid, "heading": b["heading"], "required": b["required"],
+             "added": added, "removed": removed, "unchanged": unchanged}
         )
     return result
 
@@ -726,13 +777,24 @@ def item_index(parsed: dict[str, Any]) -> dict[tuple[str, str | None, int], dict
 def resolve_declaration(
     index: dict[tuple[str, str | None, int], dict[str, Any]],
     binding: str, group: Any, items: Any, where: str, stale: list[str],
+    absent: dict[str, str] | None = None,
 ) -> list[tuple[str, str | None, int]]:
-    """Keys a `covers`/`delegates` entry denotes; stale parts are reported, not guessed."""
+    """Keys a `covers`/`delegates` entry denotes; stale parts are reported, not guessed.
+
+    `absent` maps a declared binding id the ticket supplies no items for to the
+    reason — a claim against one of those is a drift symptom worth naming as
+    such, not "that binding does not exist".
+    """
     label = None if group is None else norm_text(str(group))
     keys = sorted(k for k in index if k[0] == binding and k[1] == label)
     if not keys:
         known = sorted({k[0] for k in index})
-        if binding not in known:
+        if binding in (absent or {}):
+            stale.append(
+                f"{where}: binding {binding!r} is declared but the ticket supplies no items "
+                f"for it ({(absent or {})[binding]})"
+            )
+        elif binding not in known:
             stale.append(f"{where}: binding {binding!r} is not one of {known}")
         else:
             groups = sorted({str(k[1]) for k in index if k[0] == binding})
@@ -754,10 +816,11 @@ def resolve_declaration(
 
 
 def compute_coverage(
-    ticket: dict[str, Any], bindings: list[tuple[str, str]], pitch_paths: list[str], args: argparse.Namespace
+    ticket: dict[str, Any], bindings: list[tuple[str, str, bool]], pitch_paths: list[str], args: argparse.Namespace
 ) -> dict[str, Any]:
     parsed = parse_body(ticket["body"], bindings)
     index = item_index(parsed)
+    absent = {row["id"]: row["why"] for row in parsed["absent"]}
     claims: dict[tuple[str, str | None, int], list[dict[str, Any]]] = {k: [] for k in index}
     stale: list[str] = []
     warnings: list[str] = list(parsed["warnings"])
@@ -786,14 +849,14 @@ def compute_coverage(
                 if not isinstance(d, dict) or "group" not in d:
                     stale.append(f"{path}: covers.{binding} entry must be a mapping with `group`: {d!r}")
                     continue
-                for key in resolve_declaration(index, str(binding), d.get("group"), d.get("items"), f"{path} covers.{binding}", stale):
+                for key in resolve_declaration(index, str(binding), d.get("group"), d.get("items"), f"{path} covers.{binding}", stale, absent):
                     claims[key].append({"pitch": path, "kind": "covers", "shared": bool(d.get("shared", False))})
                     n_cov += 1
         for d in entry.get("delegates") or []:
             if not isinstance(d, dict) or "binding" not in d or "group" not in d or not str(d.get("to") or "").strip():
                 stale.append(f"{path}: delegates entry needs `binding`, `group`, `to`: {d!r}")
                 continue
-            for key in resolve_declaration(index, str(d["binding"]), d.get("group"), d.get("items"), f"{path} delegates", stale):
+            for key in resolve_declaration(index, str(d["binding"]), d.get("group"), d.get("items"), f"{path} delegates", stale, absent):
                 claims[key].append({"pitch": path, "kind": "delegates", "to": str(d["to"]), "shared": bool(d.get("shared", False))})
                 n_del += 1
         recorded = str(entry.get("version") or "")
@@ -818,11 +881,18 @@ def compute_coverage(
         warnings.append(
             f"{len(mismatch)} pitch(es) recorded a version other than the live one — run `drift` to see what moved"
         )
+    for row in parsed["absent"]:
+        kind = "required" if row["required"] else "optional"
+        warnings.append(
+            f"reconciled without {kind} binding {row['id']} ({row['heading']}): {row['why']} — "
+            f"nothing on the ticket to claim, so its coverage is neither proven nor denied"
+        )
     return {
         "schema": SCHEMA,
         "source": None,
         "total": total,
         "covered": total - len(uncovered),
+        "absent": parsed["absent"],
         "pitches": pitches_out,
         "uncovered": uncovered,
         "overlaps": overlaps,
@@ -839,7 +909,15 @@ def compute_coverage(
 # --------------------------------------------------------------------------
 
 
-def parse_binding_args(parser: argparse.ArgumentParser, raw: list[str] | None) -> list[tuple[str, str]]:
+def parse_binding_args(
+    parser: argparse.ArgumentParser, raw: list[str] | None, optional_raw: list[str] | None = None
+) -> list[tuple[str, str, bool]]:
+    """`--binding ID=HEADING` in caller order, each tagged required or not.
+
+    Optionality is named by id (`--optional-binding ID`) rather than by a
+    second ID=HEADING flag on purpose: two append-lists cannot preserve the
+    caller's interleaved order, and that order is the output's contract.
+    """
     if not raw:
         parser.error("at least one --binding ID=HEADING is required (the plugin passes these from the profile)")
     out: list[tuple[str, str]] = []
@@ -855,7 +933,18 @@ def parse_binding_args(parser: argparse.ArgumentParser, raw: list[str] | None) -
             parser.error(f"--binding id given twice: {bid!r}")
         seen.add(bid)
         out.append((bid, heading))
-    return out
+    optional: set[str] = set()
+    for spec in optional_raw or []:
+        bid = spec.strip()
+        if bid not in seen:
+            parser.error(
+                f"--optional-binding names {bid!r}, which is not one of the declared "
+                f"--binding ids {sorted(seen)}"
+            )
+        if bid in optional:
+            parser.error(f"--optional-binding id given twice: {bid!r}")
+        optional.add(bid)
+    return [(bid, heading, bid not in optional) for bid, heading in out]
 
 
 def read_body(path: str) -> str:
@@ -892,6 +981,12 @@ def main(argv: list[str] | None = None) -> int:
             "--binding", action="append", metavar="ID=HEADING",
             help="a binding section: stable id + the heading text as it appears on the ticket (repeatable)",
         )
+        p.add_argument(
+            "--optional-binding", action="append", metavar="ID", dest="optional_binding",
+            help="a --binding id the ticket need not supply: absent or empty is a warning and an "
+                 "`absent[]` row, never an error (repeatable; the plugin passes these from the "
+                 "profile's ticket_sections[].required)",
+        )
         p.add_argument("--compact", action="store_true", help="single-line JSON")
 
     def add_ticket(p: argparse.ArgumentParser) -> None:
@@ -922,7 +1017,7 @@ def main(argv: list[str] | None = None) -> int:
     add_common(p_cov)
 
     args = parser.parse_args(argv)
-    bindings = parse_binding_args(parser, args.binding)
+    bindings = parse_binding_args(parser, args.binding, args.optional_binding)
 
     if args.command == "parse":
         try:

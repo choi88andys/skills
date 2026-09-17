@@ -127,7 +127,8 @@ mkpitch 2026-02-07-empty.md       "$TICKET" '## 요구사항 이견
 mkpitch 2026-02-08-oddoutcome.md  "$TICKET" "$DISAGREE_HEAD- **결과** 논의 중"                     # neither token
 
 FAILURES=0
-pass() { printf 'PASS  %s\n' "$1"; }
+PASSES=0
+pass() { printf 'PASS  %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf 'FAIL  %s\n        %s\n' "$1" "$2"; FAILURES=$((FAILURES + 1)); }
 run() {  # run <args...> → RC, OUT (stdout+stderr)
   OUT=$(cd "$REPO" && python3 "$VALIDATOR" "$@" 2>&1) && RC=0 || RC=$?
@@ -381,9 +382,43 @@ $OUT"
 fi
 rm -f "$P/2026-02-11-ledger-bad.md" "$P/2026-02-12-ledger-ok.md"
 
+# C13 — the recorded id must be the canonical one (v0.12+). The pilot's first
+# hand-written record spelled it `owner/repo#3654`, which passed every check
+# here and then matched no pitch during reconciliation — so the presence rule
+# was satisfied by a record that was invisible to `coverage`. The rule is a
+# charset, not a tracker: a bare number and `PROJ-123` both pass.
+mkpitch 2026-02-13-id-decorated.md 'references:
+  tickets:
+    - tracker: github
+      id: acme/tracker#3654
+      version: "v"' ""
+mkpitch 2026-02-14-id-numeric.md 'references:
+  tickets:
+    - tracker: github
+      repo: acme/tracker
+      id: "3755"
+      version: "v"' ""
+mkpitch 2026-02-15-id-jira.md 'references:
+  tickets:
+    - tracker: jira
+      id: PROJ-123
+      version: "v"' ""
+write_config required "" 2026-02-04
+run --type pitch
+if [ "$RC" -eq 1 ] && [ "$(hits 'id-decorated.md')" = "1" ] \
+  && grep -qF "is not a canonical ticket id" <<<"$OUT" \
+  && grep -qF "record the bare id and name the repository in \`repo:\`" <<<"$OUT" \
+  && [ "$(hits 'id-numeric.md')" = "0" ] && [ "$(hits 'id-jira.md')" = "0" ]; then
+  pass "C13 ticket id charset: decorated id flagged; bare numeric and PROJ-123 clean"
+else
+  fail "C13 ticket id charset" "rc=$RC
+$OUT"
+fi
+rm -f "$P/2026-02-13-id-decorated.md" "$P/2026-02-14-id-numeric.md" "$P/2026-02-15-id-jira.md"
+
 echo
 if [ "$FAILURES" -eq 0 ]; then
-  echo "all 17 cases passed."
+  echo "all $PASSES cases passed."
   exit 0
 fi
 echo "$FAILURES case(s) failed."

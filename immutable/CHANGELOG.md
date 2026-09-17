@@ -2,6 +2,36 @@
 
 All notable changes to the `immutable` plugin are documented in this file. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Version is canonically declared in `.claude-plugin/plugin.json`.
 
+## [0.12.0] — 2026-09-17
+
+Closes two gaps an audit of the contract's first real consumer found on 2026-09-17, both in the seam between the offline half (the pitch record and the validator) and the live half (`coverage` / `drift`, which re-read the ticket). Neither is a new policy: one is two layers of the same plugin disagreeing about what a ticket id is, the other is a policy that was hardcoded where SCHEMA already says the team's data belongs.
+
+Both failures have the same shape and it is worth naming: they fail **open**. A ticket record no reconciler can match still *satisfies* `enforcement: required`'s presence rule, so one malformed record buys a pass on the check that was supposed to find it — the absence of a finding reads exactly like a clean run. Every fix below therefore reports what it skipped rather than skipping it quietly.
+
+### Fixed
+
+- **The recorded ticket id is now held to the canonical charset (`validate_docs.py`, invariant 9).** `requirement_contract.py` has always declared a tracker-neutral canonical id — `^[A-Za-z0-9][A-Za-z0-9._-]*$`, admitting bare numbers (GitHub, Redmine), `PROJ-123` (Jira, Linear) and dotted ids — and enforces it on its own `--id`; `coverage` then matches a pitch to a ticket by exact string equality on `references.tickets[].id`. The validator checked only that the field was a non-empty string, so the two layers disagreed. Measured in the pilot: a hand-written record spelling `id: owner/repo#3654` passed `--strict-body --strict-since`, and `coverage` for that ticket matched 0 pitches and reported 4 of 4 items uncovered. `check_ticket_id`'s message names the canonical form and says it is the string the reconciler matches on; `prd/SKILL.md` states the bare-id rule where the skill writes the record, so the authoring half and the validator read one rule.
+- **Per-entry `repo` stays optional, deliberately.** The config-level `requirement_contract.repo` is the documented default for a bare id, and requiring `repo` would break every record already written. The consequence — a pitch citing a ticket in another repository must spell `repo` out or be reconciled against the configured one — is documented in invariant 9 rather than enforced.
+
+### Added
+
+- **`requirement_contract.ticket_sections[].required` (profile_schema 4), read by both halves.** Absent means `true`. Set to `false`, a declared binding section the ticket does not supply — missing, or present with its template never filled in — is a warning and a row in the new `absent[]`, not an error; `parse` / `fetch` exit 0 and `coverage` / `drift` reconcile the sections that are there. A `required` section behaves exactly as in v0.11.
+- **`--optional-binding ID` on every subcommand**, repeatable, naming an id already declared with `--binding`; an unknown or repeated id is a usage error (exit 2), because a typo that silently downgraded a required section would be the same fail-open shape. Optionality is named by id rather than by a second `ID=HEADING` flag because two append-lists cannot preserve the caller's interleaved order, and that order is the output contract.
+- **`absent[]` in every subcommand's JSON, and a per-binding `required` flag.** `coverage` also emits a warning per absent section and, when a pitch claims one, says "declared but the ticket supplies no items for it" instead of "not one of [...]". A section that merely vanishes from a reconciliation report reads as "reconciled clean".
+- **`prd.contract.section_row_absent`** (ko + en): §1.5.1's ticket summary names an absent optional section rather than dropping it from the table.
+
+### Changed
+
+- **This revisits a decision v0.11 recorded, and the reason it was made still holds where it was made.** The v0.11 entry states that a missing or empty binding section is a named error with exit 1 and the JSON still emitted "because most older tickets in the wild are malformed and the skill must render the reason rather than guess". That is right at **authoring** time: the author is told exactly what is missing and fills the ticket in. What the decision never examined is that the same code path came to serve **CI reconciliation**, which did not exist yet — and there, refusing turns the build red over a ticket template nobody filled in, through no fault of the pitch under review. Measured 2026-09-17 in the pilot's tracker: of 5 sampled Epics, 2 carry the first binding section but not the second. Requiredness therefore moves to where SCHEMA already puts the headings themselves — the profile, as data.
+- **`profile_schema` is 4** in both bundled defaults, which ship `required: true` on both `ticket_sections` entries — no organisation's template is baked in. The bump is the signal that the field exists, not a claim that anything breaks without it.
+- **The parser's output `schema` is 2.** `bindings[].required` and `absent[]` are additive, and the bump is how a consumer learns they are there.
+
+### Backward compatibility
+
+- **A v3 team profile keeps working unchanged.** Absent `required` means `true`, which is v0.11's behaviour exactly. `ticket_sections` is id-keyed, so `/immutable:migrate`'s universal diff recurses into the existing entries and adds the field; until a team re-runs it, the Stage 1.bis mismatch warning recommends it as before.
+- **A repo without `requirement_contract:` sees nothing new** — except the id charset check, which is always on for any pitch that records `references.tickets[]` at all. A pitch whose id was already canonical (everything `/immutable:prd` has ever written) is unaffected; a hand-written decorated id now fails, which is the point.
+- **No `config.yml` version bump, no new dependency, no starter-workflow change.** The bundled starters still pin their own `IMMUTABLE_REF`; upgrading the gate stays a deliberate act.
+
 ## [0.11.0] — 2026-09-09
 
 Adds the **requirement contract**: a pitch can be authored against a tracker ticket whose designated sections bind it, and the plugin makes sure the pitch cannot silently diverge from those sections — at authoring time, at merge time, and after the ticket moves. Opt-in per repo; a repo without the config block sees no change anywhere.
