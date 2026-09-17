@@ -108,7 +108,8 @@ Definitions stay in the linked rows.
 MD
 
 FAILURES=0
-pass() { printf 'PASS  %s\n' "$1"; }
+PASSES=0
+pass() { printf 'PASS  %s\n' "$1"; PASSES=$((PASSES + 1)); }
 fail() { printf 'FAIL  %s\n        %s\n' "$1" "$2"; FAILURES=$((FAILURES + 1)); }
 
 # run <args...> → RC, OUT (stdout), ERR (stderr); JSON also saved to $RIG/out.json
@@ -507,9 +508,97 @@ else
 coverage: $GOT2"
 fi
 
+# --- Gap B: section requiredness is data, read by both halves (v0.12) -------
+# A binding section a team declares OPTIONAL and the ticket does not supply is
+# a warning, not an error. Measured 2026-09-17 in the pilot's tracker: of 5
+# sampled Epics, 2 carry the first binding section but not the second, so any
+# reconciliation touching them exited 1 regardless of the pitches under review.
+# Refusing is right at authoring time (the author fills the ticket) and wrong
+# in CI (the build turns red through no fault of the pitch).
+
+# C26 — optional section absent: exit 0, a warning, found/item_count intact,
+# and an `absent[]` row. The same body with the section REQUIRED still errors
+# (C7's contract), so optionality is the only difference.
+run parse "$RIG/old.md" --binding "$B_ACC" --binding "$B_QA" --optional-binding acceptance
+if [ "$RC" -eq 0 ] \
+  && [ "$(q '[(b["id"], b["required"], b["found"], b["item_count"]) for b in d["bindings"]]')" = "[('acceptance', False, False, 0), ('qa_checklist', True, True, 1)]" ] \
+  && [ "$(q 'd["errors"]')" = "[]" ] \
+  && [ "$(q '[(a["id"], a["required"], a["why"]) for a in d["absent"]]')" = "[('acceptance', False, 'section not found')]" ] \
+  && [ "$(q 'any("optional binding section absent: acceptance" in w for w in d["warnings"])')" = "True" ]; then
+  pass "C26 optional section absent → exit 0, warning + absent[] row, no error"
+else
+  fail "C26 optional absent" "rc=$RC errors=$(q 'd["errors"]') absent=$(q 'd["absent"]') warnings=$(q 'd["warnings"]')"
+fi
+
+# C27 — optional section present but never filled in (heading + guidance
+# comment only): same treatment, and `why` says which of the two it was.
+run parse "$RIG/empty.md" --binding "$B_ACC" --binding "$B_QA" --optional-binding acceptance
+if [ "$RC" -eq 0 ] && [ "$(q 'd["errors"]')" = "[]" ] \
+  && [ "$(q '[(a["id"], a["why"]) for a in d["absent"]]')" = "[('acceptance', 'section has no list items')]" ] \
+  && [ "$(q 'any("optional binding section has no list items" in w for w in d["warnings"])')" = "True" ]; then
+  pass "C27 optional section present-but-empty → exit 0, absent[] says which"
+else
+  fail "C27 optional empty" "rc=$RC errors=$(q 'd["errors"]') absent=$(q 'd["absent"]')"
+fi
+
+# C28 — `--optional-binding` names an id, never a heading: an unknown id and a
+# repeated one are usage errors (exit 2), because a typo that silently made a
+# required section optional is the fail-open shape this whole change removes.
+run parse "$RIG/epic.md" --binding "$B_ACC" --optional-binding qa_checklist
+U1=$RC; E1=$ERR
+run parse "$RIG/epic.md" --binding "$B_ACC" --optional-binding acceptance --optional-binding acceptance
+U2=$RC
+if [ "$U1$U2" = "22" ] && grep -qF -- "--optional-binding names 'qa_checklist'" <<<"$E1" && ! grep -qF 'Traceback' <<<"$E1"; then
+  pass "C28 --optional-binding usage errors exit 2 (undeclared id, repeated id)"
+else
+  fail "C28 optional-binding usage" "rc=$U1$U2 stderr=$E1"
+fi
+
+# C29 — the reconciling half reads the same field. A ticket that never got its
+# QA section: coverage exits 0 when the section is declared optional and 1 when
+# it is not, reports the absence in `absent[]` and in a warning either way, and
+# a pitch that DOES claim the absent section is stale with a message naming the
+# absence rather than "that binding does not exist".
+printf '%s\n' '### 완료 조건' '' '**적립**' '' '- [ ] 잔당 스탬프 1개가 적립된다' '- [ ] 2잔 이상은 잔 수만큼 적립된다' >"$RIG/acc-only.md"
+gh_json "$RIG/acc-only.md" "$RIG/gh-noqa.json" "2026-09-08T05:25:01Z" "2026-09-08T05:25:01Z=$RIG/acc-only.md"
+cat >"$RIG/bin/gh" <<SH2
+#!/usr/bin/env bash
+cat "$RIG/gh-noqa.json"
+SH2
+mkledger p9.md '      covers:' '        acceptance:' '          - group: 적립'
+fetch_stub coverage --repo acme/tracker --id 3755 --binding "$B_ACC" --binding "$B_QA" --optional-binding qa_checklist "$RIG/pitches/p9.md"
+OPT_RC=$RC
+OPT_STATE="$(q '(d["total"], d["covered"], [(a["id"], a["required"], a["why"]) for a in d["absent"]], len(d["stale"]), any("reconciled without optional binding qa_checklist" in w for w in d["warnings"]))')"
+fetch_stub coverage --repo acme/tracker --id 3755 --binding "$B_ACC" --binding "$B_QA" "$RIG/pitches/p9.md"
+REQ_RC=$RC
+REQ_ERRORS="$(q 'd["errors"]')"
+fetch_stub coverage --repo acme/tracker --id 3755 --binding "$B_ACC" --binding "$B_QA" --optional-binding qa_checklist "$RIG/pitches/p9.md" "$RIG/pitches/p2.md"
+CLAIM_RC=$RC
+if [ "$OPT_RC" -eq 0 ] && [ "$OPT_STATE" = "(2, 2, [('qa_checklist', False, 'section not found')], 0, True)" ] \
+  && [ "$REQ_RC" -eq 1 ] && grep -qF 'binding section not found: qa_checklist' <<<"$REQ_ERRORS" \
+  && [ "$CLAIM_RC" -eq 1 ] && [ "$(q 'sum("supplies no items for it" in s for s in d["stale"])')" = "2" ]; then
+  pass "C29 coverage: optional absent section → exit 0 + absent[]; required → exit 1; a claim on it is stale and says why"
+else
+  fail "C29 coverage optionality" "optional rc=$OPT_RC state=$OPT_STATE
+required rc=$REQ_RC errors=$REQ_ERRORS
+claim rc=$CLAIM_RC stale=$(q 'd["stale"]')"
+fi
+
+# C30 — drift reports the absence too. A ticket whose optional section is gone
+# still drift-checks the one it has; silence about the missing half is how the
+# check would go quietly fail-open.
+fetch_stub drift --repo acme/tracker --id 3755 --version "2026-09-08T05:25:01Z" \
+  --binding "$B_ACC" --binding "$B_QA" --optional-binding qa_checklist
+if [ "$RC" -eq 0 ] \
+  && [ "$(q '(d["drift"], d["binding_changed"], [(a["id"], a["required"]) for a in d["absent"]], [(b["id"], b["required"], b["unchanged"]) for b in d["bindings"]])')" = "(False, False, [('qa_checklist', False)], [('acceptance', True, 2), ('qa_checklist', False, 0)])" ]; then
+  pass "C30 drift: absent[] carried, required flag on every binding row, exit 0"
+else
+  fail "C30 drift absent" "rc=$RC $(q '(d["drift"], d["absent"], d["bindings"])')"
+fi
+
 echo
 if [ "$FAILURES" -eq 0 ]; then
-  echo "all 25 cases passed."
+  echo "all $PASSES cases passed."
   exit 0
 fi
 echo "$FAILURES case(s) failed."

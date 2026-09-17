@@ -43,7 +43,9 @@ Coverage (matches SCHEMA.md "Validation invariants"):
      authored before the profile system existed.
 
   9. Requirement contract (v0.11+) — `references.tickets[]` entries carry
-     non-empty string `tracker` / `id` / `version` (always on); under
+     non-empty string `tracker` / `id` / `version`, with `id` matching the
+     canonical charset `requirement_contract.py` enforces on its own `--id`
+     (always on, v0.12+); under
      `--strict-body` and the `--strict-since` scope, with the config's
      `requirement_contract.enforcement: required`, every pitch dated on or
      after `requirement_contract.since` (when set) carries a ticket reference
@@ -129,6 +131,11 @@ DOC_TYPES = ("pitch", "adr")
 REPO_SLUG_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$")
 ENFORCEMENT_VALUES = ("optional", "required")
 TICKET_REQUIRED_KEYS = ("tracker", "id", "version")
+# The canonical ticket id, identical to `requirement_contract.py`'s `TICKET_ID_RE`.
+# It is deliberately tracker-neutral: a bare number (GitHub, Redmine), `PROJ-123`
+# (Jira, Linear) and dotted ids all pass. The two layers must agree, because
+# `coverage` matches a pitch to a ticket by exact string equality on this field.
+TICKET_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 DISAGREEMENT_FIELDS = ("original", "correction", "reason", "outcome")
 REPO_MODES = ("two-repo-spec", "two-repo-app", "single-repo")
 
@@ -777,7 +784,15 @@ def check_ticket_references(
 
     Always on, for pitches: a ticket record that lacks its version coordinate
     cannot be drift-checked, and a validator that accepts it would let the
-    contract silently degrade to "some ticket, some time".
+    contract silently degrade to "some ticket, some time". `id` must also be
+    the canonical form the reconciler matches on — see `check_ticket_id`.
+
+    `repo` stays optional by design: the config-level `requirement_contract.repo`
+    is the documented default for a bare id, so requiring it here would break
+    every record already written. The consequence is that a record citing a
+    ticket in a *different* repository carries no way to say so, and `coverage`
+    will place it in the configured repo's set; such a pitch should spell `repo`
+    out.
     """
     if doc_type != "pitch":
         return
@@ -803,10 +818,39 @@ def check_ticket_references(
                         f"{path}: references.tickets[{i}] missing non-empty {missing} "
                         f"(a record without its version coordinate cannot be drift-checked)",
                     )
+                check_ticket_id(path, i, entry, violations)
                 check_ticket_ledger(path, i, entry, violations)
     exemption = refs.get("ticket_exemption")
     if exemption is not None and (not isinstance(exemption, str) or not exemption.strip()):
         warn(violations, f"{path}: references.ticket_exemption must be a non-empty reason string")
+
+
+def check_ticket_id(path: Path, i: int, entry: dict[str, Any], violations: list[str]) -> None:
+    """The recorded id must be the canonical one (v0.12+).
+
+    `requirement_contract.py coverage` matches a pitch to a ticket by exact
+    string equality on this field, and enforces the same charset on its own
+    `--id`. Until this check existed the two layers disagreed: a decorated id
+    (`owner/repo#3654`) passed the validator, matched no pitch during
+    reconciliation, and so *satisfied* the presence rule while being invisible
+    to the check that presence exists for — one malformed record buying a pass.
+    The rule is a charset, not a tracker: bare numbers, `PROJ-123` and dotted
+    ids all pass.
+    """
+    raw = entry.get("id")
+    if not isinstance(raw, (str, int)) or not str(raw).strip():
+        return  # already reported as missing
+    value = str(raw).strip()
+    if TICKET_ID_RE.match(value):
+        return
+    warn(
+        violations,
+        f"{path}: references.tickets[{i}].id {value!r} is not a canonical ticket id "
+        f"(letters, digits, `.`, `_`, `-`; first character a letter or digit). "
+        f"This is the string `requirement_contract.py coverage` matches on, so a decorated "
+        f"id silently reconciles against nothing — record the bare id and name the "
+        f"repository in `repo:`",
+    )
 
 
 def _ledger_items_ok(items: Any) -> bool:

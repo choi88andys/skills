@@ -432,6 +432,8 @@ strings:
 
   prd.contract.section_row: "- {heading}: 항목 {item_count}개, 묶음 {group_count}개"
 
+  prd.contract.section_row_absent: "- {heading}: 티켓에 없음 ({why}) — 선택 섹션이라 계약은 나머지 섹션으로 맺습니다. 이 섹션의 항목은 누가 맡았는지 확인되지 않은 채 남습니다."
+
   prd.contract.judgement_none: "구속 항목 {item_count}개를 검토했습니다 — 세 판정(구현 불가 / 자기모순 / 확정된 다른 요구사항과의 충돌)에 걸리는 항목이 없습니다. 전부 그대로 따릅니다."
 
   prd.contract.judgement_header: |

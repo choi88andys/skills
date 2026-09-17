@@ -376,6 +376,8 @@ Checked at generation time by the `/immutable:prd` and `/immutable:adr` skills, 
    - *date cutoff for `--strict-body` (v0.9.0+)*: because `--strict-body` scans **every** file, switching it on in a repo with legacy docs lights up every one that predates a later structural requirement — and those docs are append-only, so they cannot simply be edited into shape. `--strict-since YYYY-MM-DD` (or the config field `strict_body_since`) restricts the body checks to files whose **filename date** is on or after the cutoff; older files are exempt. This enforces structure on new docs without rewriting append-only history — forward enforcement, not retroactive. The cutoff is inclusive (a file dated exactly on it is checked); a file with no leading date in its name is fail-closed to in-scope; and a malformed cutoff is fatal, never silently ignored. The exemption count is printed to stderr so the scoping is visible, not silent. The CLI flag overrides the config field.
 9. **Requirement contract (v0.11+)** — three checks. The first is a frontmatter-shape check and always runs; the other two are no-ops for a repo without a `requirement_contract:` config block:
    - *always on*: a `references.tickets` list, when present, holds mappings each carrying non-empty string `tracker`, `id`, `version`; a `covers` ledger, when present, is a mapping of binding id → list of `{group, items?, shared?}` and `delegates` a list of `{binding, group, items?, to}` with `to` non-empty; `references.ticket_exemption`, when present, is a non-empty string. Whether the declared groups exist and whether every item is claimed exactly once is `requirement_contract.py coverage`'s job — it needs the live ticket.
+   - *not a validator check*: whether a binding section must exist on the ticket is `profile.requirement_contract.ticket_sections[].required` (profile_schema 4+), read by `/immutable:prd` and by `requirement_contract.py`, both of which need the live ticket. The validator sees only what the pitch recorded.
+   - *always on, `id` charset (v0.12+)*: `references.tickets[].id` matches `^[A-Za-z0-9][A-Za-z0-9._-]*$` — the same canonical id `requirement_contract.py` enforces on its own `--id`, and tracker-neutral by construction (a bare number, `PROJ-123`, a dotted id). This is the string `coverage` compares for exact equality when deciding which pitches form a ticket's set, so the two layers have to agree on it. Until v0.12 they did not: a decorated id (`owner/repo#3654`) passed the validator, matched no pitch during reconciliation, and thereby *satisfied* the presence rule while being invisible to the check presence exists for — fail-open, one malformed record buying a pass. Per-entry `repo` stays **optional**: the config-level `requirement_contract.repo` is the documented default for a bare id, and requiring it would break records already written. The consequence a record must live with is that a pitch citing a ticket in another repository has to spell `repo` out or be reconciled against the configured one.
    - *`--strict-body`, within the `--strict-since` scope, and — when `requirement_contract.since` is set — only for pitches dated on or after it*: under `enforcement: required` every pitch carries a non-empty `references.tickets` or a `ticket_exemption`. The `--strict-since` window is about body structure and usually predates contract adoption; without its own cutoff the presence rule would retroactively fail every pitch written between the two dates (measured 2026-09-08: six pitches in the pilot repo). The exemption count is printed to stderr.
    - *`--strict-body`, within the `--strict-since` scope*: a pitch whose disagreement section (`profile.sections[id=requirement_disagreement].heading`) exists holds ≥1 `### ` entry, and every entry carries the four labelled bullets (`profile.requirement_contract.disagreement.fields`) with an outcome that begins with a terminal token (`outcome_terminal`). An outcome beginning with `outcome_provisional` is a violation — this is the merge gate that keeps a pitch PR open until its correction request is settled. The correction bullet must also be a **decision**: one matching a `disagreement.deferral_patterns[]` regex ("확인 필요", "협의", "확정한다", "TBD" and their English counterparts in the bundled profiles) is a violation, because a correction becomes the requirement when the ticket stays silent past the response window, and a deferral cannot be confirmed by silence. When the active profile lacks the vocabulary (a team profile not yet migrated), each missing part is skipped with a stderr warning, never silently.
 
@@ -502,8 +504,10 @@ requirement_contract:
   ticket_sections:                 # the ticket headings that bind, with stable ids
     - id: acceptance
       heading: "<heading as written on the ticket>"
+      required: true               # v0.12+ (profile_schema 4); absent = true
     - id: qa_checklist
       heading: "<heading>"
+      required: true               # false → absent/empty is a warning, not an error
   categories:                      # the ONLY judgements that let a pitch deviate
     - id: infeasible
       label: "<label>"
@@ -670,6 +674,17 @@ Three shapes, all owned here; everything around them belongs to the consuming re
 
 Deliberately **not** in the plugin: a clock (business-day deadlines and holiday calendars live with the tracker), posting to the tracker (a correction request is handed to the author to post), and any coverage check against sources the ticket does not name — a topic the ticket never raised is not a defect; the pitch fills it.
 
+### Which sections bind, and which of them must be there
+
+`profile.requirement_contract.ticket_sections[]` names the binding headings and gives each a stable id. Since v0.12 each entry also carries `required` (absent means `true`, so nothing changes for a profile written before the field existed). It is the same tier as the heading itself — a team's tracker template is data, not code — and the two halves of the contract read the *same* value: `/immutable:prd` §1.5.1 passes `--optional-binding <id>` for every entry set to `false`, and the `coverage` / `drift` lines it hands to CI carry the identical flags.
+
+- **`required: true`** — the ticket must supply the section with ≥1 item. Absent or empty is a named error and exit 1 (`parse` / `fetch`), the JSON still emitted so the caller renders the reason rather than guessing.
+- **`required: false`** — absent or empty is a warning plus a row in `absent[]`; the reconciliation proceeds over the sections that *are* there, and the exit code is unaffected.
+
+Why this is data and not a fixed policy: v0.11 made a missing section an unconditional error on the reasoning that most older tickets in the wild are malformed and the skill must render the reason rather than guess. That is right at **authoring** time — the author is told exactly what is missing and fills the ticket in. The same code path later came to serve **reconciliation** in CI, which did not exist when the decision was made, and there refusing is wrong: a ticket whose template was never filled in turns the run red through no fault of the pitch under review. Measured 2026-09-17 in the pilot's tracker: of 5 sampled Epics, 2 carried the first binding section but not the second.
+
+What this is **not**: an exemption for anyone's tickets, and not a statement about ticket types. Absence is never silent — it is a warning, an `absent[]` row in every subcommand's output, and a named row in the skill's ticket summary, because a section that simply vanishes from a report reads as "reconciled clean", which is how a check goes fail-open.
+
 ### Why a version coordinate, not a quotation
 
 The first design quoted the binding sentences into the pitch so CI could compare the quote with the live ticket. A tracker that keeps edit history makes the quote redundant: ticket identity plus the version coordinate the author read reconstructs the exact text, and copying it would recreate the two-sources-of-truth problem that made the ticket's own requirement section links-only. GitHub's `userContentEdits` returns the full body after every edit — verified 2026-09-08 on a six-edit Epic with `gh api graphql` — which is what the built-in adapter and `drift` rely on. `version` is opaque: the plugin only ever tests it for equality, so a tracker whose coordinate is a revision number works unchanged.
@@ -705,16 +720,18 @@ The outcome bullet is the merge gate. While it begins with `outcome_provisional`
 
 ```
 python3 scripts/requirement_contract.py coverage --repo <owner/name> --id <id> \
-  --binding acceptance="완료 조건" --binding qa_checklist="QA 통과 리스트" pitches/**/*.md
+  --binding acceptance="완료 조건" --binding qa_checklist="QA 통과 리스트" \
+  [--optional-binding <id> …] pitches/**/*.md
 ```
 
-Every file given that cites the ticket forms the set (others are ignored, so the whole `pitches/` tree can be passed). Exit 0 when every binding item is claimed exactly once — or by several pitches that all say `shared: true` — and no declaration names a group or item the ticket lacks; 1 otherwise, with `uncovered[]`, `overlaps[]`, `stale[]` listed; 2 on adapter or file errors. A pitch whose recorded version is not the live one is reported in `version_mismatch[]` as a warning — `drift` says what moved. Run it in the spec repo's PR check next to `drift`; PyYAML is needed for this subcommand only (it reads frontmatter).
+Every file given that cites the ticket forms the set (others are ignored, so the whole `pitches/` tree can be passed). Citing means an exact string match on `references.tickets[].id` against `--id`, which is why the validator holds that field to the same canonical charset (invariant 9): a record the matcher cannot recognise does not join the set, and a pitch that joins no set is reconciled against nothing. Exit 0 when every binding item is claimed exactly once — or by several pitches that all say `shared: true` — and no declaration names a group or item the ticket lacks; 1 otherwise, with `uncovered[]`, `overlaps[]`, `stale[]` listed; 2 on adapter or file errors. A pitch whose recorded version is not the live one is reported in `version_mismatch[]` as a warning — `drift` says what moved. Run it in the spec repo's PR check next to `drift`; PyYAML is needed for this subcommand only (it reads frontmatter).
 
 ### Drift, and how consumers wire it
 
 ```
 python3 scripts/requirement_contract.py drift --repo <owner/name> --id <id> \
-  --version <recorded> --binding acceptance="완료 조건" --binding qa_checklist="QA 통과 리스트"
+  --version <recorded> --binding acceptance="완료 조건" --binding qa_checklist="QA 통과 리스트" \
+  [--optional-binding <id> …]
 ```
 
 Exit 0 when nothing binding moved (including a ticket edit confined to non-binding text), 1 when a binding item was added or removed — or when the recorded version's body cannot be retrieved, which is treated as moved — and 2 on an adapter error; the JSON lists `added` / `removed` per binding section. Where it runs is the consumer's decision:
@@ -951,6 +968,8 @@ Idempotent. Safe to re-run after every plugin update.
 **Compatibility**: this is an additive change — v0.5.6 and earlier behave correctly when team profile is fully current. The v0.5.7+ detection only fires when the team profile is genuinely behind.
 
 **profile_schema 3 (v0.11.0)** added `sections[id=requirement_disagreement]` and the top-level `requirement_contract` block. The universal diff picks both up on the next `/immutable:migrate`; until then a v2 team profile keeps working — the skills read the two from the bundled default with a source annotation, and both are inert unless `config.yml` opts into the contract.
+
+**profile_schema 4 (v0.12.0)** added `requirement_contract.ticket_sections[].required`. `ticket_sections` is id-keyed, so the universal diff recurses into each existing entry and adds the field on the next `/immutable:migrate`. A team profile that never receives it behaves exactly as it did before: **absent means `true`**, which is the v0.11 semantics — a declared binding section the ticket does not supply is an error. The bump is the signal that the field exists, not a claim that anything breaks without it; a team that wants a section to be optional sets `required: false` on that entry, and both halves of the contract (the skill's authoring-time refusal and `coverage` / `drift`) read the same value.
 
 ---
 

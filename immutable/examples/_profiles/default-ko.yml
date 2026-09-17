@@ -21,7 +21,9 @@
 # v2 → v3 (v0.11.0): added `sections[requirement_disagreement]` and the top-level
 # `requirement_contract` block. Both are inert unless config.yml opts in; v2
 # profiles fall back to the bundled values with a source annotation.
-profile_schema: 3
+# v3 → v4 (v0.12.0): added `requirement_contract.ticket_sections[].required`.
+# Absent = true, so a v3 profile behaves exactly as it did before.
+profile_schema: 4
 
 # Team working language key. Must match `strings/strings.<locale>.yml` when
 # strings catalog lookup is enabled. v0.5 renders inline strings from this file.
@@ -331,6 +333,13 @@ anti_monolith:
 #   ticket_sections  — 티켓에서 구속력을 갖는 헤딩과 그 안정 id. 스킬과
 #                      `scripts/requirement_contract.py` 가 이 id 로 항목을 부른다.
 #                      매칭은 관용적 (「」, 끝 콜론, 대소문자, 공백 무시).
+#                      `required` (profile_schema 4+, 없으면 true) — 티켓에 그
+#                      섹션이 반드시 있어야 하는가. true 면 없거나 비어 있을 때
+#                      오류(exit 1), false 면 경고 + `absent[]` 한 줄이고 남은
+#                      섹션만 대조한다. 두 반쪽이 같은 값을 읽는다 — 스킬의
+#                      §1.5.1 거절과 CI 의 `coverage`/`drift`. 템플릿을 채우지
+#                      않은 티켓은 작성 시점에는 막는 게 맞지만, 대조 실행에서는
+#                      심사 대상 피치와 무관하게 빌드를 빨갛게 만든다.
 #   categories       — 피치가 구속 항목에서 벗어날 수 있는 판정 딱 세 가지.
 #                      "더 나은 방법이 있다"는 여기 들지 않고 다음 목록으로 올린다.
 #   disagreement     — `requirement_disagreement` 섹션의 엔트리 하나를 이루는
@@ -342,8 +351,10 @@ requirement_contract:
   ticket_sections:
     - id: acceptance
       heading: "완료 조건"
+      required: true
     - id: qa_checklist
       heading: "QA 통과 리스트"
+      required: true
   categories:
     - id: infeasible
       label: "구현 불가"
