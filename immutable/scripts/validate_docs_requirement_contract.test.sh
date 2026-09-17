@@ -6,7 +6,8 @@
 # The contract's merge gate is a validator rule: a pitch whose disagreement
 # section still carries a provisional outcome must not merge. A gate that
 # silently stops firing is worse than none, so every branch of it is pinned:
-# the always-on ticket-record shape, the `required` presence rule and its
+# the always-on ticket-record shape, the canonical id charset, the freeze on a
+# deprecated doc, the `required` presence rule and its
 # --strict-since grandfathering, the provisional / terminal / missing-field
 # outcomes, the "opted out → no-op" contract, the "profile lacks vocabulary →
 # skipped with a warning" contract, and a malformed config block being fatal.
@@ -415,6 +416,50 @@ else
 $OUT"
 fi
 rm -f "$P/2026-02-13-id-decorated.md" "$P/2026-02-14-id-numeric.md" "$P/2026-02-15-id-jira.md"
+
+# C14 — invariant 9 is frozen on a deprecated doc (v0.12.1). An append-only repo
+# cannot edit a dead doc and cannot supersede it either (that would revive it),
+# so a check tightened AFTER the doc was written leaves it with no remedy at all.
+# The freeze is scoped to dead docs: an ACTIVE twin of the same defect still
+# fails, because its remedy — a new pitch — exists. The count is printed, never
+# silent: a frozen doc that vanished from the report would read as a clean run.
+mkdep() {  # mkdep <name> <frontmatter-extra>
+  {
+    echo '---'; echo 'domain: reward'; echo 'supersedes: null'; echo 'deprecated: true'
+    if [ -n "$2" ]; then printf '%s\n' "$2"; fi
+    echo '---'; echo; printf '%s' "$BODY"
+  } >"$P/$1"
+}
+mkdep 2026-02-16-dead-decorated.md 'references:
+  tickets:
+    - tracker: github
+      id: acme/tracker#3654
+      version: "v"'
+mkdep 2026-02-17-dead-noversion.md 'references:
+  tickets:
+    - tracker: github
+      id: "3755"'
+mkdep 2026-02-18-dead-norecord.md ""
+mkpitch 2026-02-19-live-decorated.md 'references:
+  tickets:
+    - tracker: github
+      id: acme/tracker#3654
+      version: "v"' ""
+write_config required "" 2026-02-04
+run --type pitch --strict-body --strict-since 2026-02-04
+if [ "$RC" -eq 1 ] \
+  && [ "$(hits 'dead-decorated.md')" = "0" ] \
+  && [ "$(hits 'dead-noversion.md')" = "0" ] \
+  && [ "$(hits 'dead-norecord.md')" = "0" ] \
+  && [ "$(hits 'live-decorated.md')" = "1" ] \
+  && grep -qE "note: [0-9]+ deprecated doc\(s\) frozen" <<<"$OUT"; then
+  pass "C14 deprecated docs frozen: three dead defects clean, the live twin still fails, count reported"
+else
+  fail "C14 deprecated freeze" "rc=$RC
+$OUT"
+fi
+rm -f "$P/2026-02-16-dead-decorated.md" "$P/2026-02-17-dead-noversion.md" \
+      "$P/2026-02-18-dead-norecord.md" "$P/2026-02-19-live-decorated.md"
 
 echo
 if [ "$FAILURES" -eq 0 ]; then
