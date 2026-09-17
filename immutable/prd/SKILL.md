@@ -711,7 +711,7 @@ deprecated: false
 ---
 ```
 
-**Requirement contract (v0.11+)** — when §1.5.1 bound a ticket, add `references.tickets` with one entry per bound ticket, copied from the parser's `source`: `tracker`, `repo`, `id`, `version`, `read_at`, `url`, plus the Stage 5 ledger — `covers` (binding id → list of `{group, items?, shared?}`) and `delegates` (list of `{binding, group, items?, to, why?}`), group labels verbatim from the parser. Never copy ticket text — the tracker keeps the body at that version. When the run was exempted under `required`, write `references.ticket_exemption: <reason>` instead. Without the contract block, emit neither.
+**Requirement contract (v0.11+)** — when §1.5.1 bound a ticket, add `references.tickets` with one entry per bound ticket, copied from the parser's `source`: `tracker`, `repo`, `id`, `version`, `read_at`, `url`, plus the Stage 5 ledger — `covers` (binding id → list of `{group, items?, shared?}`) and `delegates` (list of `{binding, group, items?, to, why?}`), group labels verbatim from the parser. Never copy ticket text — the tracker keeps the body at that version. `id` is the **bare** identifier as the tracker spells it (`"3755"`, `PROJ-123`) — never decorated with a repository or a `#`; the repository belongs in `repo:`. That is the string `requirement_contract.py coverage` matches on, and `validate_docs.py` refuses anything else (SCHEMA.md invariant 9): a decorated id reconciles against nothing while still satisfying the presence rule. When the run was exempted under `required`, write `references.ticket_exemption: <reason>` instead. Without the contract block, emit neither.
 
 ```yaml
 references:
