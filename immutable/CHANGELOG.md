@@ -2,6 +2,19 @@
 
 All notable changes to the `immutable` plugin are documented in this file. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Version is canonically declared in `.claude-plugin/plugin.json`.
 
+## [0.12.1] — 2026-09-17
+
+v0.12.0 tightened a check and applied it to history that cannot be edited. Wiring the contract into the pilot repo's CI surfaced it within hours: a pitch written six days earlier under v0.11, whose record spelled the id in the form v0.12.0 now rejects, had just been superseded — and the superseded file still failed, permanently. An append-only repo has no move there. It cannot edit the dead doc (its own CONTRIBUTING permits exactly one in-place edit, `deprecated: false` → `true`, and forbids correcting even a typo in `domain`), and it cannot supersede it either, because superseding a deprecated doc is a revival. The remedy set was empty, which is not a state a gate may put a repo in.
+
+### Fixed
+
+- **The requirement-contract checks (invariant 9) do not apply to a `deprecated: true` doc.** Record shape, the canonical id charset and the `required` presence rule all skip it; the number of frozen docs is written to stderr, so a freeze can never read as a clean run. The freeze is scoped to dead docs on purpose: an **active** pitch with the same defect still fails, because its remedy exists — a new pitch with a correct record. `coverage` and `drift` already read active docs only (a superseded record is a historical snapshot whose ticket is free to move afterwards), so nothing downstream loses a check. Pinned by `validate_docs_requirement_contract.test.sh` C14: three dead defects clean, an active twin still flagged, the count reported.
+
+### Notes
+
+- Deprecating a doc to dodge the check buys nothing: a dead doc governs no implementation and no reconciler reads it.
+- No config, profile or schema change. `profile_schema` stays 4 and the parser's output `schema` stays 2.
+
 ## [0.12.0] — 2026-09-17
 
 Closes two gaps an audit of the contract's first real consumer found on 2026-09-17, both in the seam between the offline half (the pitch record and the validator) and the live half (`coverage` / `drift`, which re-read the ticket). Neither is a new policy: one is two layers of the same plugin disagreeing about what a ticket id is, the other is a policy that was hardcoded where SCHEMA already says the team's data belongs.
