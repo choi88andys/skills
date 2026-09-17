@@ -42,7 +42,11 @@ Coverage (matches SCHEMA.md "Validation invariants"):
      `### `. Off by default to preserve backward compatibility with v0.4 repos
      authored before the profile system existed.
 
-  9. Requirement contract (v0.11+) — `references.tickets[]` entries carry
+  9. Requirement contract (v0.11+) — none of this applies to a `deprecated: true`
+     doc (v0.12.1): a dead doc in an append-only repo can be neither edited nor
+     superseded, so it has no remedy, and `coverage` / `drift` only read active
+     docs; the frozen count goes to stderr. For an ACTIVE doc:
+     `references.tickets[]` entries carry
      non-empty string `tracker` / `id` / `version`, with `id` matching the
      canonical charset `requirement_contract.py` enforces on its own `--id`
      (always on, v0.12+); under
@@ -1416,6 +1420,7 @@ def main() -> int:
     contract_required = bool(contract and contract.get("enforcement", "optional") == "required")
     since_contract = contract_since(contract)
     contract_exempt_count = 0
+    contract_frozen_count = 0
     disagreement_vocab = profile_disagreement_vocabulary(profile) if contract else None
     if contract and args.strict_body and disagreement_vocab is None:
         sys.stderr.write(
@@ -1484,7 +1489,17 @@ def main() -> int:
                     reserved,
                     violations,
                 )
-                check_ticket_references(md_path, fm_checked, doc_type, violations)
+                # Invariant 9 is frozen on a `deprecated: true` doc. In an
+                # append-only repo a dead doc has NO remedy — it cannot be
+                # edited and it cannot be superseded (that would revive it) —
+                # so a violation there is noise a tightened check creates
+                # retroactively, and `coverage` / `drift` never read it anyway.
+                # An ACTIVE doc keeps the error: its remedy is a new pitch.
+                doc_frozen = fm_checked.get("deprecated") is True
+                if doc_frozen:
+                    contract_frozen_count += 1
+                else:
+                    check_ticket_references(md_path, fm_checked, doc_type, violations)
                 if args.strict_body:
                     if strict_body_in_scope(md_path, strict_since):
                         validate_body_headings(
@@ -1500,7 +1515,7 @@ def main() -> int:
                                 normative_tokens,
                                 violations,
                             )
-                        if doc_type == "pitch" and contract_required:
+                        if doc_type == "pitch" and contract_required and not doc_frozen:
                             if strict_body_in_scope(md_path, since_contract):
                                 check_ticket_presence(md_path, fm_checked, violations)
                             else:
@@ -1523,6 +1538,11 @@ def main() -> int:
     elif args.strict_since is not None and not args.strict_body:
         sys.stderr.write(
             "warning: --strict-since has no effect without --strict-body.\n"
+        )
+    if contract_frozen_count:
+        sys.stderr.write(
+            f"note: {contract_frozen_count} deprecated doc(s) frozen: the requirement-contract "
+            "checks do not apply to a doc that can no longer be edited or superseded.\n"
         )
     if args.strict_body and contract_required and since_contract is not None:
         sys.stderr.write(
