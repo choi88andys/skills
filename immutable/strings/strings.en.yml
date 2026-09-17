@@ -404,6 +404,8 @@ strings:
 
   prd.contract.section_row: "- {heading}: {item_count} item(s) in {group_count} group(s)"
 
+  prd.contract.section_row_absent: "- {heading}: not on the ticket ({why}) — an optional section, so the contract is made from the others. Whatever this section would have bound stays unowned."
+
   prd.contract.judgement_none: "Reviewed {item_count} binding item(s) — none falls under the three judgements (not implementable / self-contradiction / conflict with a settled requirement). All are followed as written."
 
   prd.contract.judgement_header: |
