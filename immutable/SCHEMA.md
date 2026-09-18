@@ -737,7 +737,7 @@ python3 scripts/requirement_contract.py drift --repo <owner/name> --id <id> \
 Exit 0 when nothing binding moved (including a ticket edit confined to non-binding text), 1 when a binding item was added or removed — or when the recorded version's body cannot be retrieved, which is treated as moved — and 2 on an adapter error; the JSON lists `added` / `removed` per binding section. Where it runs is the consumer's decision:
 
 - a spec repo's CI on every pitch pull request — has the ticket moved since the author read it?
-- a tracker-side bot on every ticket edit, against the pitches that recorded that ticket. The pilot registers each merged pitch on its Epic with a comment naming the pitch path and version, so the bot knows whom to notify without scanning another repository.
+- a tracker-side bot on every ticket edit, against the pitches that recorded that ticket. The pilot registers each pitch on its Epic with a comment naming the pitch path and version, so the bot knows whom to notify without scanning another repository. That comment is posted when the **agreement closes**, not when the pitch merges: the merge is a release-train event whose distance from the agreement is set by the branch strategy, not by the spec (measured 2026-09-18 in the pilot: 0 days for single-pitch pull requests, 60+ and counting for a version train whose pitches were authored in between). A machine at merge time can honestly verify that the registration exists and still matches the tree; it cannot honestly create it.
 
 The plugin ships the parser, the adapter contract and the exit codes. The trigger, the transport and the comment format are not its business.
 
