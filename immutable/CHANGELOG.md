@@ -2,6 +2,31 @@
 
 All notable changes to the `immutable` plugin are documented in this file. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Version is canonically declared in `.claude-plugin/plugin.json`.
 
+## [0.14.0] — 2026-10-02
+
+v0.13.1 rightly stopped calling 「PRD 「X」가 … 기준으로 개정된다」 an unpinned oracle — the PRD there is not the oracle — and nothing replaced it, so those items were flagged by no rule. The owner's ruling (2026-10-02): a ticket's requirements are the **cause** of the pitch, not its result; an item that writes a result of the pitch in the cause's place inverts the authority — if the analysis finds nothing to change, the document must not change, yet the item forces it and so fixes the analysis in advance — and every other item with the same logic is to be blocked too.
+
+### Added
+
+- **Three `wording_rules` entries, all `delegated_authority`, block, ticket items and corrections**, in both bundled profiles:
+  - `document_target` — a document (PRD / 기획서 / 노션 / Notion / 스펙 / spec / pitch / 피치 / 정책서) followed within 90 characters by a production verb (개정 / 반영 / 작성 / 갱신 / 기재 / 명시 / 기록 / 정리 / 적힌다 / 적는다 / 새 행) — except where the document is the *basis* of the sentence (「PRD를 기준으로 / 에 따라 / 에 맞춰 …」, `unpinned_oracle`'s case).
+  - `design_target` — Figma / 피그마 / 시안 followed by a production verb (그려진다 / 그린다 / 시안화 / 확정된다) — except where the design is followed by 대로 / 과·와 / 에 맞춰: that is the oracle case, blocked since v0.13.0 (「피그마를 그대로 따른다」 is `unpinned_oracle`).
+  - `delivery_step` — an item that ends in a delivery step (개발 / 구현 / 배포 / 머지 / 릴리즈 / 출시 / QA / 검수 / 테스트, optionally + 완료 / 진행 / 착수 / 「+ 테스트」 and a parenthetical). End-anchored, so the template exemplar 「구현이 「X 전달」 시안과 일치한다」 and 「…은 인터널에 구현한다」 do not match.
+- English counterparts for all three, unmeasured.
+- `/immutable:prd` Stage 1.6.1: `delegated_authority` names the three shapes and how the correction restates them (a product sentence, or "no longer binds" when another item already states that product state).
+- `requirement_contract_lint.test.sh` L10 (the five pilot document shapes, three negatives, a correction) and L11 (design production and delivery steps; the exemplar, a screen rendered per a design, 「…구현한다」 and plain UI rendering do not match).
+
+### Measured
+
+- 2026-10-02 over every open ticket labelled `ux` (123) or `project: DID` (38) — 1,096 binding items. Epic / Task items: `document_target` 10 / 10, `design_target` 11 / 5, `delivery_step` 19 / 5 (+1 untyped ticket); 0 in QA sections. Epic hits: document — #4414 완료 3/4/5, #4415 완료 2/3, #4416 완료 2/3, #2635 완료 3, #770 완료 7, #1112 완료 1; design — #4414 완료 1/2/6, #4415, #4416, #4417, #4418, #4419 (one each), #2992 완료 2, #4101 완료 2, #4838 완료 2; delivery — 「개발 완료」 ×7 and 「QA 완료」 ×5 on #689–#1406, #770 완료 2/3/4, #960 완료 4/5, #1112 완료 1/2. Task hits are mostly planning or implementation Tasks whose deliverable *is* that result (context dismissals) — and DID #4365, a Task a did-spec pitch cites, whose condition revises that pitch.
+- With all rules: 56 Epic items on 26 Epics hit a `block` rule. #1112 has 6 block items (완료 1, 2, 3 and QA 4, 6, 7); #3755 and the other four Epics using the 「X 전달」 exemplar have none.
+- The 2 correction lines in the two spec repos' pitches hit none of the three.
+
+### Changed
+
+- `profile_schema` is 6 — the bump is what makes `/immutable:migrate` add the new entries to a team profile already at 5. A spec repo that copies `wording_rules` verbatim re-copies it from this tag.
+- `requirement_contract_lint.test.sh` L1 (the #1112-shaped fixture) now expects 6 block items.
+
 ## [0.13.1] — 2026-10-02
 
 Precision fix for `unpinned_oracle`, shipped before any consumer adopts the v0.13.0 rules. It cannot wait: `/immutable:migrate` copies `wording_rules` into a team profile and never replaces an id-keyed entry it already holds, and it never merges into an anonymous list like `wording_strip` — so a regex fix released after a team migrates would not reach that team's profile.

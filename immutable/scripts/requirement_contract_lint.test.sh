@@ -109,19 +109,20 @@ python3 "$SUT" parse "$RIG/clean.md" --binding "$B_ACC" --binding "$B_QA" >"$RIG
 echo "requirement_contract.py lint — ticket wording contract"
 echo
 
-# L1 — the defect shape: exit 1; block hits on 완료 3 (conditional AND
-# unpinned_oracle), QA 4 and QA 6 (delegated_downstream), QA 7 (unpinned
-# oracle); warn hits on 완료 3 (process_only — acceptance-scoped) and QA 3
-# (unmeasurable). Every hit carries the ledger coordinate; the struck item is
+# L1 — the defect shape: exit 1; block hits on 완료 1 (document_target AND
+# delivery_step, v0.14 — the Epic demands the pitch itself), 완료 2
+# (delivery_step — 「앱 구현 + 테스트」), 완료 3 (conditional AND unpinned_oracle),
+# QA 4 and QA 6 (delegated_downstream), QA 7 (unpinned oracle); warn hits on
+# 완료 3 (process_only — acceptance-scoped) and QA 3 (unmeasurable). Every hit carries the ledger coordinate; the struck item is
 # skipped and counted; the backtick path in 완료 1 is stripped before matching.
 run lint --profile "$BUNDLED_KO" --from-json "$RIG/hedged.json"
 GOT="$(q "$HITS")"
-WANT="[('ticket_item', 'acceptance', None, 3, 'conditional', 'block'), ('ticket_item', 'acceptance', None, 3, 'unpinned_oracle', 'block'), ('ticket_item', 'acceptance', None, 3, 'process_only', 'warn'), ('ticket_item', 'qa_checklist', None, 3, 'unmeasurable', 'warn'), ('ticket_item', 'qa_checklist', None, 4, 'delegated_downstream', 'block'), ('ticket_item', 'qa_checklist', None, 6, 'delegated_downstream', 'block'), ('ticket_item', 'qa_checklist', None, 7, 'unpinned_oracle', 'block')]"
+WANT="[('ticket_item', 'acceptance', None, 1, 'document_target', 'block'), ('ticket_item', 'acceptance', None, 1, 'delivery_step', 'block'), ('ticket_item', 'acceptance', None, 2, 'delivery_step', 'block'), ('ticket_item', 'acceptance', None, 3, 'conditional', 'block'), ('ticket_item', 'acceptance', None, 3, 'unpinned_oracle', 'block'), ('ticket_item', 'acceptance', None, 3, 'process_only', 'warn'), ('ticket_item', 'qa_checklist', None, 3, 'unmeasurable', 'warn'), ('ticket_item', 'qa_checklist', None, 4, 'delegated_downstream', 'block'), ('ticket_item', 'qa_checklist', None, 6, 'delegated_downstream', 'block'), ('ticket_item', 'qa_checklist', None, 7, 'unpinned_oracle', 'block')]"
 if [ "$RC" -eq 1 ] && [ "$GOT" = "$WANT" ] \
-  && [ "$(q 'd["counts"]')" = "{'items': 10, 'struck_skipped': 1, 'items_with_block': 4, 'block': 5, 'warn': 2}" ] \
+  && [ "$(q 'd["counts"]')" = "{'items': 10, 'struck_skipped': 1, 'items_with_block': 6, 'block': 8, 'warn': 2}" ] \
   && [ "$(q '[(h["category"], h["match"], h["line"]) for h in d["hits"] if h["rule"] == "conditional"]')" = "[('non_concrete', '필요 시', 19)]" ] \
-  && [ "$(q 'd["rules"]["fallback"], d["rules"]["ticket_item"], d["rules"]["correction"]')" = "(None, 7, 9)" ]; then
-  pass "L1 defect shape: 4 block items (5 hits) + 2 warns with ledger coordinates; struck item skipped"
+  && [ "$(q 'd["rules"]["fallback"], d["rules"]["ticket_item"], d["rules"]["correction"]')" = "(None, 10, 12)" ]; then
+  pass "L1 defect shape: 6 block items (8 hits) + 2 warns with ledger coordinates; struck item skipped"
 else
   fail "L1 defect shape" "rc=$RC stderr=$ERR
 --- got ---
@@ -291,11 +292,73 @@ cat >"$RIG/oracle.md" <<'MD'
 MD
 python3 "$SUT" parse "$RIG/oracle.md" --binding "$B_ACC" >"$RIG/oracle.json"
 run lint --profile "$BUNDLED_KO" --from-json "$RIG/oracle.json"
-GOT="$(q '[(h["in_group"], h["rule"]) for h in d["hits"]]')"
+# document_target (v0.14) also fires on the revision lines; L10 pins it — here
+# only the oracle and deferral verdicts are under test.
+GOT="$(q '[(h["in_group"], h["rule"]) for h in d["hits"] if h["rule"] in ("unpinned_oracle", "deferral")]')"
 if [ "$RC" -eq 1 ] && [ "$GOT" = "[(5, 'unpinned_oracle'), (6, 'unpinned_oracle'), (7, 'unpinned_oracle'), (8, 'deferral')]" ]; then
   pass "L9 oracle precision: deliverable documents and provenance notes quiet; their look-alikes still block"
 else
   fail "L9 oracle precision" "rc=$RC got=$GOT"
+fi
+
+# L10 — document_target (v0.14.0): a completion condition whose target is a
+# document revision — the shape v0.13.1 rightly stopped calling an oracle — is
+# caught by its own rule under delegated_authority, on the five shapes the
+# pilot Epics used (revised as subject, 「…에 적힌다」, 「…에 반영된다」). Not
+# caught: a document used as the BASIS for something else (unpinned_oracle's
+# job), the restated product sentence, and a production verb with no document.
+# A correction that names a document revision fails the same rule.
+cat >"$RIG/doctarget.md" <<'MD'
+### 완료 조건
+
+- [ ] PRD 「상태 표출」·「상세 화면」가 표기·상태 기준으로 개정된다(개정본 새 행)
+- [ ] PRD 「등록·삭제」에 연결·해제와 관리번호 규칙이 적힌다
+- [ ] PRD 「상태 표출」에 현황 재구성(요약 칸·대표 칸·목록)이 반영된다
+- [ ] PRD 「공지 관리」·「사이니지 표출」이 텍스트 입력 기준으로 개정된다(개정본 새 행)
+- [ ] PRD 「사이니지 표출」·「공지 관리」에 위치 점 삭제·문의 안내 편집이 반영된다
+- [ ] PRD를 기준으로 화면을 작성한다
+- [ ] 로봇 현황은 요약 일곱 칸·대표 칸·목록으로 구성된다
+- [ ] 결제 기록이 내역에 남는다
+MD
+python3 "$SUT" parse "$RIG/doctarget.md" --binding "$B_ACC" >"$RIG/doctarget.json"
+run lint --profile "$BUNDLED_KO" --from-json "$RIG/doctarget.json"
+D_RC=$RC; D_GOT="$(q '[(h["in_group"], h["rule"], h["category"]) for h in d["hits"]]')"
+run lint --profile "$BUNDLED_KO" --correction "PRD 「쿠폰」를 새 기준으로 개정한다"
+if [ "$D_RC" -eq 1 ] && [ "$D_GOT" = "[(1, 'document_target', 'delegated_authority'), (2, 'document_target', 'delegated_authority'), (3, 'document_target', 'delegated_authority'), (4, 'document_target', 'delegated_authority'), (5, 'document_target', 'delegated_authority'), (6, 'unpinned_oracle', 'delegated_authority')]" ] \
+  && [ "$RC" -eq 1 ] && [ "$(q '[h["rule"] for h in d["hits"]]')" = "['document_target']" ]; then
+  pass "L10 document_target: five revision shapes caught; basis, product sentence, plain verb are not; corrections too"
+else
+  fail "L10 document_target" "rc=$D_RC got=$D_GOT
+correction rc=$RC $(q 'd["hits"]')"
+fi
+
+# L11 — the same principle beyond documents (v0.14.0): the ticket's
+# requirements are the pitch's cause, so a result of the pitch written in their
+# place blocks — a design to be drawn or settled (design_target) and a delivery
+# step (delivery_step: 「개발 완료」, 「QA 완료」, 「앱 구현 + 테스트」). Not caught:
+# the approved pinned exemplar 「구현이 「X 전달」 시안과 일치한다」, a screen
+# rendered per a design (unpinned_oracle's case), a product decision phrased
+# with 「구현한다」, and UI rendering with no design word.
+cat >"$RIG/results.md" <<'MD'
+### 완료 조건
+
+- [ ] Figma에 카드 네 상태(기본·충전·끊김·다수)가 그려진다
+- [ ] 목록 화면 시안이 확정된다
+- [ ] 개발 완료
+- [ ] QA 완료
+- [ ] 앱 구현 + 테스트 (pitch [MUST]와 1:1)
+- [ ] 구현이 「개편 전달」 시안과 일치한다
+- [ ] 화면이 시안대로 그려진다
+- [ ] 알림 범위 설정은 인터널에 구현한다
+- [ ] 차트가 그려진다
+MD
+python3 "$SUT" parse "$RIG/results.md" --binding "$B_ACC" >"$RIG/results.json"
+run lint --profile "$BUNDLED_KO" --from-json "$RIG/results.json"
+GOT="$(q '[(h["in_group"], h["rule"]) for h in d["hits"]]')"
+if [ "$RC" -eq 1 ] && [ "$GOT" = "[(1, 'design_target'), (2, 'design_target'), (3, 'delivery_step'), (4, 'delivery_step'), (5, 'delivery_step'), (7, 'unpinned_oracle')]" ]; then
+  pass "L11 results in the cause's place: design production and delivery steps block; exemplar and look-alikes do not"
+else
+  fail "L11 design_target / delivery_step" "rc=$RC got=$GOT"
 fi
 
 echo
