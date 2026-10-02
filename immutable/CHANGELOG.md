@@ -2,6 +2,25 @@
 
 All notable changes to the `immutable` plugin are documented in this file. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Version is canonically declared in `.claude-plugin/plugin.json`.
 
+## [0.13.1] — 2026-10-02
+
+Precision fix for `unpinned_oracle`, shipped before any consumer adopts the v0.13.0 rules. It cannot wait: `/immutable:migrate` copies `wording_rules` into a team profile and never replaces an id-keyed entry it already holds, and it never merges into an anonymous list like `wording_strip` — so a regex fix released after a team migrates would not reach that team's profile.
+
+### Fixed
+
+- **A document that is the deliverable is no longer read as the oracle.** 「PRD 「로봇 상태 실시간 표출」·「기기 상세·제어」가 표기·상태 기준으로 개정된다」 says the PRD is being *revised*, not that the build must match it. `unpinned_oracle`'s `unless` now exempts a document (PRD / 기획서 / 노션 / Notion) that is the subject of a passive production verb (개정·반영·작성·갱신·추가 + 된다) or the object of an active one (+ 한다, with no other object in between) — but never when a design word (Figma / 피그마 / 시안 / 디자인 / 목업) sits between the document and the verb, since 「PRD가 Figma 시안에 맞춰 개정된다」 still makes an unpinned design the oracle.
+- **A provenance parenthetical is stripped before matching.** 「…두지 않는다 (2026-10-01 정정 — PRD 「기기 상세·제어」 기준)」 is a concrete sentence plus a note of where its correction came from. `wording_strip` gains parentheticals that open with a date or 「정정」 — except one carrying a deferral, condition or delegation marker (TBD, 미정, 추후, 필요 시, 확정된 대로, …), which stays visible. An undated 「(Figma 기준)」 is not a provenance note and still blocks.
+- English profile: the analogous exemption ("the PRD … is revised") and strip ("(2026-10-01 corrected …)"), unmeasured like the rest of the English set.
+
+### Measured
+
+- Re-run 2026-10-02 over all 122 open `ux` Epics of the pilot tracker (`gh issue list --label ux --state open --limit 300`, then `lint --from-json` per Epic with the v0.13.0 and v0.13.1 profiles): exactly three items changed, block → none (#4414 완료 3 and 16, #4415 완료 2); no other hit moved. Block items: 24 on 16 Epics. Literal 「TBD」 hits are true positives and stay.
+- `requirement_contract_lint.test.sh` L9 pins both exemptions and four look-alikes that must still block. Against the v0.13.0 profile the same fixture flags all eight items.
+
+### Notes
+
+- Values only: no new field, so `profile_schema` stays 5. A team that already migrated to 5 picks the change up only by copying the two values from the bundled profile — none had at release time.
+
 ## [0.13.0] — 2026-10-02
 
 The requirement contract let a pitch deviate from a binding item for three reasons, all about what the item *says*: not implementable, self-contradictory, in conflict with a settled requirement. A real Epic in the pilot tracker passed that net carrying four binding items that were unusable because of how they were *worded*: a completion condition 「디자이너 Figma 표기 정합 확인 (필요 시)」 (a hedge nobody can evaluate, and a process rather than an outcome), two QA items whose wording was "as the pitch decides" — the very pitch that must follow them — and 「Figma 표기와 앱 문자열이 일치한다」, an unpinned and mutable design made the acceptance oracle (the tracker's own Epic template already says links and 시안 are inputs, not judgement criteria). This release makes such items disagreement candidates **from the ticket text alone**, through a deterministic engine CI can run too.
