@@ -406,16 +406,46 @@ strings:
 
   prd.contract.section_row_absent: "- {heading}: not on the ticket ({why}) — an optional section, so the contract is made from the others. Whatever this section would have bound stays unowned."
 
-  prd.contract.judgement_none: "Reviewed {item_count} binding item(s) — none falls under the three judgements (not implementable / self-contradiction / conflict with a settled requirement). All are followed as written."
+  prd.contract.judgement_none: "Reviewed {item_count} binding item(s) — none falls under a judgement ({categories}). All are followed as written."
+
+  # v0.13+: wording lint (`requirement_contract.py lint`) — Stage 1.6.0.
+  prd.contract.lint_summary: |
+    Wording lint (`requirement_contract.py lint`): {block_items} of {item_count} binding item(s) with a block hit, {warn_count} warn hit(s){fallback_note}
+    Every block item is a judgement candidate — it gets a drafted correction, or, when context shows no defect, a proposed one-line dismissal. Either way the verdict is yours.
+
+  prd.contract.lint_fallback_note: " (the team profile has no wording rules, so the bundled `{path}` rules were used — run `/immutable:migrate`)"
+
+  prd.contract.lint_failed: |
+    The wording lint could not run:
+    {error}
+
+    Judgement continues without it — the wording judgements ({wording_categories}) are checked item by item by hand. Until the profile's wording rules are fixed, a CI check using the same rules fails too.
+
+  prd.contract.lint_warn_header: |
+    The {warn_count} hit(s) below are not candidates, but their wording may make completion hard to judge. Pick the numbers to raise as disagreements (or 'none'):
+
+  prd.contract.lint_warn_row: |
+    [{n}] {section} · {group} {ordinal} — "{match}"
+        item: {item_text}
+        why: {hint}
 
   prd.contract.judgement_header: |
     {finding_count} of {item_count} binding item(s) fall under a judgement. Answer per item — (a) accept the judgement / (b) reject it with a one-line reason (kept in the interview transcript only, never written to the pitch)
+    A "proposed dismissal" row works the other way — (a) accept the dismissal: the item is followed as written / (b) reject it: a correction is drafted and raised as a disagreement
 
   prd.contract.judgement_row: |
     [{n}] {section} · {group} {ordinal} — {category}
         item: {item_text}
         evidence: {evidence}
         drafted correction: {correction}
+
+  prd.contract.judgement_rule_line: "    wording rules: {rules}"
+
+  prd.contract.judgement_row_dismissal: |
+    [{n}] {section} · {group} {ordinal} — {category} (proposed dismissal)
+        item: {item_text}
+        wording rules: {rules}
+        dismissal reason: {dismissal}
 
   prd.contract.correction_request: |
     Requirement correction request — {ticket_ref} (requested {request_date})
@@ -451,7 +481,7 @@ strings:
     Fold them into the finding if it is the same rule; otherwise state in the evidence why they are unaffected.
 
   prd.contract.correction_deferral_warning: |
-    The correction defers instead of deciding: "{correction}"
+    The correction is not a decision: "{correction}"
     ({pattern_hint})
     A correction must be the sentence that becomes the requirement if the ticket stays silent past the response window. Decide the value or wording now and rewrite it. If the decision is not yours to make, ask the user — never copy the ticket's open question into the correction.
 

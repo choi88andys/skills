@@ -149,10 +149,13 @@ requirement_contract:
 What then happens, and what deliberately does not:
 
 - **`/immutable:prd`** fetches the ticket through `scripts/requirement_contract.py`,
-  judges every binding item (followed, or one of three admissible deviations:
-  not implementable / self-contradiction / conflict with a settled requirement),
-  hands the author a correction request to post, and writes the pitch against
-  the corrected text. The pitch records the ticket's identity and **version
+  lints the binding sentences' wording (`lint`, v0.13+ — deterministic, the
+  ticket text alone), judges every binding item (followed, or one of the
+  admissible deviations: not implementable / self-contradiction / conflict
+  with a settled requirement, and since v0.13 not concrete / delegated
+  authority — 「필요 시」, "as the pitch decides", an unpinned Figma as the
+  oracle), hands the author a correction request to post, and writes the
+  pitch against the corrected text. The pitch records the ticket's identity and **version
   coordinate** in `references.tickets[]` — never its text; the tracker keeps
   the body at that version.
 - **A disagreement is a section, not a blocker.** Each deviation becomes an
@@ -166,6 +169,11 @@ What then happens, and what deliberately does not:
   substance while the literal lives elsewhere (`delegates`, e.g. copy → Figma);
   `requirement_contract.py coverage` reconciles every pitch citing the ticket
   against the live items, so no pitch enumerates its siblings.
+- **Wording lint** — `requirement_contract.py lint --profile <profile> --id <id> …`
+  exits 1 when a binding item's wording hits a `block` rule from the profile's
+  `wording_rules`; the same rules judge a pitch's correction bullets in the
+  validator. Recall only — precision is the skill's context check and the
+  human's verdict.
 - **Drift** — `requirement_contract.py drift --id <id> --version <recorded> …`
   re-reads the ticket and reports, item by item, what moved since the pitch
   was written (exit 1), or that nothing binding did (exit 0). Where it runs —
@@ -217,6 +225,13 @@ Before v0.6.0, the plugin shipped only the artifact-authoring skills (`prd`, `ad
 ## Ship positioning
 
 `/immutable:ship` is intentionally **minimum-viable**. It guarantees chain integrity at PR time — verifies the eng review APPROVED, auto-includes the pitch and linked ADR paths in the PR body, and guards against common ship-time mistakes (dirty tree, failing tests, protected branch). It does NOT carry cross-session learnings capture, worktree-policy enforcement, or team-specific telemetry. Teams that want those layers should add them as hooks or wrapper skills around the `/immutable:ship` invocation rather than maintaining a parallel ship path.
+
+## What v0.13.0 changed (vs. v0.12.1)
+
+- `requirement_contract.py lint` and two wording categories (`non_concrete`,
+  `delegated_authority`); one `wording_rules` list (profile_schema 5) read by
+  `lint`, `/immutable:prd` Stage 1.6 and the validator's correction check.
+  Details and the migration note: [`CHANGELOG.md`](CHANGELOG.md).
 
 ## What v0.11.0 changed (vs. v0.10.1)
 

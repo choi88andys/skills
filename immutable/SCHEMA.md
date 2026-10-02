@@ -379,7 +379,7 @@ Checked at generation time by the `/immutable:prd` and `/immutable:adr` skills, 
    - *not a validator check*: whether a binding section must exist on the ticket is `profile.requirement_contract.ticket_sections[].required` (profile_schema 4+), read by `/immutable:prd` and by `requirement_contract.py`, both of which need the live ticket. The validator sees only what the pitch recorded.
    - *always on, `id` charset (v0.12+)*: `references.tickets[].id` matches `^[A-Za-z0-9][A-Za-z0-9._-]*$` — the same canonical id `requirement_contract.py` enforces on its own `--id`, and tracker-neutral by construction (a bare number, `PROJ-123`, a dotted id). This is the string `coverage` compares for exact equality when deciding which pitches form a ticket's set, so the two layers have to agree on it. Until v0.12 they did not: a decorated id (`owner/repo#3654`) passed the validator, matched no pitch during reconciliation, and thereby *satisfied* the presence rule while being invisible to the check presence exists for — fail-open, one malformed record buying a pass. Per-entry `repo` stays **optional**: the config-level `requirement_contract.repo` is the documented default for a bare id, and requiring it would break records already written. The consequence a record must live with is that a pitch citing a ticket in another repository has to spell `repo` out or be reconciled against the configured one.
    - *`--strict-body`, within the `--strict-since` scope, and — when `requirement_contract.since` is set — only for pitches dated on or after it*: under `enforcement: required` every pitch carries a non-empty `references.tickets` or a `ticket_exemption`. The `--strict-since` window is about body structure and usually predates contract adoption; without its own cutoff the presence rule would retroactively fail every pitch written between the two dates (measured 2026-09-08: six pitches in the pilot repo). The exemption count is printed to stderr.
-   - *`--strict-body`, within the `--strict-since` scope*: a pitch whose disagreement section (`profile.sections[id=requirement_disagreement].heading`) exists holds ≥1 `### ` entry, and every entry carries the four labelled bullets (`profile.requirement_contract.disagreement.fields`) with an outcome that begins with a terminal token (`outcome_terminal`). An outcome beginning with `outcome_provisional` is a violation — this is the merge gate that keeps a pitch PR open until its correction request is settled. The correction bullet must also be a **decision**: one matching a `disagreement.deferral_patterns[]` regex ("확인 필요", "협의", "확정한다", "TBD" and their English counterparts in the bundled profiles) is a violation, because a correction becomes the requirement when the ticket stays silent past the response window, and a deferral cannot be confirmed by silence. When the active profile lacks the vocabulary (a team profile not yet migrated), each missing part is skipped with a stderr warning, never silently.
+   - *`--strict-body`, within the `--strict-since` scope*: a pitch whose disagreement section (`profile.sections[id=requirement_disagreement].heading`) exists holds ≥1 `### ` entry, and every entry carries the four labelled bullets (`profile.requirement_contract.disagreement.fields`) with an outcome that begins with a terminal token (`outcome_terminal`). An outcome beginning with `outcome_provisional` is a violation — this is the merge gate that keeps a pitch PR open until its correction request is settled. The correction bullet must also be a **decision**: it is judged by the profile's wording rules that apply to corrections — `requirement_contract.wording_rules[]` with `correction` in `applies_to` (v0.13+), plus the legacy `disagreement.deferral_patterns[]` ("확인 필요", "협의", "확정한다", "TBD" and their English counterparts), read as correction-only `block` rules exactly as v0.12 matched them. A `block` hit is a violation, because a correction becomes the requirement when the ticket stays silent past the response window, and a deferral, a hedge or a hand-off cannot be confirmed by silence; a `warn` hit is a stderr warning. The rules are compiled by `requirement_contract.py` — the module `lint` uses — so the merge gate and the lint cannot disagree about a rule. When the active profile lacks the vocabulary (a team profile not yet migrated), each missing part is skipped with a stderr warning, never silently; a profile with `deferral_patterns` but no `wording_rules` is told it predates them.
 
 **Profile awareness** (v0.5+): the CI validator loads the profile via the same resolution order as the skills — config.yml `profile:` → bundled `default-<team_language>.yml` → hardcoded last-resort defaults. v2 configs get the bundled default automatically; no config bump required.
 
@@ -515,14 +515,29 @@ requirement_contract:
       label: "<label>"
     - id: conflict
       label: "<label>"
+    - id: non_concrete             # v0.13+ (profile_schema 5): completion unjudgeable as worded
+      label: "<label>"
+    - id: delegated_authority      # v0.13+: the item hands its decision elsewhere
+      label: "<label>"
   disagreement:
     fields: { original: "<label>", correction: "<label>", reason: "<label>", outcome: "<label>" }
     outcome_provisional: "<token>"   # an open request — validator blocks merge
     outcome_terminal: ["<token>", "<token>"]   # agreed / deadline passed
-    deferral_patterns:               # phrases that make a correction a deferral, not a decision
-      - id: <name>
-        regex: '<PCRE>'
+    deferral_patterns:               # LEGACY (v0.11–v0.12): read as correction-only block rules;
+      - id: <name>                   #   the bundled profiles moved them into wording_rules
+        regex: '<regex>'
         hint: "<why this is not a decision>"
+  wording_strip:                   # v0.13+: quoted UI literals blanked before wording rules match
+    - '<regex>'
+  wording_rules:                   # v0.13+: ONE list, read by `requirement_contract.py lint` and the validator
+    - id: <name>                   # [a-z][a-z0-9_]*, unique
+      category: <categories[].id>
+      severity: block | warn       # block = mandatory judgement candidate (lint exit 1); warn = list to confirm
+      applies_to: [ticket_item, correction]   # either or both
+      scope: [<ticket_sections[].id>]         # optional; absent = every binding section
+      regex: '<Python regex>'      # case-insensitive, on the stripped text
+      unless: '<Python regex>'     # optional; a hit on the RAW text exempts (a pinned 「X 전달」)
+      hint: "<why — rendered into the correction request>"
 
 # Domain allowlist policy (points at `pitches/README.md`).
 domain_allowlist:
@@ -669,7 +684,8 @@ Three shapes, all owned here; everything around them belongs to the consuming re
 | Shape | Where it is defined | Who reads it |
 |---|---|---|
 | Ticket input — `id`, `title`, `url`, `body` (markdown), `version` (opaque string), optional `history[]` | printed by an adapter command; contract in `scripts/requirement_contract.py` | `fetch` / `drift` |
-| Parsed contract — `bindings[].groups[].items[].text`, `sections[]`, `warnings[]`, `errors[]` | JSON from `requirement_contract.py parse` / `fetch` | `/immutable:prd` judgement, `drift` |
+| Parsed contract — `bindings[].groups[].items[].text`, `sections[]`, `warnings[]`, `errors[]` | JSON from `requirement_contract.py parse` / `fetch` | `/immutable:prd` judgement, `drift`, `lint --from-json` |
+| Wording rules — `requirement_contract.wording_rules[]` / `wording_strip[]` (v0.13+) | the profile; compiled by `requirement_contract.py` (`compile_wording`) | `lint` (ticket items, drafted corrections), the validator (correction bullets) |
 | Pitch record — `references.tickets[]` (identity + version + the `covers` / `delegates` ledger, no text) and the `requirement_disagreement` body section | pitch frontmatter and body, formats in this file | the validator (shape), `coverage` (reconciliation), every later reader |
 
 Deliberately **not** in the plugin: a clock (business-day deadlines and holiday calendars live with the tracker), posting to the tracker (a correction request is handed to the author to post), and any coverage check against sources the ticket does not name — a topic the ticket never raised is not a defect; the pitch fills it.
@@ -692,7 +708,7 @@ The first design quoted the binding sentences into the pitch so CI could compare
 ### Authoring flow (`/immutable:prd`)
 
 1. **Intake** (Stage 1.5.1) — under `enforcement: optional` the skill asks whether a ticket binds this pitch; under `required` it insists, or records a one-line `ticket_exemption`. The ticket is fetched through the adapter and its binding sections are summarised (counts, warnings, and any missing section — a ticket without the binding sections cannot be contracted against and is refused as such).
-2. **Judgement** (Stage 1.6) — every binding item is classified as *followed* or as one of the three profile categories: not implementable; self-contradictory against the ticket's own text, non-binding notes included; or in conflict with a settled requirement, meaning an active pitch's normative line. Only those three let the pitch deviate. "A better way exists" is not one and is routed to the next requirement list. A finding that turns on a literal value sweeps the other binding items for the same value (value propagation). Each confirmed deviation gets a drafted correction — a **decision**, the sentence that becomes the requirement if the ticket stays silent, never a deferral — and a reason, and the skill writes the correction request both to the conversation and to `.claude/immutable/contract/<slug>-<tracker>-<id>.md` in ticket register (request date, the configured response window, original / correction / reason per item) for the author to post. It never posts.
+2. **Judgement** (Stage 1.6) — first the deterministic wording lint (`requirement_contract.py lint` over the fetched JSON, v0.13+): every item with a `block` hit becomes a mandatory candidate, drafted as a correction or proposed for dismissal with a context reason, and the user decides; `warn` hits are listed for the user to pick from. Then every binding item is classified as *followed* or as one of the profile categories: not implementable; self-contradictory against the ticket's own text, non-binding notes included (a decision a 비고 line records that a binding item omits or defers counts); in conflict with a settled requirement, meaning an active pitch's normative line; and (v0.13+) not concrete — completion cannot be judged from the wording — or delegated authority — the item hands its decision to the pitch that must follow it, or to an unpinned design. Only those categories let the pitch deviate. "A better way exists" is not one and is routed to the next requirement list. A finding that turns on a literal value sweeps the other binding items for the same value (value propagation). Each confirmed deviation gets a drafted correction — a **decision**, the sentence that becomes the requirement if the ticket stays silent, never a deferral — and a reason, and the skill writes the correction request both to the conversation and to `.claude/immutable/contract/<slug>-<tracker>-<id>.md` in ticket register (request date, the configured response window, original / correction / reason per item) for the author to post. It never posts.
 3. **Interview** — the binding items, corrected where a deviation stands, become the highest-priority source for recommended answers.
 4. **Gate** (Stage 5) — accounting is by **ledger over the set**. Each pitch declares in `references.tickets[].covers` the groups (or in-group items) it reflects — a contested item counts through its correction — and in `delegates` the items it reflects in substance while the literal is owned elsewhere (copy → Figma). Items it does not declare belong to a sibling and need no per-item no-go; one sentence spanning two pitches is claimed by both with `shared: true`. `requirement_contract.py coverage` reconciles every pitch citing the ticket against the live items: `overlaps` and `stale` declarations refuse generation, `uncovered` items are the Epic's remaining gaps carried into the handoff (they refuse only for the last pitch of the set). Why a ledger and not per-item no-gos: the first seven-pitch run produced 62 out-of-scope bullets of which 48 pointed at siblings, a badge pitch with 6 normatives and 8 handoffs, and handoffs written before their target existed that became false when it did — the set is the unit the Epic binds, so the set is the unit that must be reconciled. For `update` intent, Stage 6 additionally checks that nothing the superseded pitch bound is left without an active statement (carried, owned by a sibling in the set, or closed by a same-PR sibling that also supersedes the old file).
 5. **Output** (Stage 6) — `references.tickets[]` in the frontmatter; the disagreement section only when there is a disagreement.
@@ -737,9 +753,28 @@ python3 scripts/requirement_contract.py drift --repo <owner/name> --id <id> \
 Exit 0 when nothing binding moved (including a ticket edit confined to non-binding text), 1 when a binding item was added or removed — or when the recorded version's body cannot be retrieved, which is treated as moved — and 2 on an adapter error; the JSON lists `added` / `removed` per binding section. Where it runs is the consumer's decision:
 
 - a spec repo's CI on every pitch pull request — has the ticket moved since the author read it?
-- a tracker-side bot on every ticket edit, against the pitches that recorded that ticket. The pilot registers each merged pitch on its Epic with a comment naming the pitch path and version, so the bot knows whom to notify without scanning another repository.
+- a tracker-side bot on every ticket edit, against the pitches that recorded that ticket. The pilot registers each pitch on its Epic with a comment naming the pitch path and version, so the bot knows whom to notify without scanning another repository. That comment is posted when the **agreement closes**, not when the pitch merges: the merge is a release-train event whose distance from the agreement is set by the branch strategy, not by the spec (measured 2026-09-18 in the pilot: 0 days for single-pitch pull requests, 60+ and counting for a version train whose pitches were authored in between). A machine at merge time can honestly verify that the registration exists and still matches the tree; it cannot honestly create it.
 
 The plugin ships the parser, the adapter contract and the exit codes. The trigger, the transport and the comment format are not its business.
+
+### Wording lint (v0.13.0, profile_schema 5)
+
+```
+python3 scripts/requirement_contract.py lint --profile .immutable-prd/profile.yml \
+  --repo <owner/name> --id <id> \
+  --binding acceptance="완료 조건" --binding qa_checklist="QA 통과 리스트" [--optional-binding <id> …]
+```
+
+The disagreement categories judge what an item *says*; a binding item can also be unusable because of how it is *worded*, and that passed the net until v0.13. The pilot's first such Epic carried four: a completion condition hedged with 「(필요 시)」, two QA items whose wording was "as the pitch decides" — the pitch that must follow them — and 「Figma 표기와 앱 문자열이 일치한다」, an unpinned and mutable design made the acceptance oracle. `lint` checks the ticket's binding sentences **from the ticket text alone** against the profile's `wording_rules`. It is deterministic and opens nothing the ticket links to.
+
+- **Recall, not verdict.** A regex cannot read context, so a `block` hit is a mandatory *candidate*: `/immutable:prd` drafts a correction or proposes a dismissal with a context reason, and the human decides, as for every judgement. A measured false positive: an Epic whose 「시안대로」 item sits beside another item that pins the delivery — only context says the first one means the pinned delivery.
+- **Measured set.** The bundled Korean rules were measured 2026-10-02 over all 56 then-open `ux` Epics of the pilot tracker (729 binding items): 10 items on 6 Epics hit a `block` rule, one of them the false positive above. Two candidates were dropped after measurement and stay out — 「할 수 있다」 (13 of 13 hits were plain capability statements) and 「되도록」 (used as "~가 되도록 구성한다"). The English rules mirror the ids but are unmeasured.
+- **Quoted literals are stripped first** (`wording_strip`): 「처리 중…」 is the screen's copy, not the requirement's wording. A pin check (`unless`) reads the raw text, because the pin — 「X 전달」 — is itself a quoted literal.
+- **One list, two targets.** A rule with `correction` in `applies_to` also judges a disagreement's correction (`lint --correction`, and the validator's merge gate): a correction replaces a binding item and must pass the same bar.
+- **Exit codes**: 0 no `block` hit · 1 a `block` hit, or a required binding section missing (as `fetch`) · 2 usage, adapter or profile error — a rule the profile states but the script cannot compile is an error, never a quieter lint. A profile without `wording_rules` lints with the bundled default for its `locale` and names it in `rules.fallback`.
+- **Every hit carries the item's ledger coordinate** — `binding`, `group`, `in_group` — plus the `rule` id, so a later record can point at a hit without the output changing shape.
+
+What it does **not** do in v0.13: record a dismissal. An accepted dismissal lives in the interview transcript, as a rejected judgement always has, so a CI step that fails on `lint` exit 1 keeps failing on a dismissed item. Whether a consumer gates on `lint` — and a pitch-side dismissal record such a gate would need — is the consumer's decision and a later schema change.
 
 ## Anti-patterns (v0.5.6)
 
@@ -970,6 +1005,8 @@ Idempotent. Safe to re-run after every plugin update.
 **profile_schema 3 (v0.11.0)** added `sections[id=requirement_disagreement]` and the top-level `requirement_contract` block. The universal diff picks both up on the next `/immutable:migrate`; until then a v2 team profile keeps working — the skills read the two from the bundled default with a source annotation, and both are inert unless `config.yml` opts into the contract.
 
 **profile_schema 4 (v0.12.0)** added `requirement_contract.ticket_sections[].required`. `ticket_sections` is id-keyed, so the universal diff recurses into each existing entry and adds the field on the next `/immutable:migrate`. A team profile that never receives it behaves exactly as it did before: **absent means `true`**, which is the v0.11 semantics — a declared binding section the ticket does not supply is an error. The bump is the signal that the field exists, not a claim that anything breaks without it; a team that wants a section to be optional sets `required: false` on that entry, and both halves of the contract (the skill's authoring-time refusal and `coverage` / `drift`) read the same value.
+
+**profile_schema 5 (v0.13.0)** added `requirement_contract.wording_strip`, `requirement_contract.wording_rules` and the categories `non_concrete` / `delegated_authority`, and moved the bundled profiles' three `disagreement.deferral_patterns` into `wording_rules` as correction-only rules. `categories` and `wording_rules` are id-keyed and `wording_strip` is a new key, so the universal diff adds all of them on the next `/immutable:migrate`. Nothing is removed from a team profile: its `deferral_patterns` keep being read (correction-only, as before), so a migrated profile that still carries them runs both — harmless, and the team may delete the legacy list once `wording_rules` holds its three ids. Until it migrates, a v4 profile passes and fails the same pitches in the validator, and `lint` checks its tickets with the bundled rules, saying so.
 
 ---
 
