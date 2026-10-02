@@ -296,6 +296,9 @@ requirement_contract:
     - '「[^」]*」'
     - '`[^`]*`'
     - '"[^"]*"'
+    # a provenance parenthetical led by a date or "corrected" — unless it
+    # carries a deferral, condition or delegation marker (v0.13.1)
+    - '\(\s*(?:\d{4}-\d{1,2}-\d{1,2}|corrected)(?:(?!(?i:TBD|TBC|undecided|if needed|as needed|as decided))[^)])*\)'
   wording_rules:
     - id: conditional
       category: non_concrete
@@ -320,7 +323,9 @@ requirement_contract:
       severity: block
       applies_to: [ticket_item, correction]
       regex: '\b(Figma|design|mock-?ups?|Notion|PRD)\b[^\n]{0,25}\b(match(es|ed)?|matching|consistent|as (designed|shown))\b|\b(match(es|ed)?|matching|consistent with|according to|per)\b[^\n]{0,15}\b(Figma|design|mock-?ups?|Notion|PRD)\b'
-      unless: '「[^」]*」 (delivery|handoff)|"[^"]*" (delivery|handoff)|version-id='
+      # also exempt: the document is the deliverable being produced, not the
+      # oracle ("the PRD ... is revised"), with no design word in between (v0.13.1)
+      unless: '「[^」]*」 (delivery|handoff)|"[^"]*" (delivery|handoff)|version-id=|\b(PRD|Notion)\b(?:(?!Figma|design|mock-?up)[^\n]){0,30}\b(is|are) (revised|amended|updated|written)\b'
       hint: "an unpinned design or document is made the acceptance oracle, and it can change — pin a named delivery or a version-id link, or write the value to check into the item"
     - id: process_only
       category: non_concrete
