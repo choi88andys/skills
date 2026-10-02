@@ -63,7 +63,11 @@ Coverage (matches SCHEMA.md "Validation invariants"):
      corrections (`requirement_contract.wording_rules[]`, plus the legacy
      `disagreement.deferral_patterns[]`; v0.13+): a `block` hit is a
      violation, a `warn` hit a stderr warning. The rules are compiled by
-     `requirement_contract.py` — the same reader its `lint` uses.
+     `requirement_contract.py` — the same reader its `lint` uses. The
+     acknowledgement ledger beside config.yml
+     (`contract-acknowledgements.yml`, v0.15+), when present, must have the
+     shape `requirement_contract.py`'s `ledger_entries` reads — the gate's
+     own reader; always on once the repo opts into the contract.
 
 Not covered (deferred): cycle detection on supersede chains.
 
@@ -1561,6 +1565,20 @@ def main() -> int:
                         strict_exempt_count += 1
                 collected.append((md_path, fm_checked))
         check_supersede_chain_integrity(doc_type, collected, violations)
+
+    # v0.15+: the acknowledgement ledger beside config.yml, shape only — whether
+    # each entry's hit still exists needs the live ticket (`requirement_contract.py
+    # gate`). Always on once the repo opts into the contract; the reader is the
+    # gate's own (`ledger_entries`), so the two cannot disagree about the format.
+    ledger_path = config_path.parent / _contract.LEDGER_FILENAME
+    if contract and ledger_path.is_file():
+        try:
+            ledger_data = yaml.safe_load(ledger_path.read_text(encoding="utf-8"))
+        except (yaml.YAMLError, ValueError) as exc:
+            warn(violations, f"{ledger_path}: acknowledgement ledger is not valid YAML: {exc}")
+        else:
+            for problem in _contract.ledger_entries(ledger_data, contract.get("repo"))[1]:
+                warn(violations, f"{ledger_path}: acknowledgement ledger: {problem}")
 
     # Scoping is observable, never silent: say how many files the cutoff exempted.
     if args.strict_body and strict_since is not None:

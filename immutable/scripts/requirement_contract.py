@@ -20,6 +20,9 @@ Subcommands
   coverage  fetch the ticket and reconcile the pitches that cite it: every
             binding item must be claimed by exactly one pitch (or shared by
             agreement), via the pitches' frontmatter ledgers
+  gate      the spec repo's merge gate: for every ticket an ACTIVE pitch
+            cites, every `block` lint hit must be contested by a disagreement
+            entry in a citing pitch or acknowledged in the repo's ledger
   lint      judge the WORDING of every binding item — or of drafted
             correction sentences — against the profile's wording rules: a
             completion condition nobody can judge (「필요 시」), one deferring to
@@ -149,6 +152,19 @@ the item's ledger coordinate — `binding`, `group`, `in_group` — with
 `correction` (a correction hit has no coordinate). Struck items are withdrawn
 requirements and are not linted (`counts.struck_skipped`).
 
+`gate` (v0.15+) takes the pitch files (deprecated ones are skipped), the
+profile, `--ledger` and the binding flags; it lints every ticket the active
+pitches cite and subtracts (1) hits whose item a citing pitch contests in its
+disagreement section — the `### <tracker> <repo>#<id> · <heading> · [<group>
+]<n>` header — and (2) hits the ledger acknowledges by exact coordinate and
+rule. A `delegates` declaration resolves nothing: it says who owns a literal,
+not that a defective item may bind. Output: `verdict`, `tickets[]` (per-ticket
+counts), `remaining[]`, `stale[]` (ledger entries whose hit is gone — the
+ticket was edited, the rule changed, or no active pitch cites the ticket any
+more, so an exemption cannot outlive its cause), `resolved[]`,
+`unmatched_disagreements[]`, `ledger.problems[]`. The ledger format is
+`ledger_entries`'s docstring.
+
 `text` is the ONE canonical form every consumer compares: NFC-normalised,
 outer whitespace stripped, inner whitespace runs collapsed to a single
 space, inline markdown kept verbatim. A struck item keeps its `~~`;
@@ -162,12 +178,17 @@ Exit codes
   drift        0 no drift, or drift proven to touch no binding item · 1 a
                binding item changed, or the change could not be examined
                (no history for the recorded version) · 2 usage or adapter error
+  gate         off: 0, nothing fetched · warn: 0 always (stderr says what would
+               fail) · on: 0 nothing unresolved · 1 a remaining hit, a stale or
+               malformed acknowledgement, or a cited ticket missing a required
+               section · 2 a cited ticket could not be fetched, or a usage or
+               profile error
   lint         0 no `block` hit · 1 a `block` hit, or a required binding
                section missing (as `fetch`) · 2 usage, adapter or profile
                error — a rule the profile states but the script cannot
                compile is an error, never a silently weaker lint
 
-Requires python3; `coverage` and `lint` also need PyYAML (they read YAML —
+Requires python3; `coverage`, `lint` and `gate` also need PyYAML (they read YAML —
 pitch frontmatter, the profile). The default adapter needs the `gh` CLI on
 PATH, authenticated for the target repo. Line numbers are 1-based and refer
 to the body as fetched (comments are blanked, not deleted, so they stay
@@ -523,9 +544,17 @@ def binding_texts(parsed: dict[str, Any]) -> dict[str, list[str]]:
 # --------------------------------------------------------------------------
 
 
+class ContractError(Exception):
+    """A failure `main` reports as `error: <msg>` on stderr with exit 2.
+
+    Raised rather than exiting on the spot so `gate`, which fetches many
+    tickets, can record one ticket's adapter failure and carry on — the other
+    subcommands still end at the first one.
+    """
+
+
 def adapter_fail(msg: str) -> None:
-    sys.stderr.write(f"error: {msg}\n")
-    sys.exit(2)
+    raise ContractError(msg)
 
 
 def run_argv(argv: list[str], what: str) -> str:
@@ -1243,6 +1272,345 @@ def run_lint(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
 
 
 # --------------------------------------------------------------------------
+# gate — the spec repo's merge gate over every ticket an active pitch cites
+# --------------------------------------------------------------------------
+
+LEDGER_FILENAME = "contract-acknowledgements.yml"
+LEDGER_SCHEMA = 1
+LEDGER_KINDS = ("accepted_violation", "false_positive")
+LEDGER_KEYS = ("tracker", "repo", "id", "binding", "group", "in_group", "rule", "kind", "reason", "decided_by", "date")
+LEDGER_REQUIRED = tuple(k for k in LEDGER_KEYS if k != "repo")
+GATE_MODES = ("off", "warn", "on")
+# `### <tracker> <repo>#<id> · <binding heading> · [<group> ]<in_group>` — the
+# disagreement entry header /immutable:prd writes; an ungrouped item has no
+# group label, only the number (「… · 완료 조건 · 2」).
+DISAGREEMENT_TITLE_RE = re.compile(
+    r"^(?P<tracker>\S+)\s+(?P<repo>[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*)?"
+    r"#(?P<id>[A-Za-z0-9][A-Za-z0-9._-]*)\s*·\s*(?P<heading>.+?)\s*·\s*"
+    r"(?:(?P<group>.*?\S)\s+)?(?P<n>\d+)\s*$"
+)
+
+
+def ledger_entries(data: Any, default_repo: str | None) -> tuple[list[dict[str, Any]], list[str]]:
+    """The acknowledgement ledger (v0.15+) → normalised entries + problems.
+
+    The ledger is a repo-level file, not pitch frontmatter: pitches are
+    append-only, so a pitch merged before a rule existed can never gain a
+    field. Each entry names ONE block hit by its coordinate — tracker, repo,
+    id, binding, group, in_group, rule — and says why it may stand: `kind`
+    `accepted_violation` (a pitch was bound to the item before the rule could
+    be raised) or `false_positive` (the rule is wrong in context), with
+    `reason`, `decided_by`, `date`. `repo` may be omitted for the config's
+    default repository, as in a pitch's ticket record.
+
+    The ONE reader of the file: `gate` subtracts the entries from the live
+    block hits, `validate_docs.py` checks the shape offline. Strict on
+    purpose — an unknown key is a problem, because a typo in a coordinate key
+    would otherwise drop the coordinate and silently widen the exemption.
+    """
+    if data is None:
+        return [], []
+    if not isinstance(data, dict):
+        return [], ["the ledger must be a mapping with `schema` and `acknowledgements`"]
+    problems: list[str] = []
+    if data.get("schema") != LEDGER_SCHEMA:
+        problems.append(f"`schema` must be {LEDGER_SCHEMA}, got {data.get('schema')!r}")
+    unknown_top = sorted(str(k) for k in set(data) - {"schema", "acknowledgements"})
+    if unknown_top:
+        problems.append(f"unknown top-level key(s) {unknown_top}")
+    raw = data.get("acknowledgements")
+    if raw is None:
+        raw = []
+    if not isinstance(raw, list):
+        return [], problems + ["`acknowledgements` must be a list"]
+
+    def text(v: Any) -> bool:
+        return isinstance(v, str) and bool(v.strip())
+
+    entries: list[dict[str, Any]] = []
+    seen: dict[tuple[Any, ...], int] = {}
+    for i, e in enumerate(raw, 1):
+        where = f"acknowledgements[{i}]"
+        if not isinstance(e, dict):
+            problems.append(f"{where} must be a mapping")
+            continue
+        bad: list[str] = []
+        unknown = sorted(str(k) for k in set(e) - set(LEDGER_KEYS))
+        if unknown:
+            bad.append(f"unknown key(s) {unknown}")
+        missing = [k for k in LEDGER_REQUIRED if k not in e]
+        if missing:
+            bad.append(f"missing {missing}")
+        if "tracker" in e and not text(e["tracker"]):
+            bad.append("`tracker` must be a non-empty string")
+        repo = e.get("repo")
+        if repo is not None and not (isinstance(repo, str) and REPO_RE.match(repo)):
+            bad.append(f"`repo` must be OWNER/NAME, got {repo!r}")
+        tid = e.get("id")
+        tid = str(tid) if isinstance(tid, (str, int)) and not isinstance(tid, bool) else None
+        if "id" in e and not (tid and TICKET_ID_RE.match(tid)):
+            bad.append(f"`id` must be the bare ticket id, got {e.get('id')!r}")
+        for key in ("binding", "rule"):
+            if key in e and not (isinstance(e[key], str) and BINDING_ID_RE.match(e[key])):
+                bad.append(f"`{key}` must match [a-z][a-z0-9_]*, got {e[key]!r}")
+        group = e.get("group")
+        if group is not None and not text(group):
+            bad.append("`group` must be the ticket's group label, or null for an ungrouped item")
+        n = e.get("in_group")
+        if "in_group" in e and not (isinstance(n, int) and not isinstance(n, bool) and n > 0):
+            bad.append(f"`in_group` must be a positive integer, got {n!r}")
+        if "kind" in e and e["kind"] not in LEDGER_KINDS:
+            bad.append(f"`kind` must be one of {list(LEDGER_KINDS)}, got {e['kind']!r}")
+        for key in ("reason", "decided_by"):
+            if key in e and not text(e[key]):
+                bad.append(f"`{key}` must be a non-empty string")
+        date = e.get("date")
+        if "date" in e:
+            try:
+                date = date if isinstance(date, _dt.date) else _dt.date.fromisoformat(str(date))
+            except ValueError:
+                bad.append(f"`date` must be YYYY-MM-DD, got {e['date']!r}")
+        if bad:
+            problems.append(f"{where}: " + "; ".join(bad))
+            continue
+        entry = {
+            "index": i, "tracker": e["tracker"].strip(), "repo": repo or default_repo, "id": tid,
+            "binding": e["binding"], "group": None if group is None else norm_text(group),
+            "in_group": n, "rule": e["rule"], "kind": e["kind"], "reason": e["reason"].strip(),
+            "decided_by": e["decided_by"].strip(), "date": date.isoformat(),
+        }
+        key = ledger_key(entry)
+        if key in seen:
+            problems.append(f"{where}: same coordinate and rule as acknowledgements[{seen[key]}]")
+            continue
+        seen[key] = i
+        entries.append(entry)
+    return entries, problems
+
+
+def ledger_key(row: dict[str, Any]) -> tuple[Any, ...]:
+    return (row["tracker"], row["repo"], row["id"], row["binding"], row["group"], row["in_group"], row["rule"])
+
+
+def disagreement_titles(text: str, heading: str) -> list[str]:
+    """`### ` titles under the body's `## <heading>` section (fences ignored)."""
+    m = FRONTMATTER_RE.match(text)
+    lines = preprocess(text[m.end():] if m else text)
+    fenced = fenced_lines(lines)
+    titles: list[str] = []
+    inside = False
+    for i, ln in enumerate(lines):
+        if i in fenced:
+            continue
+        hm = HEADING_RE.match(ln)
+        if not hm:
+            continue
+        level, title = len(hm.group(1)), norm_text(hm.group(2))
+        if level <= 2:
+            inside = level == 2 and title == norm_text(heading)
+        elif inside and level == 3:
+            titles.append(title)
+    return titles
+
+
+def disagreement_coordinate(
+    title: str, bindings: list[tuple[str, str, bool]], default_repo: str | None
+) -> dict[str, Any] | None:
+    """The item a disagreement entry contests, from its header — or None when
+    the header does not name a ticket item this run declares."""
+    m = DISAGREEMENT_TITLE_RE.match(title)
+    if not m:
+        return None
+    key = norm_heading(m.group("heading"))
+    binding = next((bid for bid, heading, _ in bindings if norm_heading(heading) == key), None)
+    if binding is None:
+        return None
+    group = m.group("group")
+    return {
+        "tracker": m.group("tracker"), "repo": m.group("repo") or default_repo, "id": m.group("id"),
+        "binding": binding, "group": None if group is None else norm_text(group), "in_group": int(m.group("n")),
+    }
+
+
+def gate_ticket(args: argparse.Namespace, repo: str | None, ticket_id: str) -> dict[str, Any]:
+    if args.fetch_command:
+        raw = command_fetch(args.fetch_command, repo, ticket_id)
+    else:
+        if not repo:
+            adapter_fail(f"ticket {ticket_id} names no repo and --repo gives no default")
+        raw = github_fetch(repo, ticket_id)
+    return normalize_ticket(raw, ticket_id)
+
+
+def compute_gate(parser: argparse.ArgumentParser, args: argparse.Namespace) -> tuple[dict[str, Any], int]:
+    bindings = parse_binding_args(parser, args.binding, args.optional_binding)
+    compiled, meta, warnings = lint_rules(args.profile)
+    profile = load_yaml_file(args.profile, "profile") or {}
+    heading = next(
+        (str(s.get("heading") or "").strip() for s in profile.get("sections") or []
+         if isinstance(s, dict) and s.get("id") == "requirement_disagreement"),
+        "",
+    )
+    if not heading:
+        warnings.append(
+            "the profile has no sections[id=requirement_disagreement] heading — no disagreement "
+            "entry is read, so no block hit is resolved by one"
+        )
+
+    ledger_info: dict[str, Any] = {"path": args.ledger, "found": False, "entries": 0}
+    entries: list[dict[str, Any]] = []
+    problems: list[str] = []
+    if args.ledger:
+        if Path(args.ledger).is_file():
+            ledger_info["found"] = True
+            entries, problems = ledger_entries(load_yaml_file(args.ledger, "ledger"), args.repo)
+            ledger_info["entries"] = len(entries)
+        else:
+            warnings.append(f"ledger {args.ledger} not found — no hit is acknowledged")
+    ledger = {ledger_key(e): e for e in entries}
+
+    # The set: active pitches (not `deprecated: true`) and the tickets they cite.
+    cited: dict[tuple[str, str | None, str], list[str]] = {}
+    contested: dict[tuple[Any, ...], list[str]] = {}
+    unmatched: list[dict[str, str]] = []
+    for path in args.pitches:
+        fm = load_frontmatter_yaml(path)
+        if fm is None:
+            warnings.append(f"{path}: no readable frontmatter; skipped")
+            continue
+        if fm.get("deprecated") is True:
+            continue
+        refs = fm.get("references") or {}
+        own: set[tuple[str, str | None, str]] = set()
+        for entry in (refs.get("tickets") or []) if isinstance(refs, dict) else []:
+            if not isinstance(entry, dict) or entry.get("id") is None:
+                continue
+            tracker = str(entry.get("tracker") or "github")
+            if tracker != args.tracker:
+                warnings.append(f"{path}: cites a {tracker} ticket; this gate checks {args.tracker} tickets only")
+                continue
+            key = (tracker, str(entry.get("repo") or args.repo or "") or None, str(entry["id"]))
+            cited.setdefault(key, []).append(path)
+            own.add(key)
+        if not heading or not own:
+            continue
+        body = open(path, "rb").read().decode("utf-8")
+        for title in disagreement_titles(body, heading):
+            coord = disagreement_coordinate(title, bindings, args.repo)
+            if coord is None or (coord["tracker"], coord["repo"], coord["id"]) not in own:
+                unmatched.append({"pitch": path, "title": title, "why": (
+                    "header names no binding item this run declares" if coord is None
+                    else "header names a ticket this pitch does not cite"
+                )})
+                continue
+            contested.setdefault(ledger_key({**coord, "rule": None})[:6], []).append(path)
+
+    tickets_out: list[dict[str, Any]] = []
+    remaining: list[dict[str, Any]] = []
+    resolved: list[dict[str, Any]] = []
+    errors: list[str] = []
+    fetch_failed = False
+    live_block: set[tuple[Any, ...]] = set()
+    checked: set[tuple[str, str | None, str]] = set()
+    for key in sorted(cited, key=lambda k: (k[0], k[1] or "", k[2])):
+        tracker, repo, tid = key
+        row: dict[str, Any] = {
+            "tracker": tracker, "repo": repo, "id": tid, "cited_by": cited[key], "version": None,
+            "block_hits": 0, "by_disagreement": 0, "by_ledger": 0, "remaining": 0, "errors": [],
+        }
+        tickets_out.append(row)
+        try:
+            ticket = gate_ticket(args, repo, tid)
+        except ContractError as exc:
+            fetch_failed = True
+            row["errors"].append(f"could not fetch: {exc}")
+            errors.append(f"{tracker} {repo}#{tid}: could not fetch: {exc}")
+            continue
+        checked.add(key)
+        row["version"] = ticket["version"]
+        parsed = parse_body(ticket["body"], bindings)
+        for e in parsed["errors"]:
+            row["errors"].append(e)
+            errors.append(f"{tracker} {repo}#{tid}: {e} — the ticket cannot be shown clean")
+        for h in compute_lint(compiled, parsed, [])["hits"]:
+            if h["severity"] != "block":
+                continue
+            row["block_hits"] += 1
+            coord = {"tracker": tracker, "repo": repo, "id": tid, "binding": h["binding"],
+                     "group": h["group"], "in_group": h["in_group"], "rule": h["rule"]}
+            live_block.add(ledger_key(coord))
+            hit = {**coord, "ordinal": h["ordinal"], "line": h["line"], "text": h["text"],
+                   "category": h["category"], "match": h["match"], "hint": h["hint"]}
+            by_pitch = contested.get(ledger_key(coord)[:6])
+            ack = ledger.get(ledger_key(coord))
+            if by_pitch:
+                row["by_disagreement"] += 1
+                resolved.append({**hit, "by": "disagreement", "where": by_pitch})
+                if ack:
+                    warnings.append(
+                        f"acknowledgements[{ack['index']}] is redundant: a disagreement entry in "
+                        f"{', '.join(by_pitch)} already contests that item"
+                    )
+            elif ack:
+                row["by_ledger"] += 1
+                resolved.append({**hit, "by": "ledger", "where": f"acknowledgements[{ack['index']}]", "kind": ack["kind"]})
+            else:
+                row["remaining"] += 1
+                remaining.append({**hit, "cited_by": cited[key]})
+
+    # Eviction: an acknowledgement stands only while its hit does.
+    stale: list[dict[str, Any]] = []
+    for e in entries:
+        tkey = (e["tracker"], e["repo"], e["id"])
+        if tkey not in cited:
+            why = "no active pitch cites that ticket"
+        elif tkey not in checked:
+            continue  # the fetch failed; reported as an error, not judged stale
+        elif ledger_key(e) not in live_block:
+            why = "the live ticket has no block hit with that coordinate and rule (ticket edited, or rule changed)"
+        else:
+            continue
+        stale.append({k: e[k] for k in ("index", *LEDGER_KEYS)} | {"why": why})
+
+    failing = bool(remaining or stale or problems or errors)
+    result = {
+        "schema": SCHEMA,
+        "mode": args.mode,
+        "verdict": ("fail" if args.mode == "on" else "warn") if failing else "pass",
+        "rules": meta,
+        "ledger": {**ledger_info, "problems": problems},
+        "tickets": tickets_out,
+        "remaining": remaining,
+        "stale": stale,
+        "resolved": resolved,
+        "unmatched_disagreements": unmatched,
+        "warnings": warnings,
+        "errors": errors,
+    }
+    if args.mode == "warn" or not failing:
+        return result, 0
+    return result, 2 if fetch_failed else 1
+
+
+def run_gate(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
+    if args.mode == "off":
+        # Switched off: nothing is fetched, so the switch costs nothing in CI.
+        emit({"schema": SCHEMA, "mode": "off", "verdict": "off"}, args.compact)
+        return 0
+    if args.repo is not None and not REPO_RE.match(args.repo):
+        parser.error(f"--repo must be OWNER/NAME, got {args.repo!r}")
+    result, code = compute_gate(parser, args)
+    emit(result, args.compact)
+    if result["verdict"] == "warn":
+        sys.stderr.write(
+            f"warning: contract gate (warn mode): {len(result['remaining'])} unresolved block hit(s), "
+            f"{len(result['stale'])} stale acknowledgement(s), {len(result['ledger']['problems'])} ledger "
+            f"problem(s), {len(result['errors'])} error(s) — would fail with --mode on\n"
+        )
+    return code
+
+
+# --------------------------------------------------------------------------
 # CLI
 # --------------------------------------------------------------------------
 
@@ -1308,6 +1676,14 @@ def validate_ticket_args(parser: argparse.ArgumentParser, args: argparse.Namespa
 
 
 def main(argv: list[str] | None = None) -> int:
+    try:
+        return run(argv)
+    except ContractError as exc:
+        sys.stderr.write(f"error: {exc}\n")
+        return 2
+
+
+def run(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="requirement_contract.py",
         description="Read the binding sections of a tracker Epic into JSON (see module docstring).",
@@ -1374,9 +1750,26 @@ def main(argv: list[str] | None = None) -> int:
     p_lint.add_argument("--fetch-command", metavar="TEMPLATE", help="with --id: adapter command, as for `fetch`")
     add_common(p_lint)
 
+    p_gate = sub.add_parser(
+        "gate", help="the merge gate: every block hit on a ticket an active pitch cites must be contested or acknowledged",
+    )
+    p_gate.add_argument("--mode", required=True, choices=GATE_MODES, help="off: no-op · warn: report, exit 0 · on: fail on anything unresolved")
+    p_gate.add_argument("--profile", required=True, metavar="PROFILE.yml", help="the active profile (wording rules + disagreement heading)")
+    p_gate.add_argument(
+        "--ledger", metavar="LEDGER.yml",
+        help=f"the acknowledgement ledger (conventionally .immutable-prd/{LEDGER_FILENAME}); absent = no acknowledgements",
+    )
+    p_gate.add_argument("--repo", metavar="OWNER/NAME", help="default repository for a ticket record or ledger entry without `repo`")
+    p_gate.add_argument("--tracker", default="github", metavar="NAME", help="the tracker whose tickets this gate checks (default: github)")
+    p_gate.add_argument("--fetch-command", metavar="TEMPLATE", help="adapter command, as for `fetch`")
+    p_gate.add_argument("pitches", nargs="*", metavar="PITCH.md", help="pitch files; the active ones (not deprecated) form the set")
+    add_common(p_gate)
+
     args = parser.parse_args(argv)
     if args.command == "lint":
         return run_lint(parser, args)
+    if args.command == "gate":
+        return run_gate(parser, args)
     bindings = parse_binding_args(parser, args.binding, args.optional_binding)
 
     if args.command == "parse":
