@@ -19,7 +19,9 @@
 # `disagreement.deferral_patterns` moved into `wording_rules` as correction-only
 # rules. A v4 profile keeps its `deferral_patterns` (still read, corrections
 # only) and lints ticket items with the bundled rules until it migrates.
-profile_schema: 5
+# v5 → v6 (v0.14.0): added the `wording_rules` entries `document_target`,
+# `design_target` and `delivery_step`.
+profile_schema: 6
 
 locale: en
 
@@ -327,6 +329,27 @@ requirement_contract:
       # oracle ("the PRD ... is revised"), with no design word in between (v0.13.1)
       unless: '「[^」]*」 (delivery|handoff)|"[^"]*" (delivery|handoff)|version-id=|\b(PRD|Notion)\b(?:(?!Figma|design|mock-?up)[^\n]){0,30}\b(is|are) (revised|amended|updated|written)\b'
       hint: "an unpinned design or document is made the acceptance oracle, and it can change — pin a named delivery or a version-id link, or write the value to check into the item"
+    # A document revision as the completion condition (v0.14.0) — unmeasured.
+    - id: document_target
+      category: delegated_authority
+      severity: block
+      applies_to: [ticket_item, correction]
+      regex: '\b(PRD|spec|pitch|Notion|planning doc)\b[^\n]{0,90}?\b(revised|amended|updated|rewritten|written|documented|reflected|recorded)\b'
+      hint: "a document revision is made the completion condition — whether a document changes is the analysis's result, not its input; state what the document would say as a product sentence"
+    # A design to be produced, or a delivery step, as the completion condition
+    # (v0.14.0) — the requirement is the pitch's cause, not its result. Unmeasured.
+    - id: design_target
+      category: delegated_authority
+      severity: block
+      applies_to: [ticket_item, correction]
+      regex: '\b(Figma|mock-?ups?|design (file|frames?))\b[^\n]{0,90}?\b(is|are|gets?) (drawn|designed|created|finali[sz]ed)\b'
+      hint: "producing a design is made the completion condition — a design is a result of the requirement, not the requirement; state what it would show as a product sentence"
+    - id: delivery_step
+      category: delegated_authority
+      severity: block
+      applies_to: [ticket_item, correction]
+      regex: '\b(development|implementation|deploy(ment)?|release|merged?|QA|testing|tests?)(\s+(done|complete[d]?|started|passed))?\s*(\([^)]*\))?\s*\.?\s*$'
+      hint: "a delivery step (development, QA, deployment) is made the completion condition — it is the result of following the pitch, not a requirement for it; state the product state that means done, or drop the item when another item already states it"
     - id: process_only
       category: non_concrete
       severity: warn

@@ -28,7 +28,10 @@
 # `disagreement.deferral_patterns` moved into `wording_rules` as correction-only
 # rules. A v4 profile keeps its `deferral_patterns` (still read, corrections
 # only) and lints ticket items with the bundled rules until it migrates.
-profile_schema: 5
+# v5 → v6 (v0.14.0): added the `wording_rules` entries `document_target`,
+# `design_target` and `delivery_step`. The bump is what makes `/immutable:migrate`
+# add them to a team profile already at v5.
+profile_schema: 6
 
 # Team working language key. Must match `strings/strings.<locale>.yml` when
 # strings catalog lookup is enabled. v0.5 renders inline strings from this file.
@@ -452,6 +455,45 @@ requirement_contract:
       # 「한다」의 목적어 — 그 사이에 시안·Figma 류가 끼면 면제하지 않는다).
       unless: '「[^」]*전달」|version-id=|(PRD|기획서|노션|Notion)\s*(「[^」]*」\s*[·,]?\s*)*(이|가)\s(?:(?!Figma|피그마|시안|디자인|목업)[^\n]){0,30}(개정|반영|작성|갱신|추가)(된다|됨)|(PRD|기획서|노션|Notion)\s*(「[^」]*」\s*[·,]?\s*)*(을|를)\s(?:(?!Figma|피그마|시안|디자인|목업)[^을를\n]){0,20}(개정|반영|작성|갱신|추가)(한다|함)'
       hint: "고정되지 않은 시안·문서를 판정 기준으로 삼았다 — 시안은 바뀐다. 「X 전달」처럼 이름 붙인 전달본이나 version-id 링크로 고정하거나, 확인할 값을 항목에 직접 쓴다"
+    # 아래 셋 (v0.14.0) 은 같은 원칙이다 — 티켓의 요구사항은 피치를 쓰게 하는
+    # 원인이지 피치의 결과가 아니다. 원인 자리에 결과(문서 개정·시안 제작·개발
+    # 진행 단계)를 적으면 권한이 뒤집힌다.
+    #
+    # 문서 개정을 완료 조건으로 삼은 항목. 문서가 판정 기준이 아니라
+    # 고쳐질 대상이다 — unpinned_oracle 이 v0.13.1 에서 면제한 바로 그 모양.
+    # 피치는 완료 조건에서 나오는데, 분석 결과 바꿀 것이 없어도 문서를 고치라고
+    # 정해 두면 분석 결과를 입력으로 못 박는 권한 역전이 된다. 실제 요구는 보통
+    # 괄호 안에 있고 제품 문장으로 다시 쓸 수 있다. 2026-10-02 측정 (열린 `ux`
+    # 123건 + `project: DID` 38건, 구속 항목 1,096개): Epic 10건 / 6개 (그중
+    # #1112 「pitch supersede 작성·머지」는 판단 필요), Task 10건 — 대부분 문서가
+    # 실제 산출물인 기획 Task 라 문맥상 기각 후보. QA 섹션 0건.
+    - id: document_target
+      category: delegated_authority
+      severity: block
+      applies_to: [ticket_item, correction]
+      # 문서가 근거로 쓰인 문장 (「PRD를 기준으로 화면을 작성한다」) 은 제외 —
+      # 그건 unpinned_oracle 의 몫이다.
+      regex: '(PRD|기획서|기획\s*문서|노션|Notion|스펙|\bspec\b|pitch|피치|정책서)(?![^\n]{0,12}?(을|를|에)\s*(기준|바탕|토대|근거|따라|맞춰|맞게))[^\n]{0,90}?(개정|반영|작성|갱신|기재|명시|기록|정리|적힌다|적는다|새\s*행)'
+      hint: "문서 개정을 완료 조건으로 삼았다 — 문서를 고칠지는 분석의 결과이지 입력이 아니다. 문서에 담길 내용을 제품 문장으로 쓴다 (예: 「로봇 현황은 요약 일곱 칸·대표 칸·목록으로 구성된다」)"
+    # 시안 제작을 완료 조건으로 삼은 항목 — 「Figma에 X가 그려진다」, 「시안이
+    # 확정된다」. 시안을 「따른다」(판정 기준) 는 unpinned_oracle 의 몫이라 여기서
+    # 뺀다. 2026-10-02 측정: Epic 11건 / 9개, Task 5건 (기획 Task), QA 0건.
+    - id: design_target
+      category: delegated_authority
+      severity: block
+      applies_to: [ticket_item, correction]
+      regex: '(Figma|피그마|시안)(?!\s*(대로|처럼|과|와|을\s*따라|에\s*맞춰|에\s*맞게))[^\n]{0,90}?(그려진다|그린다|그려|시안화|확정된다|확정한다)'
+      hint: "시안 제작을 완료 조건으로 삼았다 — 시안은 요구사항의 결과물이지 요구사항이 아니다. 시안에 그려질 내용을 제품 문장으로 쓴다 (예: 「로봇 카드는 기본·충전·통신끊김·동종 다수 네 상태로 표시된다」)"
+    # 개발·구현·QA·배포 같은 진행 단계로 끝나는 항목 — 「개발 완료」, 「QA 완료」,
+    # 「앱 구현 + 테스트」, 「…작성·머지」. 문장 끝에 걸어서 「구현이 「X 전달」
+    # 시안과 일치한다」(템플릿 예시) 와 「…은 인터널에 구현한다」 는 걸리지 않는다.
+    # 2026-10-02 측정: Epic 19건 / 10개, 구현 Task 5건, 기타 1건, QA 0건.
+    - id: delivery_step
+      category: delegated_authority
+      severity: block
+      applies_to: [ticket_item, correction]
+      regex: '(개발|구현|배포|머지|릴리즈|출시|QA|검수|테스트)(\s*(완료|진행|착수)|\s*(\+|,|및)\s*테스트)?\s*(\([^)]*\))?\s*\.?\s*$'
+      hint: "개발·QA·배포 같은 진행 단계를 완료 조건으로 삼았다 — 피치를 따른 결과이지 피치가 따를 요구사항이 아니다. 제품이 어떤 상태가 되면 완료인지를 쓰거나, 다른 항목이 이미 그 상태를 말하면 이 항목을 구속에서 뺀다"
     - id: process_only
       category: non_concrete
       severity: warn
