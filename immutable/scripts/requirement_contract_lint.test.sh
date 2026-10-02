@@ -270,6 +270,34 @@ else
   fail "L8 usage errors" "rc=$U1/$U2/$U3 $E1 | $E2 | $E3"
 fi
 
+# L9 — unpinned_oracle precision (v0.13.1). A document that is the DELIVERABLE
+# being produced — the subject of 「…된다」 or the object of 「…한다」 with a
+# production verb — is not an oracle; a provenance parenthetical led by a date
+# or 「정정」 is stripped before matching. Their look-alikes stay flagged: an
+# undated 「(Figma 기준)」, a design word between the document and the verb (the
+# PRD revised to match an unpinned design), a document used as the basis for
+# something else, and a dated parenthetical hiding a deferral.
+cat >"$RIG/oracle.md" <<'MD'
+### 완료 조건
+
+- [ ] PRD 「상태 표출」·「상세 화면」가 표기 기준으로 개정된다(개정본 새 행)
+- [ ] PRD 「안내 관리」이 텍스트 입력 기준으로 개정된다
+- [ ] PRD 「쿠폰」를 표기 기준으로 개정한다
+- [ ] 듀스는 제어 칸을 두지 않는다 (2026-10-01 정정 — PRD 「상세·제어」 기준)
+- [ ] 듀스는 제어 칸을 두지 않는다 (Figma 기준)
+- [ ] PRD가 Figma 시안에 맞춰 개정된다
+- [ ] PRD를 기준으로 화면을 작성한다
+- [ ] 표기 단위를 바꾼다 (2026-10-01 정정 — TBD)
+MD
+python3 "$SUT" parse "$RIG/oracle.md" --binding "$B_ACC" >"$RIG/oracle.json"
+run lint --profile "$BUNDLED_KO" --from-json "$RIG/oracle.json"
+GOT="$(q '[(h["in_group"], h["rule"]) for h in d["hits"]]')"
+if [ "$RC" -eq 1 ] && [ "$GOT" = "[(5, 'unpinned_oracle'), (6, 'unpinned_oracle'), (7, 'unpinned_oracle'), (8, 'deferral')]" ]; then
+  pass "L9 oracle precision: deliverable documents and provenance notes quiet; their look-alikes still block"
+else
+  fail "L9 oracle precision" "rc=$RC got=$GOT"
+fi
+
 echo
 if [ "$FAILURES" -eq 0 ]; then
   echo "all $PASSES cases passed."
