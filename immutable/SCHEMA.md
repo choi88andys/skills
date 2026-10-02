@@ -379,6 +379,7 @@ Checked at generation time by the `/immutable:prd` and `/immutable:adr` skills, 
    - *not a validator check*: whether a binding section must exist on the ticket is `profile.requirement_contract.ticket_sections[].required` (profile_schema 4+), read by `/immutable:prd` and by `requirement_contract.py`, both of which need the live ticket. The validator sees only what the pitch recorded.
    - *always on, `id` charset (v0.12+)*: `references.tickets[].id` matches `^[A-Za-z0-9][A-Za-z0-9._-]*$` — the same canonical id `requirement_contract.py` enforces on its own `--id`, and tracker-neutral by construction (a bare number, `PROJ-123`, a dotted id). This is the string `coverage` compares for exact equality when deciding which pitches form a ticket's set, so the two layers have to agree on it. Until v0.12 they did not: a decorated id (`owner/repo#3654`) passed the validator, matched no pitch during reconciliation, and thereby *satisfied* the presence rule while being invisible to the check presence exists for — fail-open, one malformed record buying a pass. Per-entry `repo` stays **optional**: the config-level `requirement_contract.repo` is the documented default for a bare id, and requiring it would break records already written. The consequence a record must live with is that a pitch citing a ticket in another repository has to spell `repo` out or be reconciled against the configured one.
    - *`--strict-body`, within the `--strict-since` scope, and — when `requirement_contract.since` is set — only for pitches dated on or after it*: under `enforcement: required` every pitch carries a non-empty `references.tickets` or a `ticket_exemption`. The `--strict-since` window is about body structure and usually predates contract adoption; without its own cutoff the presence rule would retroactively fail every pitch written between the two dates (measured 2026-09-08: six pitches in the pilot repo). The exemption count is printed to stderr.
+   - *always on, the acknowledgement ledger (v0.15+)*: `.immutable-prd/contract-acknowledgements.yml`, when present beside `config.yml`, has the shape `requirement_contract.py`'s `ledger_entries` reads (`schema: 1`, entries with the full hit coordinate, `kind` one of `accepted_violation` / `false_positive`, a non-empty `reason` and `decided_by`, a `date`; no unknown keys, no duplicate coordinate). Whether each entry's hit still exists needs the live ticket and is the merge gate's job ("Merge gate" below).
    - *`--strict-body`, within the `--strict-since` scope*: a pitch whose disagreement section (`profile.sections[id=requirement_disagreement].heading`) exists holds ≥1 `### ` entry, and every entry carries the four labelled bullets (`profile.requirement_contract.disagreement.fields`) with an outcome that begins with a terminal token (`outcome_terminal`). An outcome beginning with `outcome_provisional` is a violation — this is the merge gate that keeps a pitch PR open until its correction request is settled. The correction bullet must also be a **decision**: it is judged by the profile's wording rules that apply to corrections — `requirement_contract.wording_rules[]` with `correction` in `applies_to` (v0.13+), plus the legacy `disagreement.deferral_patterns[]` ("확인 필요", "협의", "확정한다", "TBD" and their English counterparts), read as correction-only `block` rules exactly as v0.12 matched them. A `block` hit is a violation, because a correction becomes the requirement when the ticket stays silent past the response window, and a deferral, a hedge or a hand-off cannot be confirmed by silence; a `warn` hit is a stderr warning. The rules are compiled by `requirement_contract.py` — the module `lint` uses — so the merge gate and the lint cannot disagree about a rule. When the active profile lacks the vocabulary (a team profile not yet migrated), each missing part is skipped with a stderr warning, never silently; a profile with `deferral_patterns` but no `wording_rules` is told it predates them.
 
 **Profile awareness** (v0.5+): the CI validator loads the profile via the same resolution order as the skills — config.yml `profile:` → bundled `default-<team_language>.yml` → hardcoded last-resort defaults. v2 configs get the bundled default automatically; no config bump required.
@@ -776,6 +777,43 @@ The disagreement categories judge what an item *says*; a binding item can also b
 - **Every hit carries the item's ledger coordinate** — `binding`, `group`, `in_group` — plus the `rule` id, so a later record can point at a hit without the output changing shape.
 
 What it does **not** do in v0.13: record a dismissal. An accepted dismissal lives in the interview transcript, as a rejected judgement always has, so a CI step that fails on `lint` exit 1 keeps failing on a dismissed item. Whether a consumer gates on `lint` — and a pitch-side dismissal record such a gate would need — is the consumer's decision and a later schema change.
+
+### Merge gate (v0.15.0)
+
+```
+python3 scripts/requirement_contract.py gate --mode off|warn|on \
+  --profile .immutable-prd/profile.yml --ledger .immutable-prd/contract-acknowledgements.yml \
+  --repo <owner/name> --binding acceptance="완료 조건" --binding qa_checklist="QA 통과 리스트" \
+  [--optional-binding <id> …] pitches/**/*.md
+```
+
+`lint` says what is wrong with a ticket; nothing stopped a pitch from merging while bound to it. The pilot's case: a did-spec pitch bound to an Epic whose QA item 「표기 배지 형태가 시안과 일치한다」 is an unpinned oracle, handled with `delegates: Figma`, passed every check. The gate is the missing half.
+
+- **The set** is every ticket an **active** pitch cites (`deprecated: true` pitches are skipped, as `coverage` and `drift` skip them). Each is fetched live and linted with the profile's rules.
+- **A block hit is resolved** only by (1) a disagreement entry in a pitch that cites the ticket, whose `### <tracker> <repo>#<id> · <binding heading> · [<group> ]<n>` header names the item (any rule on that item), or (2) a ledger entry naming the exact coordinate **and** rule. `delegates` resolves nothing: it records who owns a literal, not that a defective item may bind.
+- **Eviction**: a ledger entry whose hit is gone — the ticket was edited, the rule changed or no longer blocks, or no active pitch cites the ticket any more — is **stale**, and stale fails the gate. An exemption cannot outlive its cause, and the ledger cannot become a pile of permissions nobody can explain.
+- **Verdict**: `remaining` (unresolved block hits) + `stale` + ledger shape problems + a cited ticket missing a required section ⇒ fail. A cited ticket that cannot be fetched fails it too, with exit 2 — unverified is not clean.
+- **The switch**: `--mode off` fetches nothing and exits 0; `warn` computes everything and exits 0, writing what would fail to stderr; `on` exits 1 on any failure (2 when a ticket could not be fetched). Which mode a repo runs in is the repo's decision — the pilot's spec repos read it from a repository variable, default `warn`.
+
+The ledger — `.immutable-prd/contract-acknowledgements.yml`, beside `config.yml` — is repo state, not pitch frontmatter: a pitch is append-only, so one merged before a rule existed can never gain a field. Each entry acknowledges ONE block hit:
+
+```yaml
+schema: 1
+acknowledgements:
+  - tracker: github
+    repo: my-org/task-tracker        # optional — the config's requirement_contract.repo
+    id: "4431"                       # bare, as in the ticket record
+    binding: qa_checklist
+    group: null                      # the parser's group label, or null
+    in_group: 4
+    rule: unpinned_oracle
+    kind: accepted_violation         # | false_positive
+    reason: "<why this hit may stand>"
+    decided_by: "<who decided>"
+    date: 2026-10-02
+```
+
+`accepted_violation` — a pitch was bound to the item before the rule could be raised; the decision to live with it is a human's, never the skill's. `false_positive` — the rule is wrong in context; `/immutable:prd` writes these when the user accepts a dismissal of a block hit (Stage 1.6.2). The reader is `requirement_contract.py`'s `ledger_entries` — strict: an unknown key is a problem, because a typo in a coordinate key would drop the coordinate and silently widen the exemption — and `validate_docs.py` checks the file's shape with that same reader (invariant 9).
 
 ## Anti-patterns (v0.5.6)
 

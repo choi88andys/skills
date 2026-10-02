@@ -2,6 +2,31 @@
 
 All notable changes to the `immutable` plugin are documented in this file. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Version is canonically declared in `.claude-plugin/plugin.json`.
 
+## [0.15.0] — 2026-10-02
+
+`lint` names what is wrong with a ticket, but nothing stopped a pitch from merging while bound to it. The pilot's case: a did-spec pitch merged 2026-09-22 bound to Epic #4431, whose QA item 4 「표기 배지 형태가 시안과 일치한다」 is an unpinned oracle (block since v0.13.0); the pitch handled it with `delegates: Figma` and passed every check. Owner directive (2026-10-02): make the spec-repo merge gate ready to switch on; the switch itself stays the owner's.
+
+### Added
+
+- **`requirement_contract.py gate --mode off|warn|on`.** For every ticket an **active** pitch cites, lint it live; each `block` hit must be contested by a disagreement entry in a citing pitch (matched by its `### <tracker> <repo>#<id> · <heading> · [<group> ]<n>` header, grouped or not) or acknowledged in the ledger by exact coordinate and rule. `delegates` resolves nothing. Output: `verdict`, per-ticket counts, `remaining[]`, `stale[]`, `resolved[]` (by what), `unmatched_disagreements[]`, `ledger.problems[]`. `off` fetches nothing and exits 0; `warn` exits 0 and says on stderr what would fail; `on` exits 1 on anything unresolved and 2 when a cited ticket could not be fetched — unverified is not clean.
+- **The acknowledgement ledger**, `.immutable-prd/contract-acknowledgements.yml` beside `config.yml` — repo state, not frontmatter, because an append-only pitch merged before a rule existed can never gain a field. Entries: `tracker`, `repo` (optional → the config's default), `id`, `binding`, `group`, `in_group`, `rule`, `kind` (`accepted_violation` | `false_positive`), `reason`, `decided_by`, `date`. One reader, `ledger_entries`, strict (unknown keys and duplicate coordinates are problems), shared by the gate and `validate_docs.py`.
+- **Eviction**: an entry whose hit is gone — ticket edited, rule changed or no longer blocking, or no active pitch citing the ticket — is stale and fails the gate, so an exemption cannot outlive its cause.
+- **`validate_docs.py`**: the ledger's shape is checked offline (invariant 9, always on once the repo opts into the contract), with the gate's own reader.
+- **`/immutable:prd`**: an accepted dismissal of a lint `block` hit (or a rejected finding that came from one) is recorded in Stage 6 as a `false_positive` ledger entry with the user's reason — otherwise every dismissal would fail the gate later. The skill never writes `accepted_violation`. Stage 5 says a `delegates` declaration never resolves a block hit.
+- Tests: `requirement_contract_gate.test.sh` G1–G8 — the pilot's shape acknowledged as `accepted_violation` → pass; the same with `delegates` only → fail; stale entries (hit gone, ticket uncited) → fail; disagreement-contested hits (ungrouped and grouped headers) → pass; a deprecated pitch's disagreement and an uncited-ticket header resolve nothing; warn / off; an unfetchable cited ticket → exit 2 without judging its entry stale; a malformed ledger → fail. `validate_docs_requirement_contract.test.sh` C15.
+
+### Changed
+
+- `requirement_contract.py` raises `ContractError` instead of exiting inside `adapter_fail`; `main` turns it into the same `error: …` line and exit 2, so every existing subcommand behaves as before and `gate` can record one ticket's fetch failure and carry on.
+
+### Measured
+
+- Dry run 2026-10-02, `--mode warn`, no ledger, each spec repo's `main` against live tickets: did-spec — 1 cited ticket, 1 remaining hit (#4431 QA 4 `unpinned_oracle`), the case the owner ruled a this-case-only `accepted_violation`; lounge-x-spec — 0 active pitches cite a ticket on `main` (its only ticket-citing pitch is deprecated), verdict pass.
+
+### Notes
+
+- No profile or config field: `profile_schema` stays 6, and the ledger's location is a convention the gate takes as `--ledger`.
+
 ## [0.14.0] — 2026-10-02
 
 v0.13.1 rightly stopped calling 「PRD 「X」가 … 기준으로 개정된다」 an unpinned oracle — the PRD there is not the oracle — and nothing replaced it, so those items were flagged by no rule. The owner's ruling (2026-10-02): a ticket's requirements are the **cause** of the pitch, not its result; an item that writes a result of the pitch in the cause's place inverts the authority — if the analysis finds nothing to change, the document must not change, yet the item forces it and so fixes the analysis in advance — and every other item with the same logic is to be blocked too.

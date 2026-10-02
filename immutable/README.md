@@ -174,6 +174,11 @@ What then happens, and what deliberately does not:
   `wording_rules`; the same rules judge a pitch's correction bullets in the
   validator. Recall only — precision is the skill's context check and the
   human's verdict.
+- **Merge gate** — `requirement_contract.py gate --mode off|warn|on …` (v0.15+):
+  every `block` hit on a ticket an active pitch cites must be contested by
+  a disagreement entry or acknowledged, hit by hit, in the repo's
+  `.immutable-prd/contract-acknowledgements.yml`; an acknowledgement whose
+  hit is gone is stale and fails the gate. The on/off switch is the repo's.
 - **Drift** — `requirement_contract.py drift --id <id> --version <recorded> …`
   re-reads the ticket and reports, item by item, what moved since the pitch
   was written (exit 1), or that nothing binding did (exit 0). Where it runs —
@@ -225,6 +230,11 @@ Before v0.6.0, the plugin shipped only the artifact-authoring skills (`prd`, `ad
 ## Ship positioning
 
 `/immutable:ship` is intentionally **minimum-viable**. It guarantees chain integrity at PR time — verifies the eng review APPROVED, auto-includes the pitch and linked ADR paths in the PR body, and guards against common ship-time mistakes (dirty tree, failing tests, protected branch). It does NOT carry cross-session learnings capture, worktree-policy enforcement, or team-specific telemetry. Teams that want those layers should add them as hooks or wrapper skills around the `/immutable:ship` invocation rather than maintaining a parallel ship path.
+
+## What v0.15.0 changed (vs. v0.14.0)
+
+- `requirement_contract.py gate` and the acknowledgement ledger — the
+  spec repo's merge gate, ready to switch on. Details: [`CHANGELOG.md`](CHANGELOG.md).
 
 ## What v0.13.0 changed (vs. v0.12.1)
 
