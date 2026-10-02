@@ -23,7 +23,12 @@
 # profiles fall back to the bundled values with a source annotation.
 # v3 → v4 (v0.12.0): added `requirement_contract.ticket_sections[].required`.
 # Absent = true, so a v3 profile behaves exactly as it did before.
-profile_schema: 4
+# v4 → v5 (v0.13.0): added `requirement_contract.wording_strip`, `.wording_rules`
+# and the categories `non_concrete` / `delegated_authority`; the three
+# `disagreement.deferral_patterns` moved into `wording_rules` as correction-only
+# rules. A v4 profile keeps its `deferral_patterns` (still read, corrections
+# only) and lints ticket items with the bundled rules until it migrates.
+profile_schema: 5
 
 # Team working language key. Must match `strings/strings.<locale>.yml` when
 # strings catalog lookup is enabled. v0.5 renders inline strings from this file.
@@ -340,8 +345,26 @@ anti_monolith:
 #                      §1.5.1 거절과 CI 의 `coverage`/`drift`. 템플릿을 채우지
 #                      않은 티켓은 작성 시점에는 막는 게 맞지만, 대조 실행에서는
 #                      심사 대상 피치와 무관하게 빌드를 빨갛게 만든다.
-#   categories       — 피치가 구속 항목에서 벗어날 수 있는 판정 딱 세 가지.
-#                      "더 나은 방법이 있다"는 여기 들지 않고 다음 목록으로 올린다.
+#   categories       — 피치가 구속 항목에서 벗어날 수 있는 판정. 셋은 내용
+#                      (구현 불가 / 자기모순 / 충돌), 둘은 문구 (profile_schema 5+):
+#                      `non_concrete` 은 완료 여부를 판정할 수 없는 문장
+#                      (「필요 시」, 「추후 협의」, 측정 기준 없는 형용),
+#                      `delegated_authority` 는 판정 권한을 남에게 넘긴 문장
+#                      (그 항목을 따라야 할 pitch 에 결정을 넘김, 고정되지 않은
+#                      시안을 판정 기준으로 삼음). "더 나은 방법이 있다"는 여기
+#                      들지 않고 다음 목록으로 올린다.
+#   wording_strip    — 문구 규칙을 대기 전에 지우는 인용 리터럴 (profile_schema 5+).
+#                      「처리 중…」 같은 화면 문구는 요구사항의 문구가 아니다.
+#   wording_rules    — 문구 판정 규칙 (profile_schema 5+). `requirement_contract.py
+#                      lint` 가 티켓의 구속 항목과 정정 문장에 대고, validator
+#                      (--strict-body)가 피치의 「정정」 줄에 대는 단 하나의 목록.
+#                      id · category (위 categories 중 하나) · severity (block =
+#                      반드시 이견 후보, warn = 확인 목록) · applies_to
+#                      (ticket_item / correction) · scope (생략 = 모든 구속 섹션)
+#                      · regex (대소문자 무시, strip 후 텍스트) · unless (원문에
+#                      걸리면 면제) · hint (정정 요청에 그대로 실리는 사유).
+#                      regex 는 그물이다 — 맞는지는 스킬의 문맥 판단과 사람의
+#                      인정/거부가 가린다.
 #   disagreement     — `requirement_disagreement` 섹션의 엔트리 하나를 이루는
 #                      네 줄의 라벨과 결과 어휘. `outcome_provisional` 은 열린
 #                      정정 요청 (validator --strict-body 가 머지를 막는다),
@@ -362,6 +385,10 @@ requirement_contract:
       label: "자기모순"
     - id: conflict
       label: "확정된 다른 요구사항과의 충돌"
+    - id: non_concrete
+      label: "구체성 결함"
+    - id: delegated_authority
+      label: "구속 위임"
   disagreement:
     fields:
       original: "원문"
@@ -372,20 +399,84 @@ requirement_contract:
     outcome_terminal:
       - "합의"
       - "기한 경과"
-    # 「정정」은 티켓이 기한 안에 답하지 않으면 그대로 요구사항이 되는 문장이다.
-    # 그래서 결정이어야 하고, 확인·협의·미정 같은 보류 문구가 들어가면 침묵으로
-    # 확정될 수 없다. 아래 패턴에 걸리는 정정은 스킬이 다시 쓰게 하고 validator
-    # (--strict-body)가 위반으로 잡는다. 「정정」 줄에만 적용된다.
-    deferral_patterns:
-      - id: confirm_later
-        regex: '확인\s*(이\s*)?필요|확인\s*(후|뒤)|대조해\s*확정|확정(한다|할\s*예정|\s*예정)|정하기로'
-        hint: "확정을 미루는 문구 — 정정은 지금 정한 값·문장이어야 한다"
-      - id: negotiate
-        regex: '협의|논의\s*(중|필요|예정)|검토\s*(중|필요|예정)|의견\s*수렴'
-        hint: "협의·검토를 조건으로 거는 문구 — 협의 결과가 아니라 개발의 결정을 적는다"
-      - id: undecided
-        regex: '미정|미확정|\bTBD\b|\bTBC\b|\?\?'
-        hint: "미정 표시 — 이견 정정에 미정은 있을 수 없다"
+  # 「정정」은 티켓이 기한 안에 답하지 않으면 그대로 요구사항이 되는 문장이라
+  # 결정이어야 한다 — 그래서 ticket_item 규칙 대부분이 correction 에도 걸린다
+  # (정정은 구속 항목을 대신하는 문장이므로 같은 기준을 통과해야 한다).
+  # confirm_later · negotiate · undecided 셋은 v0.11 의 deferral_patterns 이며
+  # 정정에만 건다 — 티켓 항목에서는 측정하지 않았다.
+  #
+  # ticket_item 규칙 7개는 2026-10-02 pilot 트래커의 열린 `ux` Epic 56개,
+  # 구속 항목 729개에 대해 이 스크립트의 파서로 측정한 집합이다
+  # (block 10건 / Epic 6개, 그중 오탐 1건은 같은 Epic 의 다른 항목이 전달본을
+  # 고정한 경우 — 문맥만 가린다). 측정 뒤 뺀 것: 「할 수 있다」 (13/13 정상적인
+  # 기능 서술), 「되도록」 ("~가 되도록 구성한다"). 다시 넣지 않는다.
+  wording_strip:
+    - '「[^」]*」'
+    - '`[^`]*`'
+    - '"[^"]*"'
+  wording_rules:
+    - id: conditional
+      category: non_concrete
+      severity: block
+      applies_to: [ticket_item, correction]
+      regex: '필요\s*(시|한\s*경우|하면|할\s*때)|가능하면|가능한\s*(경우|한)|상황에\s*따라|경우에\s*따라|원칙적으로|가급적|웬만하면|\bif needed\b|\bas needed\b|\bwhen possible\b'
+      hint: "조건부 문구(「필요 시」·「가능하면」)는 누가 언제 필요하다고 보는지가 없어 완료 여부를 판정할 수 없다 — 조건을 명시하거나 무조건 문장으로 쓴다"
+    - id: deferral
+      category: non_concrete
+      severity: block
+      applies_to: [ticket_item, correction]
+      regex: '추후|차후|나중에|별도\s*(논의|협의|결정|검토)|확정\s*예정|미정|미확정|\bTBD\b|\bTBC\b|정하기로|(확인|검토|협의)\s*(후|뒤|중|예정)'
+      hint: "결정을 뒤로 미룬 문구 — 구속 항목은 지금 정해진 값·문장이어야 판정할 수 있다"
+    - id: delegated_downstream
+      category: delegated_authority
+      severity: block
+      applies_to: [ticket_item, correction]
+      regex: '(pitch|피치|스펙|spec|#\d+)[^\n]{0,25}(확정된\s*대로|에서\s*확정|에서\s*정한|대로다|따른다)'
+      hint: "이 요구사항을 따라야 할 pitch·스펙에 결정을 넘긴 순환 위임 — 정해진 값을 항목에 직접 쓴다"
+    - id: unpinned_oracle
+      category: delegated_authority
+      severity: block
+      applies_to: [ticket_item, correction]
+      regex: '(Figma|피그마|시안|디자인|목업|노션|Notion|PRD|기획서)[^\n]{0,15}(일치|대로|따른|따라|맞춰|맞게|기준|정합)'
+      unless: '「[^」]*전달」|version-id='
+      hint: "고정되지 않은 시안·문서를 판정 기준으로 삼았다 — 시안은 바뀐다. 「X 전달」처럼 이름 붙인 전달본이나 version-id 링크로 고정하거나, 확인할 값을 항목에 직접 쓴다"
+    - id: process_only
+      category: non_concrete
+      severity: warn
+      applies_to: [ticket_item]
+      scope: [acceptance]
+      regex: '(확인|검토|협의|공유|논의)(\s*\([^)]*\))?\s*\.?\s*$'
+      hint: "결과가 아니라 절차(확인·검토·협의)만 적은 완료 조건 — 무엇이 어떤 상태가 되면 완료인지를 쓴다"
+    - id: unmeasurable
+      category: non_concrete
+      severity: warn
+      applies_to: [ticket_item, correction]
+      regex: '자연스럽|적절(히|한)|원활|매끄럽|충분(히|한)|최대한|최소화|직관적|깔끔|빠르게|신속|끊기거나|튀지\s*않|어색하지\s*않|문제\s*없|정상(적으로|\s*동작)|잘\s*(동작|보인)'
+      hint: "측정 기준이 없는 형용 — 관찰할 수 있는 기준(값·시간·횟수·화면 상태)으로 쓴다"
+    - id: open_enumeration
+      category: non_concrete
+      severity: warn
+      applies_to: [ticket_item, correction]
+      regex: '(\s|,)등(\s|$|\)|을|의|이|에)|등등|기타|\.\.\.|…|\betc\b'
+      hint: "열린 나열(「등」·「…」) — 어디까지가 구속인지 닫히지 않는다"
+    - id: confirm_later
+      category: non_concrete
+      severity: block
+      applies_to: [correction]
+      regex: '확인\s*(이\s*)?필요|확인\s*(후|뒤)|대조해\s*확정|확정(한다|할\s*예정|\s*예정)|정하기로'
+      hint: "확정을 미루는 문구 — 정정은 지금 정한 값·문장이어야 한다"
+    - id: negotiate
+      category: non_concrete
+      severity: block
+      applies_to: [correction]
+      regex: '협의|논의\s*(중|필요|예정)|검토\s*(중|필요|예정)|의견\s*수렴'
+      hint: "협의·검토를 조건으로 거는 문구 — 협의 결과가 아니라 개발의 결정을 적는다"
+    - id: undecided
+      category: non_concrete
+      severity: block
+      applies_to: [correction]
+      regex: '미정|미확정|\bTBD\b|\bTBC\b|\?\?'
+      hint: "미정 표시 — 이견 정정에 미정은 있을 수 없다"
 
 # -----------------------------------------------------------------------------
 # Domain allowlist policy.

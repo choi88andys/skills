@@ -14,7 +14,12 @@
 # `requirement_contract` block. Both are inert unless config.yml opts in.
 # v3 → v4 (v0.12.0): added `requirement_contract.ticket_sections[].required`.
 # Absent = true, so a v3 profile behaves exactly as it did before.
-profile_schema: 4
+# v4 → v5 (v0.13.0): added `requirement_contract.wording_strip`, `.wording_rules`
+# and the categories `non_concrete` / `delegated_authority`; the three
+# `disagreement.deferral_patterns` moved into `wording_rules` as correction-only
+# rules. A v4 profile keeps its `deferral_patterns` (still read, corrections
+# only) and lints ticket items with the bundled rules until it migrates.
+profile_schema: 5
 
 locale: en
 
@@ -264,6 +269,10 @@ requirement_contract:
       label: "Self-contradiction"
     - id: conflict
       label: "Conflict with a settled requirement"
+    - id: non_concrete
+      label: "Not concrete"
+    - id: delegated_authority
+      label: "Delegated authority"
   disagreement:
     fields:
       original: "Original"
@@ -274,19 +283,82 @@ requirement_contract:
     outcome_terminal:
       - "Agreed"
       - "Deadline passed"
-    # A correction becomes the requirement if the ticket stays silent past the
-    # response window, so it must be a decision; a deferral cannot be confirmed
-    # by silence. Matched against the correction bullet only.
-    deferral_patterns:
-      - id: confirm_later
-        regex: '\b(to be (confirmed|decided|settled|determined)|will be (confirmed|decided|settled)|pending (confirmation|decision))\b'
-        hint: "postpones the decision — the correction must state the value or sentence chosen now"
-      - id: negotiate
-        regex: '\b(to be (agreed|discussed|negotiated)|under (discussion|review)|subject to (agreement|review))\b'
-        hint: "conditions the correction on a discussion — write the developer's decision, not the discussion"
-      - id: undecided
-        regex: '\bTBD\b|\bTBC\b|\bundecided\b|\?\?'
-        hint: "an undecided marker — a disagreement correction cannot be undecided"
+  # A correction becomes the requirement if the ticket stays silent past the
+  # response window, so it must be a decision — which is why most ticket_item
+  # rules also apply to corrections (a correction replaces a binding item and
+  # must pass the same bar). confirm_later / negotiate / undecided are the
+  # v0.11 deferral_patterns and apply to corrections only.
+  #
+  # The Korean rule set was measured on 729 binding items of a live tracker
+  # (default-ko.yml). These English patterns mirror its ids and intent but
+  # have NOT been measured on a live English tracker — tune them per team.
+  wording_strip:
+    - '「[^」]*」'
+    - '`[^`]*`'
+    - '"[^"]*"'
+  wording_rules:
+    - id: conditional
+      category: non_concrete
+      severity: block
+      applies_to: [ticket_item, correction]
+      regex: '\bif (needed|necessary|required|possible|applicable|appropriate)\b|\bas (needed|necessary|appropriate|applicable)\b|\bwhen(ever)? (possible|needed|necessary)\b|\bwhere (possible|appropriate|applicable)\b|\bdepending on (the )?(situation|case|context)\b|\bin principle\b|\bpreferably\b|\bideally\b'
+      hint: "a condition nobody can evaluate (\"if needed\", \"where possible\") makes completion unjudgeable — state the condition or drop it"
+    - id: deferral
+      category: non_concrete
+      severity: block
+      applies_to: [ticket_item, correction]
+      regex: '\bTBD\b|\bTBC\b|\bto be (decided|determined|confirmed|defined|agreed)\b|\b(decided|defined|settled) later\b|\bnot yet (decided|defined|settled)\b|\bundecided\b|\bseparate (discussion|decision|review)\b|\b(after|pending|upon) (review|confirmation|discussion|approval)\b'
+      hint: "postpones the decision — a binding item must state a value or sentence decided now"
+    - id: delegated_downstream
+      category: delegated_authority
+      severity: block
+      applies_to: [ticket_item, correction]
+      regex: '(\bpitch\b|\bspec\b|#\d+)[^\n]{0,40}\b(as (decided|settled|defined|specified)|decides|defines)\b|\bas (decided|settled|defined|specified) (in|by)\b[^\n]{0,25}(\bpitch\b|\bspec\b|#\d+)'
+      hint: "hands the decision to the pitch or spec that must follow this requirement — a circular delegation; write the decided value into the item"
+    - id: unpinned_oracle
+      category: delegated_authority
+      severity: block
+      applies_to: [ticket_item, correction]
+      regex: '\b(Figma|design|mock-?ups?|Notion|PRD)\b[^\n]{0,25}\b(match(es|ed)?|matching|consistent|as (designed|shown))\b|\b(match(es|ed)?|matching|consistent with|according to|per)\b[^\n]{0,15}\b(Figma|design|mock-?ups?|Notion|PRD)\b'
+      unless: '「[^」]*」 (delivery|handoff)|"[^"]*" (delivery|handoff)|version-id='
+      hint: "an unpinned design or document is made the acceptance oracle, and it can change — pin a named delivery or a version-id link, or write the value to check into the item"
+    - id: process_only
+      category: non_concrete
+      severity: warn
+      applies_to: [ticket_item]
+      scope: [acceptance]
+      regex: '\b(review(ed)?|check(ed)?|confirm(ed)?|discuss(ed)?|shared?|signed off)(\s*\([^)]*\))?\s*\.?\s*$'
+      hint: "a completion condition that names a process (review, check, discuss) instead of an outcome — state what must be true when it is done"
+    - id: unmeasurable
+      category: non_concrete
+      severity: warn
+      applies_to: [ticket_item, correction]
+      regex: '\b(natural(ly)?|appropriate(ly)?|smooth(ly)?|seamless(ly)?|sufficient(ly)?|intuitive(ly)?|clean(ly)?|quick(ly)?|promptly|properly|minimi[sz]e[ds]?)\b|\bas (fast|soon|much) as possible\b|\bwithout (any )?(issues|problems|glitches)\b|\bworks? (well|fine|normally)\b'
+      hint: "an adjective with no measure — state an observable criterion (value, time, count, screen state)"
+    - id: open_enumeration
+      category: non_concrete
+      severity: warn
+      applies_to: [ticket_item, correction]
+      regex: '\betc\b|\band so on\b|\band more\b|\bamong others\b|\.\.\.|…'
+      hint: "an open list (\"etc.\", \"…\") — what binds is never closed"
+    - id: confirm_later
+      category: non_concrete
+      severity: block
+      applies_to: [correction]
+      regex: '\b(to be (confirmed|decided|settled|determined)|will be (confirmed|decided|settled)|pending (confirmation|decision))\b'
+      hint: "postpones the decision — the correction must state the value or sentence chosen now"
+    - id: negotiate
+      category: non_concrete
+      severity: block
+      applies_to: [correction]
+      regex: '\b(to be (agreed|discussed|negotiated)|under (discussion|review)|subject to (agreement|review))\b'
+      hint: "conditions the correction on a discussion — write the developer's decision, not the discussion"
+    - id: undecided
+      category: non_concrete
+      severity: block
+      applies_to: [correction]
+      regex: '\bTBD\b|\bTBC\b|\bundecided\b|\?\?'
+      hint: "an undecided marker — a disagreement correction cannot be undecided"
 
 domain_allowlist:
   source: "pitches/README.md"
