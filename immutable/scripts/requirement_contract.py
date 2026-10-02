@@ -20,6 +20,11 @@ Subcommands
   coverage  fetch the ticket and reconcile the pitches that cite it: every
             binding item must be claimed by exactly one pitch (or shared by
             agreement), via the pitches' frontmatter ledgers
+  lint      judge the WORDING of every binding item — or of drafted
+            correction sentences — against the profile's wording rules: a
+            completion condition nobody can judge (「필요 시」), one deferring to
+            the very pitch that must follow it, an unpinned design made the
+            oracle. Deterministic, no LLM; the skill and CI run the same rules
 
 Nothing tracker-specific is baked in beyond one default adapter:
 
@@ -127,6 +132,23 @@ detail), `covered` / `total` counts. An item row names the item by
 exactly once (or shared by agreement) and nothing is stale; 1 otherwise;
 2 on adapter or file errors.
 
+`lint` reads its rules from `--profile` — `requirement_contract.wording_rules[]`
+and `wording_strip[]` (profile_schema 5), plus the legacy
+`disagreement.deferral_patterns[]`, which apply to corrections only (see
+`compile_wording`). A profile without `wording_rules` falls back to the bundled
+default for its `locale`, named in `rules.fallback` and a warning. The ticket
+comes from the same flags as `fetch`, or `--from-json` (the JSON a prior
+`parse`/`fetch` printed — what the author actually read), or the input is
+`--correction SENTENCE` (repeatable) instead of a ticket. Output: `rules`
+(profile, fallback, rule counts per target), `hits[]`, `counts`, plus
+`source`, `absent`, `warnings`, `errors` as `fetch` prints them. A hit carries
+the item's ledger coordinate — `binding`, `group`, `in_group` — with
+`ordinal`, `line`, `text`, and the rule's `rule` (id), `source`
+(`wording_rules` | `deferral_patterns`), `category`, `severity`
+(`block` | `warn`), `match`, `hint`; `target` says `ticket_item` or
+`correction` (a correction hit has no coordinate). Struck items are withdrawn
+requirements and are not linted (`counts.struck_skipped`).
+
 `text` is the ONE canonical form every consumer compares: NFC-normalised,
 outer whitespace stripped, inner whitespace runs collapsed to a single
 space, inline markdown kept verbatim. A struck item keeps its `~~`;
@@ -140,8 +162,13 @@ Exit codes
   drift        0 no drift, or drift proven to touch no binding item · 1 a
                binding item changed, or the change could not be examined
                (no history for the recorded version) · 2 usage or adapter error
+  lint         0 no `block` hit · 1 a `block` hit, or a required binding
+               section missing (as `fetch`) · 2 usage, adapter or profile
+               error — a rule the profile states but the script cannot
+               compile is an error, never a silently weaker lint
 
-Requires python3 only (no PyYAML). The default adapter needs the `gh` CLI on
+Requires python3; `coverage` and `lint` also need PyYAML (they read YAML —
+pitch frontmatter, the profile). The default adapter needs the `gh` CLI on
 PATH, authenticated for the target repo. Line numbers are 1-based and refer
 to the body as fetched (comments are blanked, not deleted, so they stay
 stable).
@@ -159,6 +186,7 @@ import subprocess
 import sys
 import unicodedata
 from collections import Counter
+from pathlib import Path
 from typing import Any
 
 SCHEMA = 2
@@ -180,6 +208,9 @@ EXCERPT_LEN = 60
 ADAPTER_TIMEOUT_SECONDS = 60
 HISTORY_PAGE = 100
 FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---\n", re.DOTALL)
+WORDING_TARGETS = ("ticket_item", "correction")
+WORDING_SEVERITIES = ("block", "warn")
+BUNDLED_PROFILES = Path(__file__).resolve().parent.parent / "examples" / "_profiles"
 
 # The built-in GitHub adapter. `userContentEdits` holds the FULL body after each
 # edit (the creation counts as the first edit), which is what lets `drift` show
@@ -905,6 +936,313 @@ def compute_coverage(
 
 
 # --------------------------------------------------------------------------
+# lint — binding wording judged against the profile's wording rules
+# --------------------------------------------------------------------------
+
+
+def compile_wording(contract: Any) -> dict[str, Any]:
+    """A profile's `requirement_contract` block → its compiled wording rules.
+
+    The ONE reader of the rules. `lint` (ticket items, and drafted corrections
+    via `--correction`) and `validate_docs.py` (a pitch's correction bullets)
+    both call it, so the authoring skill, a CI lint and the merge gate cannot
+    disagree about what a rule says.
+
+    Two sources, in this order:
+
+      * `wording_rules[]` — `{id, category, severity, applies_to, scope?,
+        regex, unless?, hint}`. Matched case-insensitively against the text
+        after every `wording_strip[]` pattern has blanked the quoted UI
+        literals: a 「처리 중…」 label is the screen's copy, not the
+        requirement's wording. `unless` is matched against the RAW text,
+        because what it looks for — a pinned 「X 전달」 delivery name — is
+        itself a quoted literal. `scope` (binding ids) limits a rule to those
+        sections; a scoped rule never judges a correction, which has none.
+      * `disagreement.deferral_patterns[]` (v0.11–v0.12) — read as rules that
+        apply to corrections only: severity `block`, no category, matched
+        case-sensitively on the raw text, exactly as v0.12 matched them, so a
+        profile that predates `wording_rules` passes and fails the same pitches.
+
+    Returns `{"rules", "strip", "problems"}`. A problem names a rule the
+    caller must not trust (invalid regex, unknown category, severity or
+    target, duplicate id); that rule is left out of `rules`.
+    """
+    contract = contract if isinstance(contract, dict) else {}
+    problems: list[str] = []
+    categories = {
+        str(c["id"]) for c in contract.get("categories") or [] if isinstance(c, dict) and c.get("id")
+    }
+
+    strip: list[re.Pattern[str]] = []
+    for i, pat in enumerate(contract.get("wording_strip") or []):
+        try:
+            strip.append(re.compile(str(pat)))
+        except re.error as exc:
+            problems.append(f"wording_strip[{i}] is an invalid regex ({exc})")
+
+    def compile_opt(where: str, field: str, value: Any, flags: int) -> re.Pattern[str] | None:
+        try:
+            return re.compile(str(value), flags)
+        except re.error as exc:
+            problems.append(f"{where}.{field} is an invalid regex ({exc})")
+            return None
+
+    rules: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for i, entry in enumerate(contract.get("wording_rules") or []):
+        if not isinstance(entry, dict):
+            problems.append(f"wording_rules[{i}] must be a mapping")
+            continue
+        rid = str(entry.get("id") or "")
+        where = f"wording_rules[{rid or i}]"
+        if not BINDING_ID_RE.match(rid):
+            problems.append(f"{where}: id must match [a-z][a-z0-9_]*")
+            continue
+        if rid in seen:
+            problems.append(f"{where}: id given twice")
+            continue
+        seen.add(rid)
+        category = str(entry.get("category") or "")
+        if category not in categories:
+            problems.append(f"{where}: category {category!r} is not one of requirement_contract.categories {sorted(categories)}")
+            continue
+        severity = entry.get("severity")
+        if severity not in WORDING_SEVERITIES:
+            problems.append(f"{where}: severity must be one of {list(WORDING_SEVERITIES)}, got {severity!r}")
+            continue
+        applies = entry.get("applies_to")
+        if not isinstance(applies, list) or not applies or any(a not in WORDING_TARGETS for a in applies):
+            problems.append(f"{where}: applies_to must be a non-empty list drawn from {list(WORDING_TARGETS)}, got {applies!r}")
+            continue
+        scope = entry.get("scope")
+        if scope is not None and (not isinstance(scope, list) or not all(isinstance(s, str) and s for s in scope)):
+            problems.append(f"{where}: scope must be a list of binding ids, got {scope!r}")
+            continue
+        if not entry.get("regex"):
+            problems.append(f"{where}: regex missing")
+            continue
+        regex = compile_opt(where, "regex", entry["regex"], re.IGNORECASE)
+        unless = compile_opt(where, "unless", entry["unless"], re.IGNORECASE) if entry.get("unless") else None
+        if regex is None or (entry.get("unless") and unless is None):
+            continue
+        rules.append({
+            "id": rid, "source": "wording_rules", "category": category, "severity": severity,
+            "applies_to": tuple(applies), "scope": tuple(scope) if scope else None,
+            "regex": regex, "unless": unless, "hint": str(entry.get("hint") or ""), "strip": True,
+        })
+
+    legacy = (contract.get("disagreement") or {}).get("deferral_patterns") or []
+    for entry in legacy if isinstance(legacy, list) else []:
+        if not isinstance(entry, dict) or not entry.get("regex"):
+            continue
+        pid = str(entry.get("id") or "deferral")
+        regex = compile_opt(f"disagreement.deferral_patterns[{pid}]", "regex", entry["regex"], 0)
+        if regex is None:
+            continue
+        rules.append({
+            "id": pid, "source": "deferral_patterns", "category": None, "severity": "block",
+            "applies_to": ("correction",), "scope": None,
+            "regex": regex, "unless": None, "hint": str(entry.get("hint") or ""), "strip": False,
+        })
+    return {"rules": rules, "strip": strip, "problems": problems}
+
+
+def strip_literals(strip: list[re.Pattern[str]], text: str) -> str:
+    for pat in strip:
+        text = pat.sub(" ", text)
+    return norm_text(text)
+
+
+def wording_hits(compiled: dict[str, Any], text: str, target: str, binding: str | None = None) -> list[dict[str, Any]]:
+    """Every rule of `compiled` that applies to `target` and matches `text`,
+    in rule order. `binding` is the item's section id (None for a correction)."""
+    hits: list[dict[str, Any]] = []
+    stripped: str | None = None
+    for rule in compiled["rules"]:
+        if target not in rule["applies_to"]:
+            continue
+        if rule["scope"] is not None and binding not in rule["scope"]:
+            continue
+        if rule["strip"]:
+            if stripped is None:
+                stripped = strip_literals(compiled["strip"], text)
+            subject = stripped
+        else:
+            subject = text
+        m = rule["regex"].search(subject)
+        if not m or (rule["unless"] is not None and rule["unless"].search(text)):
+            continue
+        hits.append({
+            "rule": rule["id"], "source": rule["source"], "category": rule["category"],
+            "severity": rule["severity"], "match": m.group(0), "hint": rule["hint"],
+        })
+    return hits
+
+
+def load_yaml_file(path: Path | str, what: str) -> Any:
+    try:
+        import yaml  # type: ignore
+    except ImportError:
+        adapter_fail(f"`lint` needs PyYAML to read the {what} (pip install pyyaml)")
+    try:
+        return yaml.safe_load(open(path, "rb").read().decode("utf-8"))
+    except (OSError, UnicodeDecodeError) as exc:
+        adapter_fail(f"cannot read the {what} {path}: {exc}")
+    except Exception as exc:  # yaml errors and date ValueErrors alike
+        adapter_fail(f"the {what} {path} is not valid YAML: {exc}")
+
+
+def lint_rules(profile_path: str) -> tuple[dict[str, Any], dict[str, Any], list[str]]:
+    """Compiled rules for `--profile`, plus the `rules` block and warnings.
+
+    A profile written before `wording_rules` existed lints with the bundled
+    default for its `locale` — the same fallback `/immutable:prd` applies to
+    any field a team profile lacks — and says so; it never lints with nothing.
+    An explicit `wording_rules: []` is the team's choice and is honoured,
+    with a warning that no ticket item is checked.
+    """
+    profile = load_yaml_file(profile_path, "profile")
+    if not isinstance(profile, dict):
+        adapter_fail(f"the profile {profile_path} is not a mapping")
+    contract = profile.get("requirement_contract")
+    contract = dict(contract) if isinstance(contract, dict) else {}
+    warnings: list[str] = []
+    fallback: str | None = None
+    if "wording_rules" not in contract:
+        locale = str(profile.get("locale") or "ko")
+        bundled_path = BUNDLED_PROFILES / f"default-{locale}.yml"
+        if not bundled_path.is_file():
+            adapter_fail(
+                f"the profile {profile_path} has no requirement_contract.wording_rules and there is "
+                f"no bundled default-{locale}.yml to fall back to"
+            )
+        bundled = load_yaml_file(bundled_path, "bundled profile")
+        bc = (bundled or {}).get("requirement_contract") or {}
+        contract["wording_rules"] = bc.get("wording_rules") or []
+        if "wording_strip" not in contract:
+            contract["wording_strip"] = bc.get("wording_strip") or []
+        known = {c.get("id") for c in contract.get("categories") or [] if isinstance(c, dict)}
+        contract["categories"] = list(contract.get("categories") or []) + [
+            c for c in bc.get("categories") or [] if isinstance(c, dict) and c.get("id") not in known
+        ]
+        fallback = str(bundled_path)
+        warnings.append(
+            f"the profile has no requirement_contract.wording_rules — linting with the bundled "
+            f"default-{locale}.yml rules; run /immutable:migrate to adopt them (profile_schema 5)"
+        )
+    compiled = compile_wording(contract)
+    if compiled["problems"]:
+        adapter_fail("the profile's wording rules cannot be trusted: " + "; ".join(compiled["problems"]))
+    per_target = {t: sum(t in r["applies_to"] for r in compiled["rules"]) for t in WORDING_TARGETS}
+    if not per_target["ticket_item"]:
+        warnings.append("no wording rule applies to ticket_item — binding items are not checked")
+    meta = {"profile": profile_path, "fallback": fallback, **per_target}
+    return compiled, meta, warnings
+
+
+def load_parsed_json(path: str) -> dict[str, Any]:
+    try:
+        data = json.loads(read_body(path))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        adapter_fail(f"cannot read --from-json {path}: {exc}")
+    if not isinstance(data, dict) or not isinstance(data.get("bindings"), list):
+        adapter_fail(f"--from-json {path} is not the JSON `parse` or `fetch` prints (no `bindings`)")
+    if data.get("schema") != SCHEMA:
+        adapter_fail(f"--from-json {path} has schema {data.get('schema')!r}; this script reads schema {SCHEMA}")
+    return data
+
+
+def compute_lint(compiled: dict[str, Any], parsed: dict[str, Any] | None, corrections: list[str]) -> dict[str, Any]:
+    hits: list[dict[str, Any]] = []
+    warnings: list[str] = []
+    items = struck = 0
+    blocked: set[tuple[str, int]] = set()
+
+    def add(h: dict[str, Any], key: tuple[str, int], coord: dict[str, Any]) -> None:
+        hits.append({**coord, **h})
+        if h["severity"] == "block":
+            blocked.add(key)
+
+    if parsed is not None:
+        declared = {b["id"] for b in parsed["bindings"]}
+        for rule in compiled["rules"]:
+            unknown = sorted(set(rule["scope"] or ()) - declared)
+            if unknown and "ticket_item" in rule["applies_to"]:
+                warnings.append(
+                    f"wording rule {rule['id']} is scoped to {unknown}, which this run does not declare "
+                    f"as bindings {sorted(declared)} — it never fires there"
+                )
+        for b in parsed["bindings"]:
+            for g in b["groups"]:
+                for it in g["items"]:
+                    if it.get("struck"):
+                        struck += 1
+                        continue
+                    items += 1
+                    coord = {
+                        "target": "ticket_item", "binding": b["id"], "heading": b["heading"],
+                        "group": g["label"], "in_group": it["in_group"], "ordinal": it["ordinal"],
+                        "line": it["line"], "text": it["text"],
+                    }
+                    for h in wording_hits(compiled, it["text"], "ticket_item", b["id"]):
+                        add(h, (b["id"], it["ordinal"]), coord)
+    for i, sentence in enumerate(corrections, 1):
+        items += 1
+        text = norm_text(sentence)
+        coord = {
+            "target": "correction", "binding": None, "heading": None, "group": None,
+            "in_group": None, "ordinal": None, "line": None, "text": text,
+        }
+        for h in wording_hits(compiled, text, "correction"):
+            add(h, ("", i), coord)
+    return {
+        "hits": hits,
+        "counts": {
+            "items": items,
+            "struck_skipped": struck,
+            "items_with_block": len(blocked),
+            "block": sum(h["severity"] == "block" for h in hits),
+            "warn": sum(h["severity"] == "warn" for h in hits),
+        },
+        "warnings": warnings,
+    }
+
+
+def run_lint(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
+    # The profile first: a rule set that cannot be trusted stops the run before
+    # anything is fetched.
+    compiled, meta, rule_warnings = lint_rules(args.profile)
+    parsed: dict[str, Any] | None = None
+    if args.id is not None:
+        bindings = parse_binding_args(parser, args.binding, args.optional_binding)
+        validate_ticket_args(parser, args)
+        ticket = obtain_ticket(args)
+        parsed = parse_body(ticket["body"], bindings)
+        parsed["source"] = source_block(args, ticket)
+    else:
+        if args.binding or args.optional_binding or args.repo or args.fetch_command:
+            parser.error(
+                "--binding / --optional-binding / --repo / --fetch-command go with --id; "
+                "--from-json carries its own bindings and --correction has none"
+            )
+        if args.from_json:
+            parsed = load_parsed_json(args.from_json)
+    lint = compute_lint(compiled, parsed, args.correction or [])
+    result = {
+        "schema": SCHEMA,
+        "source": parsed.get("source") if parsed else None,
+        "rules": meta,
+        "hits": lint["hits"],
+        "counts": lint["counts"],
+        "absent": parsed.get("absent", []) if parsed else [],
+        "warnings": rule_warnings + lint["warnings"] + (list(parsed.get("warnings", [])) if parsed else []),
+        "errors": list(parsed.get("errors", [])) if parsed else [],
+    }
+    emit(result, args.compact)
+    return 1 if (result["counts"]["block"] or result["errors"]) else 0
+
+
+# --------------------------------------------------------------------------
 # CLI
 # --------------------------------------------------------------------------
 
@@ -1016,7 +1354,29 @@ def main(argv: list[str] | None = None) -> int:
     p_cov.add_argument("pitches", nargs="+", metavar="PITCH.md", help="pitch files to consider (those citing the ticket form the set)")
     add_common(p_cov)
 
+    p_lint = sub.add_parser("lint", help="judge the binding items' wording (or drafted corrections) against the profile's wording rules")
+    p_lint.add_argument(
+        "--profile", required=True, metavar="PROFILE.yml",
+        help="the active profile (the team's, or the bundled default); its requirement_contract block holds the rules",
+    )
+    src = p_lint.add_mutually_exclusive_group(required=True)
+    src.add_argument("--id", metavar="TICKET_ID", help="fetch this ticket, as `fetch` does, and lint its binding items")
+    src.add_argument(
+        "--from-json", metavar="FETCH.json", dest="from_json",
+        help="lint the JSON a prior `parse`/`fetch` printed — exactly what the author read, no second fetch",
+    )
+    src.add_argument(
+        "--correction", action="append", metavar="SENTENCE",
+        help="lint a drafted correction sentence instead of a ticket (repeatable)",
+    )
+    p_lint.add_argument("--repo", metavar="OWNER/NAME", help="with --id: repository the ticket lives in")
+    p_lint.add_argument("--tracker", default="github", metavar="NAME", help="with --id: label recorded in `source.tracker`")
+    p_lint.add_argument("--fetch-command", metavar="TEMPLATE", help="with --id: adapter command, as for `fetch`")
+    add_common(p_lint)
+
     args = parser.parse_args(argv)
+    if args.command == "lint":
+        return run_lint(parser, args)
     bindings = parse_binding_args(parser, args.binding, args.optional_binding)
 
     if args.command == "parse":

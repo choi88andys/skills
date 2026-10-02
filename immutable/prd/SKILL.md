@@ -53,6 +53,7 @@ The skill is **profile-aware** in v0.5: section headings, the gate threshold, pe
 | `gate.reject_on_unresolved` | Stage 5 hard-block flag |
 | `sections[id=requirement_disagreement]` (v0.11+) | Stage 6 body assembly — rendered only when Stage 1.6 produced ≥1 disagreement entry |
 | `requirement_contract.ticket_sections[]` (`.required` v0.12+) / `.categories[]` / `.disagreement.*` (v0.11+) | §1.5.1 fetch bindings and their `--optional-binding` flags, Stage 1.6 judgement vocabulary, Stage 6 disagreement entry labels and outcome tokens. Read only when `.immutable-prd/config.yml` declares `requirement_contract:` |
+| `requirement_contract.wording_rules[]` / `.wording_strip[]` (v0.13+, profile_schema 5) | §1.6.0 wording lint of the ticket's binding items and §1.6.3 correction check — both through `requirement_contract.py lint`, never matched by hand; the validator reads the same rules for a pitch's correction bullets. A team profile without them lints with the bundled default's rules (the script falls back and says so) |
 
 Inline profile strings (e.g., `sections[i].heading`, `personas[i].name`) remain rendered from the active profile. Stage prompts (intent questions, refusal messages, handoff blocks) are sourced from the strings catalog per the "Strings catalog & locale" section above.
 
@@ -403,6 +404,27 @@ If the user replies with a negative/empty response (e.g., `없음`, `none`, `no`
 
 Runs only when §1.5.1 bound a ticket. Purpose: find the binding items the pitch **cannot follow as written**, draft the correction the pitch will follow instead, and hand the author a correction request for the ticket. This stage never blocks authoring — the protocol is asynchronous: the pitch is written against the corrected text and records the disagreement.
 
+### 1.6.0 Wording lint (v0.13+)
+
+Run the deterministic lint over the JSON §1.5.1 kept — the exact text the author read, no second fetch — with the active profile (the team profile `config.yml` points at, else the bundled `${CLAUDE_PLUGIN_ROOT}/examples/_profiles/default-<team_language>.yml`):
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/requirement_contract.py" lint \
+  --profile "<active profile path>" --from-json "<scratch>/contract-<id>.json" \
+  > "<scratch>/lint-<id>.json"; echo "exit=$?"
+```
+
+The lint judges the ticket text alone — it opens no Figma, Notion or linked document, and neither does this stage.
+
+- Exit `2` — render `prd.contract.lint_failed` with `{error}` = stderr and `{wording_categories}` = the labels of `categories[id=non_concrete]` and `[id=delegated_authority]` joined with ` / `; continue to §1.6.1 without the net (the two wording categories are then checked item by item by hand).
+- Exit `0` or `1` — render `prd.contract.lint_summary` with `{item_count}` = `counts.items`, `{block_items}` = `counts.items_with_block`, `{warn_count}` = `counts.warn`, and `{fallback_note}` = `prd.contract.lint_fallback_note` (`{path}` = `rules.fallback`) when `rules.fallback` is set, else empty — a team profile without wording rules is named, never silently linted with someone else's.
+
+What the hits become:
+
+- **Every item with a `block` hit is a mandatory candidate** for §1.6.1, under the hit's `category`. The regex is a recall net, so for each one decide from context: draft a correction, or — when the context shows there is no defect — propose a **dismissal** with a one-line reason that cites the context (measured false positive: an Epic whose 「완료 2」 says 「시안대로」 while its 「완료 12」 pins the delivery — 「시안대로」 there means that pinned delivery). Either way it goes to the user in §1.6.2; the skill never drops a block hit on its own.
+- **`warn` hits** are not candidates. Render `prd.contract.lint_warn_header` (`{warn_count}`) and one `prd.contract.lint_warn_row` per hit (`{n}`, `{section}`, `{group}`, `{ordinal}` = `in_group`, `{match}`, `{item_text}`, `{hint}`); the user picks the numbers to raise. Each pick becomes a candidate with a drafted correction; the rest are followed as written.
+- An item the lint did not flag is still judged in §1.6.1 — the lint covers wording only, and only the phrasings its rules know.
+
 ### 1.6.1 Classify every binding item
 
 For every item of every binding section the ticket actually supplied (all `ticket_sections` with `found: true`, the QA checklist included; a section listed in `absent[]` has no items to judge), assign exactly one status:
@@ -411,21 +433,23 @@ For every item of every binding section the ticket actually supplied (all `ticke
 |---|---|---|
 | `follows` (default) | The pitch will honour the item as written. | — |
 | `profile.requirement_contract.categories[id=infeasible]` | Cannot be implemented as stated (platform, data, physics). | The concrete constraint. When uncertain, ask the user — never assert infeasibility from general knowledge alone. |
-| `…[id=self_contradiction]` | The ticket contradicts itself: another binding item, or its own non-binding text (`sections[]` — notes, open-question lists). | Both passages, quoted. |
+| `…[id=self_contradiction]` | The ticket contradicts itself: another binding item, or its own non-binding text (`sections[]` — notes, open-question lists). This includes a **decision the non-binding text records that a binding item omits, defers or hands elsewhere** (v0.13+) — a 비고 line 「정확히 N분 0초일 때는 「M분 00초」로 쓴다」 beside a QA item 「정확히 N분 0초일 때의 표기가 #N 에서 확정된 대로다」: the ticket already decided, and the correction states that decision. | Both passages, quoted. |
 | `…[id=conflict]` | Contradicts a settled requirement — a normative line of an **active** pitch enumerated in §1.2, **excluding the pitch this run supersedes** (`update` intent): its normatives are the ones being replaced, so a difference from them is the point of the update, not a conflict. | The pitch filename and the line. |
+| `…[id=non_concrete]` (v0.13+) | Completion cannot be judged from the item's own words: a condition nobody can evaluate (「필요 시」, 「가능하면」), a deferred decision (「추후 협의」, 「TBD」), a process instead of an outcome (「…확인」), an adjective with no measure (「자연스럽게」, 「끊기거나 튀지 않는다」), an open list (「등」, 「…」). | The phrase, quoted, and why no one can tell done from not done. For a lint hit: `「<match>」 — <hint>`. |
+| `…[id=delegated_authority]` (v0.13+) | The item hands its own decision to something that cannot hold it: the pitch or spec that must follow it (「#N pitch 에서 확정된 대로다」 — circular), or a mutable design or document made the acceptance oracle (「Figma 표기와 일치한다」). A **pinned** reference is not a finding: a named delivery (「구현이 「X 전달」 시안과 일치한다」) or a `version-id=` link. | The phrase, quoted; for an oracle, that nothing pins it. For a lint hit: `「<match>」 — <hint>`. |
 
-Only the three categories let the pitch deviate. Explicitly **not** findings:
+Only the profile's categories let the pitch deviate — three about what an item says, and (v0.13+) two about whether its wording can bind at all. When a wording hit and a content finding coincide on one item, record one status — the one the correction rests on — and cite the other in the evidence. Explicitly **not** findings:
 
 - "There is a better way" — offer it as a Branch E no-go classified `Deferred` (a candidate for the next requirement list), never as a disagreement.
-- "The item lacks detail" — the interview fills gaps; that is what a pitch is for.
+- "The item lacks detail" — the interview fills gaps; that is what a pitch is for. This is not `non_concrete`: an item that is judgeable as far as it goes is followed and refined; only one whose own wording makes its completion unjudgeable is a finding.
 - A topic the ticket never raised — never flagged. The ticket binds only what it states; this stage checks no coverage against Notion, Figma, or anything else.
 
 **Value propagation.** When a finding turns on a literal value — an amount, a count, a duration, a threshold — search every other binding item, both sections, for the same value. Each hit is either folded into the finding (same rule, same correction) or named in the finding's evidence with the reason it is unaffected. Render `prd.contract.value_propagation_note` with `{value}` and `{items}` so the user sees the sweep. The first real run left the Epic's general "1,000원 이상" minimum firm while contesting the coupon-case "1,000원 미만" — the two are the same number, and a pitch that settles one and keeps the other contradicts itself the moment the value moves.
 
 ### 1.6.2 Confirm with the user
 
-- No findings → render `prd.contract.judgement_none` with `{item_count}` and proceed to Stage 2.
-- Otherwise render `prd.contract.judgement_header` (`{item_count}`, `{finding_count}`) followed by one `prd.contract.judgement_row` per finding — `{n}`, `{section}` (binding heading), `{group}`, `{ordinal}` (the parser's `in_group` — the item's position within its group, the number a reader counts on the ticket and the ledger's `items` uses; never the section-wide `ordinal`), `{category}` (profile label), `{item_text}`, `{evidence}`, `{correction}` (your drafted replacement sentence — one sentence, in the ticket's own register). Ask for a verdict per finding: **(a) accept** or **(b) reject with a one-line reason**. A rejection lives in the interview transcript only; it is neither written to the pitch nor reported anywhere — the tool was wrong, not the ticket.
+- No findings → render `prd.contract.judgement_none` with `{item_count}` and `{categories}` (every `profile.requirement_contract.categories[].label`, joined with ` / `) and proceed to Stage 2.
+- Otherwise render `prd.contract.judgement_header` (`{item_count}`, `{finding_count}`) followed by one `prd.contract.judgement_row` per finding — `{n}`, `{section}` (binding heading), `{group}`, `{ordinal}` (the parser's `in_group` — the item's position within its group, the number a reader counts on the ticket and the ledger's `items` uses; never the section-wide `ordinal`), `{category}` (profile label), `{item_text}`, `{evidence}`, `{correction}` (your drafted replacement sentence — one sentence, in the ticket's own register). A finding that came from a lint hit adds `prd.contract.judgement_rule_line` with `{rules}` = each hit as `<rule> 「<match>」`, comma-joined. A block hit you propose to dismiss is rendered instead as `prd.contract.judgement_row_dismissal` (`{n}`, `{section}`, `{group}`, `{ordinal}`, `{category}`, `{item_text}`, `{rules}`, `{dismissal}` = your one-line context reason). Ask for a verdict per row: **(a) accept** or **(b) reject with a one-line reason** — for a dismissal row, (a) means the item is followed as written and (b) means it is a finding after all, so draft its correction and confirm that. A rejected finding or an accepted dismissal lives in the interview transcript only; it is neither written to the pitch nor reported anywhere — the tool was wrong, not the ticket.
 
 ### 1.6.3 Record the disagreements and hand over the request
 
@@ -436,7 +460,14 @@ For every accepted finding, create one disagreement entry (Stage 6 renders it):
 - `reason` — `<category label> — <evidence>`
 - `outcome` — `<profile.requirement_contract.disagreement.outcome_provisional> — <today's date>`
 
-**The correction is a decision, not a question.** It is the complete sentence the pitch follows from now on, and it becomes the requirement if the ticket stays silent past the response window — that is the protocol's default path, and a sentence that defers ("확인 필요", "협의", "확정한다", "TBD") cannot be confirmed by silence. Before accepting a correction, match it against `profile.requirement_contract.disagreement.deferral_patterns[]`; on a hit render `prd.contract.correction_deferral_warning` with `{correction}` and `{pattern_hint}` and re-draft. When the right value is genuinely open — the Epic itself leaves it to development, or two sources disagree — the developer decides it **here**, in the interview, and the correction states that decision; the request then invites the ticket to object, which is exactly what the response window is for. Nowhere else in the body may the contested item be described as pending: no edge-case row "until the threshold is settled", no hedged normative. The body follows the correction. The validator refuses a deferring correction under `--strict-body`.
+**The correction is a decision, not a question.** It is the complete sentence the pitch follows from now on, and it becomes the requirement if the ticket stays silent past the response window — that is the protocol's default path, and a sentence that defers ("확인 필요", "협의", "확정한다", "TBD") cannot be confirmed by silence. Before accepting a correction, run it through the same rules the merge gate uses — never match them by hand:
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/requirement_contract.py" lint \
+  --profile "<active profile path>" --correction "<the drafted sentence>"; echo "exit=$?"
+```
+
+A correction replaces a binding item, so it must pass every bar an item must pass, plus the correction-only deferral rules. Exit `1` (a `block` hit) → render `prd.contract.correction_deferral_warning` with `{correction}` and `{pattern_hint}` = the hit's `hint`, and re-draft. A `warn` hit is shown to the user with its hint; the developer decides whether to sharpen the sentence. When the right value is genuinely open — the Epic itself leaves it to development, or two sources disagree — the developer decides it **here**, in the interview, and the correction states that decision; the request then invites the ticket to object, which is exactly what the response window is for. Nowhere else in the body may the contested item be described as pending: no edge-case row "until the threshold is settled", no hedged normative. The body follows the correction. The validator refuses a deferring correction under `--strict-body`.
 
 Then render `prd.contract.correction_request` with `{ticket_ref}`, `{request_date}` (today), `{response_window_line}` (render `prd.contract.response_window_line` with `{response_window}` = `requirement_contract.response_window` from the config, or an empty string when the config does not set it — the plugin keeps no calendar), and `{entries}` = one `prd.contract.correction_entry` per accepted finding (`{n}`, `{section}`, `{group}`, `{ordinal}` — `in_group`, as in 1.6.2 — `{category}`, `{original}`, `{correction}`, `{reason}`). **Also write the same rendered text to a file** so it survives the conversation and can be pasted as-is:
 
@@ -914,7 +945,7 @@ FILES='["<pitch-relative-path>"]'   # e.g. ["pitches/state/use-riverpod.md"]
 9. **Never derive PRD structure from an L2/L3 active pitch** (v0.5.6+). Oversized PRDs are anti-pattern instances; treat them as fact-source only when answering individual interview questions, never as templates for the new draft's shape, scope, or normative density.
 10. **Never let `update` intent target an L3 PRD** (v0.5.6+). The intent menu must remove `update` when the target is L3; only `refactor-split`, `split-from`, or `new` (separate small PRD) are offerable. Bypassing this rule perpetuates the domain-charter anti-pattern.
 11. **Never write to the tracker** (v0.11+). Correction requests, registration comments, status updates — every outbound write is handed to the user as rendered text. The skill reads tickets; it never posts.
-12. **Never write a disagreement entry outside the profile's `requirement_contract.categories`, with a field missing, or with a terminal outcome** (v0.11+). The bundled profiles ship the protocol's three; a team that agrees a further category with its counterpart adds it to the profile, never to this file. "A better way" is a next-list candidate, a missing field is an unfinished judgement, and a terminal outcome is a claim the skill cannot make.
+12. **Never write a disagreement entry outside the profile's `requirement_contract.categories`, with a field missing, or with a terminal outcome** (v0.11+). The bundled profiles ship five — the protocol's three on content and, since v0.13, two on wording (`non_concrete`, `delegated_authority`); a team that agrees a further category with its counterpart adds it to the profile, never to this file. "A better way" is a next-list candidate, a missing field is an unfinished judgement, and a terminal outcome is a claim the skill cannot make.
 13. **Never treat a topic the ticket did not raise as a defect** (v0.11+). The contract binds the ticket's stated items only; everything else is the pitch's to decide. No coverage check against Notion, Figma, or any other source.
 
 ---

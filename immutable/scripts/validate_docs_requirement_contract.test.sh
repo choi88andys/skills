@@ -267,8 +267,9 @@ done
 
 # C9 — a correction that DEFERS is not a correction: the pilot's first real
 # pitch wrote "기준액은 바리스온 측과 대조해 확정한다", which cannot be confirmed
-# by silence. It is flagged (confirm_later); a decisive sentence with the same
-# shape passes; the pattern applies to the correction bullet only (the same
+# by silence. It is flagged (confirm_later — since v0.13 a correction-only
+# `wording_rules` entry in the bundled profile); a decisive sentence with the
+# same shape passes; the rule applies to the correction bullet only (the same
 # words in 사유 are fine).
 mkpitch 2026-02-09-deferring.md "$TICKET" '## 요구사항 이견
 
@@ -288,14 +289,111 @@ mkpitch 2026-02-10-deciding.md "$TICKET" '## 요구사항 이견
 - **결과** 합의 — 9/10'
 write_config required "" 2026-02-04
 run --type pitch --strict-body --strict-since 2026-02-01
-if [ "$RC" -eq 1 ] && [ "$(count)" = "6" ] && [ "$(hits 'deferring.md')" = "1" ] && grep -qF "defers instead of deciding (matched deferral_patterns[confirm_later] on '대조해 확정')" <<<"$OUT" \
+if [ "$RC" -eq 1 ] && [ "$(count)" = "6" ] && [ "$(hits 'deferring.md')" = "1" ] && grep -qF "is not a decision (matched wording_rules[confirm_later] on '대조해 확정'" <<<"$OUT" \
   && [ "$(hits 'deciding.md')" = "0" ]; then
   pass "C9 deferring correction flagged; decisive one clean; 사유 wording not matched"
 else
   fail "C9 deferral" "rc=$RC violations=$(count)
 $OUT"
 fi
-rm -f "$P/2026-02-09-deferring.md" "$P/2026-02-10-deciding.md"
+
+# C9b — the same two pitches under a team profile written before
+# `wording_rules` existed (v0.12 shape: `disagreement.deferral_patterns` only).
+# The legacy patterns are still read, still case-sensitive on the raw text,
+# and still produce the v0.12 message — a profile that has not migrated
+# passes and fails exactly the pitches it did — and the run says the profile
+# predates the unified rules instead of silently checking less.
+cat >"$REPO/.immutable-prd/profile.yml" <<'YML'
+profile_schema: 4
+locale: ko
+sections:
+  - id: background
+    heading: "배경과 문제"
+    required: true
+  - id: user_stories
+    heading: "사용자 스토리 및 수용 조건"
+    required: true
+    structure: per_story_grouped
+  - id: edge_cases
+    heading: "엣지 케이스"
+    required: true
+  - id: no_gos
+    heading: "범위 제외 (No-gos)"
+    required: true
+  - id: requirement_disagreement
+    heading: "요구사항 이견"
+    required: false
+requirement_contract:
+  categories:
+    - { id: infeasible, label: "구현 불가" }
+    - { id: self_contradiction, label: "자기모순" }
+    - { id: conflict, label: "확정된 다른 요구사항과의 충돌" }
+  disagreement:
+    fields: { original: "원문", correction: "정정", reason: "사유", outcome: "결과" }
+    outcome_provisional: "잠정"
+    outcome_terminal: ["합의", "기한 경과"]
+    deferral_patterns:
+      - id: confirm_later
+        regex: '확인\s*(이\s*)?필요|확인\s*(후|뒤)|대조해\s*확정|확정(한다|할\s*예정|\s*예정)|정하기로'
+        hint: "확정을 미루는 문구"
+      - id: undecided
+        regex: '미정|미확정|\bTBD\b|\bTBC\b|\?\?'
+        hint: "미정 표시"
+YML
+write_config required "profile: .immutable-prd/profile.yml" 2026-02-04
+run --type pitch --strict-body --strict-since 2026-02-01
+if [ "$RC" -eq 1 ] && [ "$(count)" = "6" ] && [ "$(hits 'deferring.md')" = "1" ] \
+  && grep -qF "defers instead of deciding (matched deferral_patterns[confirm_later] on '대조해 확정')" <<<"$OUT" \
+  && [ "$(hits 'deciding.md')" = "0" ] && grep -qF 'predates requirement_contract.wording_rules' <<<"$OUT"; then
+  pass "C9b legacy deferral_patterns-only profile: same verdicts and v0.12 message, plus a migrate warning"
+else
+  fail "C9b legacy profile" "rc=$RC violations=$(count)
+$OUT"
+fi
+rm -f "$REPO/.immutable-prd/profile.yml" "$P/2026-02-09-deferring.md" "$P/2026-02-10-deciding.md"
+
+# C9c — the unified rules reach corrections under the bundled profile: a
+# conditional correction (「필요 시」) and one that hands the decision to the
+# pitch are violations naming the rule and its hint; an unmeasurable adjective
+# is a `warn` rule — printed, never counted; a quoted UI literal is stripped
+# before matching, so 「처리 중…」 is not an open enumeration.
+write_config required "" 2026-02-04
+mkpitch 2026-02-11-conditional.md "$TICKET" '## 요구사항 이견
+
+### 항목
+
+- **원문** 디자이너 Figma 표기 정합 확인 (필요 시)
+- **정정** 문구는 필요 시 디자이너와 맞춘다
+- **사유** 구체성 결함 — 판정할 수 없는 조건
+- **결과** 합의 — 9/10'
+mkpitch 2026-02-12-delegating.md "$TICKET" '## 요구사항 이견
+
+### 항목
+
+- **원문** 대기중 표기가 정해진 대로다
+- **정정** 대기중 표기는 #1113 에서 확정된 대로다
+- **사유** 구속 위임 — 순환
+- **결과** 합의 — 9/10'
+mkpitch 2026-02-13-warnonly.md "$TICKET" '## 요구사항 이견
+
+### 항목
+
+- **원문** 표기가 튀지 않는다
+- **정정** 초가 줄어드는 동안 「처리 중…」 문구 없이 자연스럽게 1초 단위로 줄어든다
+- **사유** 구체성 결함 — 측정 기준 없음
+- **결과** 합의 — 9/10'
+run --type pitch --strict-body --strict-since 2026-02-01
+if [ "$RC" -eq 1 ] && [ "$(count)" = "7" ] \
+  && grep -qF "is not a decision (matched wording_rules[conditional] on '필요 시'" <<<"$OUT" \
+  && grep -qF "is not a decision (matched wording_rules[delegated_downstream]" <<<"$OUT" \
+  && grep -qF "/2026-02-13-warnonly.md: ### 항목 — \`정정\` matched wording_rules[unmeasurable] on '자연스럽'" <<<"$OUT" \
+  && ! grep -qF "open_enumeration" <<<"$OUT" && ! grep -qF "warnonly.md: requirement-contract" <<<"$OUT"; then
+  pass "C9c unified rules on corrections: block hits gate with the rule named, warn hits print only, literals stripped"
+else
+  fail "C9c unified correction rules" "rc=$RC violations=$(count)
+$OUT"
+fi
+rm -f "$P/2026-02-11-conditional.md" "$P/2026-02-12-delegating.md" "$P/2026-02-13-warnonly.md"
 
 # C10 — profile without deferral_patterns: the check is skipped WITH a warning.
 cat >"$REPO/.immutable-prd/profile.yml" <<'YML'

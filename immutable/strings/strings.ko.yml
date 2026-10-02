@@ -434,16 +434,46 @@ strings:
 
   prd.contract.section_row_absent: "- {heading}: 티켓에 없음 ({why}) — 선택 섹션이라 계약은 나머지 섹션으로 맺습니다. 이 섹션의 항목은 누가 맡았는지 확인되지 않은 채 남습니다."
 
-  prd.contract.judgement_none: "구속 항목 {item_count}개를 검토했습니다 — 세 판정(구현 불가 / 자기모순 / 확정된 다른 요구사항과의 충돌)에 걸리는 항목이 없습니다. 전부 그대로 따릅니다."
+  prd.contract.judgement_none: "구속 항목 {item_count}개를 검토했습니다 — 판정({categories})에 걸리는 항목이 없습니다. 전부 그대로 따릅니다."
+
+  # v0.13+: 문구 점검 (`requirement_contract.py lint`) — Stage 1.6.0.
+  prd.contract.lint_summary: |
+    문구 점검 (`requirement_contract.py lint`): 구속 항목 {item_count}개 중 block {block_items}개, warn {warn_count}건{fallback_note}
+    block 항목은 모두 판정 후보입니다 — 정정안을 쓰거나, 문맥상 문제가 아니면 기각 사유 한 줄을 제안합니다. 어느 쪽이든 판정은 사용자 몫입니다.
+
+  prd.contract.lint_fallback_note: " (팀 프로필에 문구 규칙이 없어 번들 기본 `{path}` 의 규칙으로 점검 — `/immutable:migrate` 권장)"
+
+  prd.contract.lint_failed: |
+    문구 점검을 실행하지 못했습니다:
+    {error}
+
+    점검 없이 판정을 계속합니다 — 문구 판정({wording_categories})도 항목마다 직접 봅니다. 프로필의 문구 규칙을 고치기 전까지 같은 규칙을 쓰는 CI 점검도 실패합니다.
+
+  prd.contract.lint_warn_header: |
+    아래 {warn_count}건은 판정 후보는 아니지만 문구만으로 완료 여부를 가리기 어려울 수 있습니다. 이견으로 올릴 번호만 골라주세요 (없으면 '없음'):
+
+  prd.contract.lint_warn_row: |
+    [{n}] {section} · {group} {ordinal} — "{match}"
+        항목: {item_text}
+        이유: {hint}
 
   prd.contract.judgement_header: |
     구속 항목 {item_count}개 중 {finding_count}개가 판정에 걸렸습니다. 항목마다 답해주세요 — (a) 판정 인정 / (b) 판정 거부 + 사유 한 줄 (인터뷰 기록에만 남고 pitch 에는 쓰이지 않습니다)
+    「기각 제안」 행은 반대입니다 — (a) 기각 인정: 그대로 따름 / (b) 기각 거부: 정정안을 써서 이견으로 올림
 
   prd.contract.judgement_row: |
     [{n}] {section} · {group} {ordinal} — {category}
         항목: {item_text}
         근거: {evidence}
         정정안: {correction}
+
+  prd.contract.judgement_rule_line: "    문구 규칙: {rules}"
+
+  prd.contract.judgement_row_dismissal: |
+    [{n}] {section} · {group} {ordinal} — {category} (기각 제안)
+        항목: {item_text}
+        문구 규칙: {rules}
+        기각 사유: {dismissal}
 
   prd.contract.correction_request: |
     요구사항 정정 요청 — {ticket_ref} (요청일 {request_date})
@@ -479,7 +509,7 @@ strings:
     같은 규칙이면 이견에 함께 넣고, 무관하다면 그 이유를 근거에 적습니다.
 
   prd.contract.correction_deferral_warning: |
-    정정 문장이 결정이 아니라 보류입니다: "{correction}"
+    정정 문장이 결정이 아닙니다: "{correction}"
     ({pattern_hint})
     정정은 티켓이 기한 안에 답하지 않으면 그대로 요구사항이 되는 문장이어야 합니다. 값이나 문장을 지금 정해 다시 써주세요. 정하기 어려우면 그 결정은 사용자에게 묻습니다 — 티켓의 미결을 정정에 옮겨 적지 않습니다.
 

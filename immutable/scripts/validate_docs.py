@@ -58,7 +58,12 @@ Coverage (matches SCHEMA.md "Validation invariants"):
      (`profile.sections[id=requirement_disagreement]`) holds ≥1 `### ` entry
      whose four labelled bullets are present and whose outcome begins with a
      terminal token — a provisional outcome is a violation, which is the
-     merge gate that keeps a pitch PR open until the request is settled.
+     merge gate that keeps a pitch PR open until the request is settled. Its
+     correction bullet must pass the profile's wording rules that apply to
+     corrections (`requirement_contract.wording_rules[]`, plus the legacy
+     `disagreement.deferral_patterns[]`; v0.13+): a `block` hit is a
+     violation, a `warn` hit a stderr warning. The rules are compiled by
+     `requirement_contract.py` — the same reader its `lint` uses.
 
 Not covered (deferred): cycle detection on supersede chains.
 
@@ -103,6 +108,13 @@ except ImportError:
         "validate_docs.py requires PyYAML. Install with: pip install pyyaml\n"
     )
     sys.exit(2)
+
+# The wording rules a correction is judged by are compiled by the parser
+# module that `lint` uses on ticket items — one reader, so the authoring skill,
+# a CI lint and this merge gate cannot disagree about what a rule says. The
+# plugin ships both scripts side by side; consumers check out the whole plugin.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import requirement_contract as _contract  # noqa: E402
 
 
 # Last-resort defaults used only when profile loading fails entirely.
@@ -370,30 +382,27 @@ def profile_user_stories_section(profile: dict[str, Any]) -> dict[str, Any] | No
 
 def profile_disagreement_vocabulary(profile: dict[str, Any]) -> dict[str, Any] | None:
     """What the disagreement-outcome check needs from the profile (v0.11+):
-    the section heading plus field labels and outcome tokens. None when any
-    of it is missing — the caller then skips the check with a warning rather
-    than inventing labels."""
+    the section heading plus field labels and outcome tokens, and the wording
+    rules a correction must pass (v0.13+, compiled by `requirement_contract`'s
+    `compile_wording`: `wording_rules[]` that apply to `correction`, plus the
+    legacy `disagreement.deferral_patterns[]`). None when the heading, labels
+    or tokens are missing — the caller then skips the check with a warning
+    rather than inventing labels. A rule that does not compile is skipped
+    with a warning naming it."""
     if not profile:
         return None
     heading = None
     for entry in profile.get("sections") or []:
         if isinstance(entry, dict) and entry.get("id") == "requirement_disagreement":
             heading = str(entry.get("heading") or "").strip()
-    block = (profile.get("requirement_contract") or {}).get("disagreement") or {}
+    contract_block = profile.get("requirement_contract") or {}
+    block = contract_block.get("disagreement") or {}
     fields = block.get("fields") or {}
     provisional = block.get("outcome_provisional")
     terminal = block.get("outcome_terminal") or []
-    deferral: list[tuple[str, re.Pattern[str]]] = []
-    for entry in block.get("deferral_patterns") or []:
-        if not isinstance(entry, dict) or not entry.get("regex"):
-            continue
-        try:
-            deferral.append((str(entry.get("id") or "deferral"), re.compile(str(entry["regex"]))))
-        except re.error as exc:
-            sys.stderr.write(
-                f"warning: requirement_contract.disagreement.deferral_patterns[{entry.get('id')}] "
-                f"is an invalid regex ({exc}); skipped.\n"
-            )
+    wording = _contract.compile_wording(contract_block)
+    for problem in wording["problems"]:
+        sys.stderr.write(f"warning: requirement_contract.{problem}; skipped.\n")
     if (
         not heading
         or not all(isinstance(fields.get(k), str) and fields[k].strip() for k in DISAGREEMENT_FIELDS)
@@ -408,7 +417,11 @@ def profile_disagreement_vocabulary(profile: dict[str, Any]) -> dict[str, Any] |
         "fields": {k: str(fields[k]).strip() for k in DISAGREEMENT_FIELDS},
         "provisional": provisional.strip(),
         "terminal": [str(t).strip() for t in terminal if str(t).strip()],
-        "deferral": deferral,  # optional; empty when the profile has none
+        "wording": wording,
+        # Both optional: a profile may carry neither (pre-v0.11 vocabulary) or
+        # only the legacy deferral_patterns (pre-v0.13).
+        "correction_rules": sum("correction" in r["applies_to"] for r in wording["rules"]),
+        "has_wording_rules": "wording_rules" in contract_block,
     }
 
 
@@ -1000,19 +1013,31 @@ def validate_pitch_disagreement_outcomes(
         if missing:
             issues.append(f"### {e_title} — missing bullet(s): {', '.join(missing)}")
         # The correction becomes the requirement if the ticket stays silent past
-        # the response window; one that defers cannot be confirmed by silence,
-        # so it is not a correction.
+        # the response window; one that defers, hedges or hands the decision
+        # elsewhere cannot be confirmed by silence, so it is not a correction.
+        # A `block` hit is a violation (the first one is named); a `warn` hit is
+        # printed and does not gate.
         correction = found.get("correction")
         if correction is not None:
-            for pat_id, pat in vocab.get("deferral", []):
-                m = pat.search(correction)
-                if m:
-                    excerpt = correction if len(correction) <= 80 else correction[:77] + "..."
-                    issues.append(
-                        f"### {e_title} — `{fields['correction']}` defers instead of deciding "
-                        f"(matched deferral_patterns[{pat_id}] on {m.group(0)!r}): {excerpt}"
+            hits = _contract.wording_hits(vocab["wording"], correction, "correction")
+            excerpt = correction if len(correction) <= 80 else correction[:77] + "..."
+            blocking = next((h for h in hits if h["severity"] == "block"), None)
+            if blocking is not None and blocking["source"] == "deferral_patterns":
+                issues.append(
+                    f"### {e_title} — `{fields['correction']}` defers instead of deciding "
+                    f"(matched deferral_patterns[{blocking['rule']}] on {blocking['match']!r}): {excerpt}"
+                )
+            elif blocking is not None:
+                issues.append(
+                    f"### {e_title} — `{fields['correction']}` is not a decision "
+                    f"(matched wording_rules[{blocking['rule']}] on {blocking['match']!r} — {blocking['hint']}): {excerpt}"
+                )
+            for h in hits:
+                if h["severity"] == "warn":
+                    sys.stderr.write(
+                        f"warning: {path}: ### {e_title} — `{fields['correction']}` "
+                        f"matched wording_rules[{h['rule']}] on {h['match']!r} ({h['hint']})\n"
                     )
-                    break
         outcome = found.get("outcome")
         if outcome is None:
             continue
@@ -1429,11 +1454,19 @@ def main() -> int:
             "requirement_contract.disagreement — the disagreement-outcome check is "
             "skipped. Run /immutable:migrate to pick up the bundled vocabulary.\n"
         )
-    elif contract and args.strict_body and disagreement_vocab is not None and not disagreement_vocab["deferral"]:
+    elif contract and args.strict_body and disagreement_vocab is not None and not disagreement_vocab["correction_rules"]:
         sys.stderr.write(
-            "warning: the active profile has no requirement_contract.disagreement."
-            "deferral_patterns — corrections that defer instead of deciding are not "
-            "checked. Run /immutable:migrate to pick up the bundled patterns.\n"
+            "warning: the active profile has no requirement_contract.wording_rules applying "
+            "to corrections and no requirement_contract.disagreement.deferral_patterns — "
+            "corrections that defer instead of deciding are not checked. Run "
+            "/immutable:migrate to pick up the bundled rules.\n"
+        )
+    elif contract and args.strict_body and disagreement_vocab is not None and not disagreement_vocab["has_wording_rules"]:
+        sys.stderr.write(
+            "warning: the active profile predates requirement_contract.wording_rules "
+            "(profile_schema 5) — corrections are checked against the legacy "
+            "disagreement.deferral_patterns only. Run /immutable:migrate to pick up "
+            "the bundled rules.\n"
         )
     strict_structure_enabled = bool(
         args.strict_body
