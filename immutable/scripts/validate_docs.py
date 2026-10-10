@@ -1237,9 +1237,8 @@ def check_supersede_chain_integrity(
     """Enforce per-edge supersede integrity.
 
     For each file F with non-null F.supersedes:
-      - The target T must exist in this doc-type set, in the same domain
-        directory as F (cross-domain supersede is not supported by the
-        directory convention).
+      - The target T must exist in this doc-type set: a pitch's target in the
+        same domain as F, an ADR's target anywhere in the ADR set.
       - T must have `deprecated: true`.
 
     No global per-(domain, type) cap. Multiple active files may coexist in the
@@ -1247,26 +1246,43 @@ def check_supersede_chain_integrity(
     superseded by N successors, e.g., a refactor-split) is permitted as long
     as the shared predecessor is deprecated.
 
-    Lookup is scoped by (domain, filename) since the same filename (e.g.,
-    `2026-04-16-initial.md`) may legitimately appear in multiple domain
-    directories.
+    The lookup key differs by doc type because the two layouts differ:
+
+      - pitch: (domain, filename). Pitches live in per-domain directories
+        (`pitches/<domain>/`), where the same filename (e.g.,
+        `2026-04-16-initial.md`) may legitimately appear in several domains,
+        so a filename alone does not name one pitch. A cross-domain pitch
+        supersede stays unresolvable.
+      - adr: filename alone. ADRs live in one flat directory with the domain
+        in frontmatter (SCHEMA.md "Naming conventions"; `iter_docs` globs
+        them non-recursively), so a filename already names exactly one ADR.
+        Keying by domain as well bought no disambiguation and made a chain
+        whose subject legitimately moves to another domain unresolvable by
+        construction.
     """
-    by_key: dict[tuple[str, str], dict[str, Any]] = {}
+
+    def lookup_key(fm: dict[str, Any], filename: str) -> tuple[str, ...]:
+        if doc_type == "pitch":
+            return (fm.get("domain") or "_global", filename)
+        return (filename,)
+
+    by_key: dict[tuple[str, ...], dict[str, Any]] = {}
     for path, fm in docs:
-        domain = fm.get("domain") or "_global"
-        by_key[(domain, path.name)] = fm
+        by_key[lookup_key(fm, path.name)] = fm
 
     for path, fm in docs:
         target = fm.get("supersedes")
         if target is None:
             continue
-        domain = fm.get("domain") or "_global"
-        key = (domain, target)
+        key = lookup_key(fm, target)
         if key not in by_key:
+            scope = f"{doc_type} set"
+            if doc_type == "pitch":
+                scope += f" under domain `{fm.get('domain') or '_global'}`"
             warn(
                 violations,
                 f"{path}: supersedes `{target}` but target file not found in "
-                f"{doc_type} set under domain `{domain}`",
+                f"{scope}",
             )
             continue
         target_fm = by_key[key]

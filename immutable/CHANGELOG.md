@@ -2,6 +2,24 @@
 
 All notable changes to the `immutable` plugin are documented in this file. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Version is canonically declared in `.claude-plugin/plugin.json`.
 
+## [0.15.1] — 2026-10-11
+
+Invariant 2 resolved every supersede edge by the pair (domain, filename). The pair is right for pitches, which live in per-domain directories where the same filename legitimately repeats, and ADRs inherited it without needing it: they live in one flat directory, where a filename already names one file. A consumer app repo paid for it (choi88andys/Water-Submersion#130). Its chain root decided two domains in one Decision paragraph, so no filing of the chain was subject-clean: a successor filed under the domain its subject belongs to failed with `target file not found in adr set under domain …`, and the chain had to stay under a domain that no longer fitted its newest decision.
+
+### Fixed
+
+- **An ADR's `supersedes:` target is resolved by filename alone, anywhere in the flat ADR set.** A chain whose subject legitimately moves to another domain is now expressible. Only resolution widened: the predecessor must still be `deprecated: true`, and a missing target is still a violation (its message no longer names a domain, since none scoped the search). Pitches keep (domain, filename): a cross-domain pitch supersede stays unresolvable, and every pitch-side message is unchanged. Pinned by the new `validate_docs_supersede.test.sh` S1–S5 — v0.15.0 fails S1–S3, and a validator keying pitches by filename alone fails S4–S5.
+- **`deprecated_read_guard.sh`'s comment said cross-domain supersede was unsupported for both doc types.** The guard was already right: it lists successors from the same directory, which for an ADR is the whole flat set. The comment now says so, and `deprecated_read_guard.test.sh` S6–S7 pin that a deprecated ADR's banner names a successor filed under another domain.
+
+### Measured
+
+- 2026-10-11 on the consumer repo's 69 ADRs (22 supersede edges): clean under v0.15.0 and v0.15.1 alike. With its chain's newest ADR moved to the domain its subject belongs to, v0.15.0 reports the one violation above and v0.15.1 passes.
+
+### Notes
+
+- No previously clean repo can turn red: in a flat directory each ADR edge resolves to the same file it did before. The only verdict that changes is an ADR edge whose target exists only under another domain — formerly "not found", now checked for deprecation like any other edge.
+- No config, profile or schema change; `profile_schema` stays 6.
+
 ## [0.15.0] — 2026-10-02
 
 `lint` names what is wrong with a ticket, but nothing stopped a pitch from merging while bound to it. The pilot's case: a did-spec pitch merged 2026-09-22 bound to Epic #4431, whose QA item 4 「표기 배지 형태가 시안과 일치한다」 is an unpinned oracle (block since v0.13.0); the pitch handled it with `delegates: Figma` and passed every check. Owner directive (2026-10-02): make the spec-repo merge gate ready to switch on; the switch itself stays the owner's.
