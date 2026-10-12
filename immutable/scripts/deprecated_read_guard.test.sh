@@ -84,6 +84,13 @@ mkdoc "$D/fan1.md"    '---' 'domain: order' 'supersedes: fan.md' 'deprecated: fa
                       'Split part one.'
 mkdoc "$D/fan2.md"    '---' 'domain: order' 'supersedes: fan.md' 'deprecated: true' '---' '' \
                       'Split part two, itself already superseded.'
+# ADRs are flat, so a successor filed under ANOTHER domain is still a sibling — the
+# validator resolves ADR edges by filename alone (v0.15.1), and the banner must agree.
+mkdoc "$SPEC/adr/2026-01-01-old-decision.md"   '---' 'type: adr' 'domain: order' 'supersedes: null' \
+                      'deprecated: true' '---' '' 'CANARY-ADR-OLD decision body.'
+mkdoc "$SPEC/adr/2026-01-02-moved-decision.md" '---' 'type: adr' 'domain: billing' \
+                      'supersedes: 2026-01-01-old-decision.md' 'deprecated: false' '---' '' \
+                      'The same decision, now filed under billing.'
 mkdoc "$D/notes.txt"  '---' 'deprecated: true' '---' '' 'Not markdown, must pass.'
 mkdoc "$ROOT/outside/dead.md" '---' 'deprecated: true' '---' '' 'CANARY-OUTSIDE no .immutable-prd ancestor.'
 
@@ -144,6 +151,8 @@ if grep -qF 'No successor found' <<<"$CONTENT"; then ok S2-says-so; else bad S2-
 expect_withheld S3-fanout "$D/fan.md" 'CANARY-FAN'
 if grep -qF 'fan1.md' <<<"$CONTENT" && grep -qF 'fan2.md' <<<"$CONTENT"; then ok S4-both-listed; else bad S4-both-listed "fan-out successors missing"; fi
 if grep -qF 'itself deprecated' <<<"$CONTENT"; then ok S5-dead-successor-marked; else bad S5-dead-successor-marked "deprecated successor not marked"; fi
+expect_withheld S6-adr-cross-domain "$SPEC/adr/2026-01-01-old-decision.md" 'CANARY-ADR-OLD'
+if grep -qF '2026-01-02-moved-decision.md' <<<"$CONTENT"; then ok S7-adr-successor-in-other-domain-named; else bad S7-adr-successor-in-other-domain-named "banner lacks the successor filed under another domain"; fi
 
 echo "===== PASS-THROUGH — scope discipline ====="
 expect_pass P1-active       "$D/b-live.md"

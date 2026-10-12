@@ -143,8 +143,9 @@ if fm is None or fm.get("deprecated") is not True:
     log("pass", "active-or-unparsed")
     sys.exit(0)
 
-# Successors live in the SAME domain directory (cross-domain supersede is unsupported by
-# the directory convention — validate_docs.check_supersede_chain_integrity). Fan-out is
+# Successors live in the SAME directory, the scope validate_docs.check_supersede_chain_integrity
+# resolves an edge in: a pitch's in its domain directory (a cross-domain pitch supersede is
+# unresolvable), an ADR's anywhere in the one flat ADR directory, whatever its domain. Fan-out is
 # legal (one predecessor, N successors), so collect them all. A successor that is itself
 # deprecated is listed with its state: Reading it fires this gate again, which names ITS
 # successor — the chain walks itself.
