@@ -2,6 +2,23 @@
 
 All notable changes to the `immutable` plugin are documented in this file. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Version is canonically declared in `.claude-plugin/plugin.json`.
 
+## [0.15.2] — 2026-10-12
+
+The bundled Korean `deferral` rule matched 「(확인|검토|협의) 중」 as a postponed decision, but 중 also means "among". A pilot Epic's QA item — 「… 기록 판정과 운영 앱의 근사 확인 중 하나로 확인하고, 어느 쪽이든 기준을 넘는 주문이 있으면 불합격이다」 ("checked by one of the two checks") — states a decided procedure, yet `lint` reported it as a `block` hit and the tracker bot posted it on the ticket.
+
+### Fixed
+
+- **`deferral` no longer reads the partitive 중 as "in progress".** The last group of its regex is now `(후|뒤|예정|중(?!\s*(하나|에서|일부|어느)))`: 「확인 중 하나로」, 「확인 중에서」 and the like stop hitting; 「확인 중」, 「협의 중이다」, 「검토 중입니다」, 「확인중」 still block, on ticket items and corrections alike. Pinned by `requirement_contract_lint.test.sh` L12, which fails against v0.15.1.
+
+### Measured
+
+- 2026-10-12, every issue of the pilot tracker (open and closed, any label) whose body has a binding section: 2,796 tickets, 13,357 binding items. v0.15.1 → v0.15.2: 557 → 556 `block` hits, 81 → 80 `deferral` hits, `warn` unchanged at 617. The one hit that disappeared is the QA item above; no hit appeared. A raw scan of all 5,225 issue bodies found 「(확인|검토|협의|논의) 중」 followed by 「하나」 twice and by none of the other exempt words.
+
+### Notes
+
+- A value-only fix: no new field, so `profile_schema` stays 6 and `/immutable:migrate` does not carry it. A team profile that already copied `wording_rules` must take the new `deferral` regex by hand.
+- The correction-only `negotiate` rule still matches 「검토 중」 and 「논의 중」 in any sense. It is deliberately broader (it matches a bare 「협의」), and the partitive form appears nowhere in either pilot spec repo's pitches or ADRs (2026-10-12, `main` and every `pitch/*` branch).
+
 ## [0.15.1] — 2026-10-11
 
 Invariant 2 resolved every supersede edge by the pair (domain, filename). The pair is right for pitches, which live in per-domain directories where the same filename legitimately repeats, and ADRs inherited it without needing it: they live in one flat directory, where a filename already names one file. A consumer app repo paid for it (choi88andys/Water-Submersion#130). Its chain root decided two domains in one Decision paragraph, so no filing of the chain was subject-clean: a successor filed under the domain its subject belongs to failed with `target file not found in adr set under domain …`, and the chain had to stay under a domain that no longer fitted its newest decision.
