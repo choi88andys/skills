@@ -361,6 +361,34 @@ else
   fail "L11 design_target / delivery_step" "rc=$RC got=$GOT"
 fi
 
+# L12 — deferral precision (v0.15.2). 「(확인|검토|협의) 중」 defers a decision
+# only when 중 means "in progress"; in 「두 확인 중 하나로 확인한다」 it means
+# "among", which a pilot Epic's QA item used and the rule blocked. The
+# partitive continuations (하나·에서·일부·어느) are exempt; every in-progress
+# form, spaced or not, sentence-final or not, still blocks — on ticket items
+# and on corrections alike.
+cat >"$RIG/among.md" <<'MD'
+### QA 통과 리스트
+
+- [ ] 개발 앱 개발자 도구의 기록 판정과 운영 앱의 근사 확인 중 하나로 확인하고, 어느 쪽이든 기준을 넘는 주문이 있으면 불합격이다
+- [ ] 두 확인 중에서 하나를 고른다
+- [ ] 배포 일정은 확인 중
+- [ ] 백엔드와 협의 중이다
+- [ ] API 응답 형식은 검토 중입니다
+- [ ] 표기 단위는 확인중
+MD
+python3 "$SUT" parse "$RIG/among.md" --binding "$B_QA" >"$RIG/among.json"
+run lint --profile "$BUNDLED_KO" --from-json "$RIG/among.json"
+A_RC=$RC; A_GOT="$(q '[(h["in_group"], h["rule"], h["match"]) for h in d["hits"]]')"
+run lint --profile "$BUNDLED_KO" --correction "두 경로의 확인 중 하나로 판정한다" --correction "기준값은 확인 중"
+if [ "$A_RC" -eq 1 ] && [ "$A_GOT" = "[(3, 'deferral', '확인 중'), (4, 'deferral', '협의 중'), (5, 'deferral', '검토 중'), (6, 'deferral', '확인중')]" ] \
+  && [ "$RC" -eq 1 ] && [ "$(q '[(h["text"], h["rule"]) for h in d["hits"]]')" = "[('기준값은 확인 중', 'deferral')]" ]; then
+  pass "L12 deferral precision: 「확인 중 하나로」 (among) quiet; in-progress 「확인 중」 forms still block"
+else
+  fail "L12 deferral precision" "rc=$A_RC got=$A_GOT
+correction rc=$RC $(q '[(h["text"], h["rule"]) for h in d["hits"]]')"
+fi
+
 echo
 if [ "$FAILURES" -eq 0 ]; then
   echo "all $PASSES cases passed."
