@@ -31,7 +31,10 @@
 # v5 → v6 (v0.14.0): added the `wording_rules` entries `document_target`,
 # `design_target` and `delivery_step`. The bump is what makes `/immutable:migrate`
 # add them to a team profile already at v5.
-profile_schema: 6
+# v6 → v7 (v0.16.0): added `requirement_contract.since_utc_offset`, the
+# optional `wording_rules[].since` key and the `design_oracle` entry, which
+# `/immutable:migrate` adds with `since` set to the migration date.
+profile_schema: 7
 
 # Team working language key. Must match `strings/strings.<locale>.yml` when
 # strings catalog lookup is enabled. v0.5 renders inline strings from this file.
@@ -365,9 +368,17 @@ anti_monolith:
 #                      반드시 이견 후보, warn = 확인 목록) · applies_to
 #                      (ticket_item / correction) · scope (생략 = 모든 구속 섹션)
 #                      · regex (대소문자 무시, strip 후 텍스트) · unless (원문에
-#                      걸리면 면제) · hint (정정 요청에 그대로 실리는 사유).
+#                      걸리면 면제) · hint (정정 요청에 그대로 실리는 사유)
+#                      · since (profile_schema 7+, 날짜 — 이 날 이후 만들어진
+#                      티켓에만 건다; 정정은 피치의 티켓 기록 `created_at` 으로
+#                      가린다). 이 밖의 키는 오류다 — 모르는 키를 건너뛰는
+#                      엔진은 `since` 를 없는 것으로 읽고 규칙을 소급 적용한다.
 #                      regex 는 그물이다 — 맞는지는 스킬의 문맥 판단과 사람의
 #                      인정/거부가 가린다.
+#   since_utc_offset — 티켓 생성 시각을 날짜로 읽을 UTC 오프셋 (profile_schema
+#                      7+, `±HH:MM`, 없으면 +00:00). `since` 와 비교하는 날짜가
+#                      이 오프셋의 날짜다. 반드시 따옴표로 쓴다 — YAML 1.1 은
+#                      따옴표 없는 `+10:00` 을 60진수 정수로 읽는다.
 #   disagreement     — `requirement_disagreement` 섹션의 엔트리 하나를 이루는
 #                      네 줄의 라벨과 결과 어휘. `outcome_provisional` 은 열린
 #                      정정 요청 (validator --strict-body 가 머지를 막는다),
@@ -425,6 +436,7 @@ requirement_contract:
   # 하나"라서, 뒤에 하나·에서·일부·어느 가 오면 걸지 않는다. 2026-10-12 재측정
   # (pilot 트래커 이슈 전체 — 열림·닫힘, 라벨 무관 — 중 구속 항목이 있는 2,796건,
   # 13,357개): 바뀐 것은 Epic #1112 QA 13 한 건뿐, 새로 걸리거나 빠진 정탐 없음.
+  since_utc_offset: "+09:00"
   wording_strip:
     - '「[^」]*」'
     - '`[^`]*`'
@@ -461,6 +473,23 @@ requirement_contract:
       # 「한다」의 목적어 — 그 사이에 시안·Figma 류가 끼면 면제하지 않는다).
       unless: '「[^」]*전달」|version-id=|(PRD|기획서|노션|Notion)\s*(「[^」]*」\s*[·,]?\s*)*(이|가)\s(?:(?!Figma|피그마|시안|디자인|목업)[^\n]){0,30}(개정|반영|작성|갱신|추가)(된다|됨)|(PRD|기획서|노션|Notion)\s*(「[^」]*」\s*[·,]?\s*)*(을|를)\s(?:(?!Figma|피그마|시안|디자인|목업)[^을를\n]){0,20}(개정|반영|작성|갱신|추가)(한다|함)'
       hint: "고정되지 않은 시안·문서를 판정 기준으로 삼았다 — 시안은 바뀐다. 「X 전달」처럼 이름 붙인 전달본이나 version-id 링크로 고정하거나, 확인할 값을 항목에 직접 쓴다"
+    # 시안을 판정 기준으로 삼은 항목 — 고정했어도 (v0.16.0, owner 결정
+    # 2026-10-24). 시안은 표현(문구·배치·토큰)의 참고이지 티켓·피치 위의 기준이
+    # 아니다: 고정된 시안이 완료 조건과 두 군데 달랐던 Epic 에서 「…시안과
+    # 일치한다」 항목은 시안이 티켓을 이기게 만들었다. unpinned_oracle 의 시안
+    # 쪽 절반에서 고정 면제를 뺀 것 — 노션·PRD 판정 기준은 계속 unpinned_oracle
+    # 의 몫이고, 그 규칙은 그대로 둔다 (`since` 전 티켓이 기대는 규칙이다).
+    # 「디자인 토큰」·「디자인 시스템」은 시안이 아니라 이름 붙은 표현 체계라 뺀다.
+    # 시안 대조는 티켓 밖으로 — 트래커 봇의 QA 대기 코멘트에 붙는 비구속 단계다.
+    # `since` 이후 만들어진 티켓에만 건다 (소급하지 않는다). migrate 는 이
+    # 항목을 추가할 때 `since` 를 마이그레이션 날짜로 바꿔 쓴다.
+    - id: design_oracle
+      category: delegated_authority
+      severity: block
+      applies_to: [ticket_item, correction]
+      since: 2026-10-24
+      regex: '(Figma|피그마|시안|디자인(?!\s*(토큰|시스템))|목업)[^\n]{0,15}(일치|대로|따른|따라|맞춰|맞게|기준|정합)'
+      hint: "시안을 판정 기준으로 삼았다 — 「X 전달」·version-id 로 고정해도 면제되지 않는다. 시안은 표현(문구·배치·토큰)의 참고이고, 무엇이 언제 어떤 순서로 보이는지는 티켓과 피치가 정한다. 확인할 내용을 항목에 직접 쓰고, 시안 대조는 구속 섹션 밖에 둔다"
     # 아래 셋 (v0.14.0) 은 같은 원칙이다 — 티켓의 요구사항은 피치를 쓰게 하는
     # 원인이지 피치의 결과가 아니다. 원인 자리에 결과(문서 개정·시안 제작·개발
     # 진행 단계)를 적으면 권한이 뒤집힌다.
@@ -492,7 +521,8 @@ requirement_contract:
       hint: "시안 제작을 완료 조건으로 삼았다 — 시안은 요구사항의 결과물이지 요구사항이 아니다. 시안에 그려질 내용을 제품 문장으로 쓴다 (예: 「로봇 카드는 기본·충전·통신끊김·동종 다수 네 상태로 표시된다」)"
     # 개발·구현·QA·배포 같은 진행 단계로 끝나는 항목 — 「개발 완료」, 「QA 완료」,
     # 「앱 구현 + 테스트」, 「…작성·머지」. 문장 끝에 걸어서 「구현이 「X 전달」
-    # 시안과 일치한다」(템플릿 예시) 와 「…은 인터널에 구현한다」 는 걸리지 않는다.
+    # 시안과 일치한다」(옛 템플릿 예시 — v0.16 부터 design_oracle 이 막는다) 와
+    # 「…은 인터널에 구현한다」 는 여기 걸리지 않는다.
     # 2026-10-02 측정: Epic 19건 / 10개, 구현 Task 5건, 기타 1건, QA 0건.
     - id: delivery_step
       category: delegated_authority

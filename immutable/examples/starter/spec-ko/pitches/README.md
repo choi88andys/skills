@@ -55,6 +55,7 @@ Pitch 본문은 **"앱이 무엇을 해야 하는가"** 만 기술한다. 아래
 | 위젯·클래스명·패키지명 | 앱 코드 | 적지 않음 |
 | API endpoint·payload 스키마 | 백엔드 spec | 적지 않음 |
 | 디자인 토큰 (color/spacing 수치) | Figma | 적지 않음 (의미만 서술) |
+| 화면 문구·배치·표현 세부 | Figma | 적지 않음 — 단, **무엇을 보이는지와 언제 어떤 순서로 보이는지**는 Pitch 가 정한다. 둘이 다르면 Pitch 를 따르고 시안을 고친다. 범위 제외에는 표준 문장을 쓴다 (`TEMPLATE.md` 주석) |
 | 정확한 motion duration·easing 값 | 앱 코드 | 의도만 서술, 수치는 적지 않음 |
 
 구속력 키워드(`[MUST]` 등) 및 본문 작성 규칙 전체는 [`../CONTRIBUTING.md`](../CONTRIBUTING.md) 참조.

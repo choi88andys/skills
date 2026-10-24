@@ -438,10 +438,15 @@ strings:
 
   # v0.13+: 문구 점검 (`requirement_contract.py lint`) — Stage 1.6.0.
   prd.contract.lint_summary: |
-    문구 점검 (`requirement_contract.py lint`): 구속 항목 {item_count}개 중 block {block_items}개, warn {warn_count}건{fallback_note}
+    문구 점검 (`requirement_contract.py lint`): 구속 항목 {item_count}개 중 block {block_items}개, warn {warn_count}건{fallback_note}{since_note}
     block 항목은 모두 판정 후보입니다 — 정정안을 쓰거나, 문맥상 문제가 아니면 기각 사유 한 줄을 제안합니다. 어느 쪽이든 판정은 사용자 몫입니다.
 
   prd.contract.lint_fallback_note: " (팀 프로필에 문구 규칙이 없어 번들 기본 `{path}` 의 규칙으로 점검 — `/immutable:migrate` 권장)"
+
+  # v0.16+: 적용일(`since`)이 있는 규칙 — Stage 1.6.0 의 {since_note}.
+  prd.contract.lint_since_note: " — 이 티켓(생성 {created})은 {rules} 규칙의 적용일 전이라 그 규칙으로 판정하지 않았습니다 (보류된 적중 {withheld}건, 소급하지 않음)"
+
+  prd.contract.lint_created_unknown_note: " — 티켓 생성일을 알 수 없어 적용일이 있는 규칙({rules})도 모두 적용했습니다"
 
   prd.contract.lint_failed: |
     문구 점검을 실행하지 못했습니다:
@@ -456,6 +461,24 @@ strings:
     [{n}] {section} · {group} {ordinal} — "{match}"
         항목: {item_text}
         이유: {hint}
+
+  # v0.16+: 고정 시안 대조 (`figma_pin_texts.py`) — Stage 1.6.0b.
+  prd.contract.design_check_summary: |
+    고정 시안 대조 (`figma_pin_texts.py`): 시안 {pin_count}개, 화면 {screen_count}개 — 구속 항목과 다른 곳 {diff_count}건{unread_line}{unpinned_line}
+    시안은 표현 참고이고 구속 항목이 기준입니다. 다른 곳마다 골라주세요 — (a) 항목대로 (기본): 시안 수정 요청으로 인계 / (b) 항목이 틀림 (시안이 티켓의 뜻): 정정안을 써서 자기모순 판정 후보로 올림
+
+  prd.contract.design_check_row: |
+    [{n}] {section} · {group} {ordinal} — {aspect}
+        항목: {item_text}
+        시안: {design_fact} ({pin_label} · {screen})
+
+  prd.contract.design_check_unread_note: " — 읽지 못한 시안 {count}개: {labels} (일치로 치지 않음)"
+
+  prd.contract.design_check_unpinned_note: " — 버전 고정 없는 시안 링크 {count}개는 대조하지 않음 (지금 파일은 티켓이 본 시안이 아님)"
+
+  prd.contract.design_check_skipped: |
+    고정 시안 대조를 건너뜁니다: {reason}
+    판정은 티켓 문장만으로 계속합니다. Figma MCP 로 대신 읽지 않습니다 — MCP 는 고정된 버전을 읽지 못해 다른 시안을 보게 됩니다.
 
   prd.contract.judgement_header: |
     구속 항목 {item_count}개 중 {finding_count}개가 판정에 걸렸습니다. 항목마다 답해주세요 — (a) 판정 인정 / (b) 판정 거부 + 사유 한 줄 (인터뷰 기록에만 남고 pitch 에는 쓰이지 않습니다)
@@ -508,6 +531,15 @@ strings:
     {items}
     같은 규칙이면 이견에 함께 넣고, 무관하다면 그 이유를 근거에 적습니다.
 
+  # v0.16+: 장소 전파 — Stage 1.6.1.
+  prd.contract.place_propagation_note: |
+    항목이 열거한 장소 {places} 밖에서 같은 행위를 하는 곳을 다른 구속 항목에서 찾았습니다:
+    {items}
+    빠진 장소면 판정에 넣어 정정안에 추가하고, 다른 행위라면 그 이유를 근거에 적습니다.
+
+  # v0.16+: 표현을 시안에 넘기는 범위 제외의 표준 문장 — Stage 2 Branch E.
+  prd.stage2.nogo_design_line: "- **{subject}의 문구·배치·표현** — Figma 가 SSoT (*Outside scope*). 무엇을 보이는지와 언제 어떤 순서로 보이는지가 시안과 다르면 본 Pitch 를 따른다."
+
   prd.contract.correction_deferral_warning: |
     정정 문장이 결정이 아닙니다: "{correction}"
     ({pattern_hint})
@@ -520,6 +552,10 @@ strings:
   prd.contract.handoff_gap_line: |
     - 미배정 항목 — 같은 티켓을 인용하는 어느 pitch 도 아직 맡지 않은 Epic 항목입니다. 형제 pitch 를 쓸 때 `covers` 에 올리세요:
     {gaps}
+
+  prd.contract.handoff_design_fix_line: |
+    - 시안 수정 요청 — 구속 항목이 기준이라 시안을 고칠 곳입니다. 디자인 팀에 전달하세요 (전달은 사용자 몫):
+    {fixes}
 
   prd.stage6.supersede_gap: |
     supersede 대상 `{old_file}` 이 정하던 내용 중 새 초안에 없고, 존재하는 활성 pitch 로 인계되지도 않은 것이 있습니다:
@@ -767,6 +803,13 @@ strings:
       total: 8           # was 7
       pass_threshold: 7  # was 6
     ```
+
+  # v0.16+: 적용일(`since`)이 있는 문구 규칙을 추가했을 때 — Stage 5.2.6.
+  migrate.stage6.note_dated_rules: |
+    NOTE: 적용일(`since`)이 있는 문구 규칙을 오늘 날짜로 추가했습니다. 오늘부터 만들어진 티켓에만 걸고, 기존 티켓은 지금까지의 규칙 그대로 둡니다 (소급하지 않음):
+    {rules}
+    티켓 생성 시각은 `since_utc_offset: "{offset}"` 의 날짜로 읽습니다 — 다른 시간대의 팀이면 바꾸세요.
+    머지 전에 이 profile 을 읽는 모든 CI 의 플러그인 고정 버전을 `immutable--v0.16.0` 이상으로 올리세요. 그 전 엔진은 `since` 를 모르는 키로 건너뛰어 규칙을 모든 티켓에 소급 적용합니다.
 
   # ==========================================================================
   # common (shared across skills)

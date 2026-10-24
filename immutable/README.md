@@ -153,8 +153,10 @@ What then happens, and what deliberately does not:
   ticket text alone), judges every binding item (followed, or one of the
   admissible deviations: not implementable / self-contradiction / conflict
   with a settled requirement, and since v0.13 not concrete / delegated
-  authority — 「필요 시」, "as the pitch decides", an unpinned Figma as the
-  oracle), hands the author a correction request to post, and writes the
+  authority — 「필요 시」, "as the pitch decides", a design as the oracle,
+  pinned or not since v0.16), cross-checks the designs the ticket pins by
+  version-id against what the binding items state (v0.16+,
+  `scripts/figma_pin_texts.py`), hands the author a correction request to post, and writes the
   pitch against the corrected text. The pitch records the ticket's identity and **version
   coordinate** in `references.tickets[]` — never its text; the tracker keeps
   the body at that version.
@@ -173,7 +175,10 @@ What then happens, and what deliberately does not:
   exits 1 when a binding item's wording hits a `block` rule from the profile's
   `wording_rules`; the same rules judge a pitch's correction bullets in the
   validator. Recall only — precision is the skill's context check and the
-  human's verdict.
+  human's verdict. A rule may carry `since` (v0.16+): it then judges only
+  tickets created on or after that day, and every rule it withheld is
+  reported. `lint --from-body <file>` lints a local draft or the ticket
+  template.
 - **Merge gate** — `requirement_contract.py gate --mode off|warn|on …` (v0.15+):
   every `block` hit on a ticket an active pitch cites must be contested by
   a disagreement entry or acknowledged, hit by hit, in the repo's
@@ -230,6 +235,15 @@ Before v0.6.0, the plugin shipped only the artifact-authoring skills (`prd`, `ad
 ## Ship positioning
 
 `/immutable:ship` is intentionally **minimum-viable**. It guarantees chain integrity at PR time — verifies the eng review APPROVED, auto-includes the pitch and linked ADR paths in the PR body, and guards against common ship-time mistakes (dirty tree, failing tests, protected branch). It does NOT carry cross-session learnings capture, worktree-policy enforcement, or team-specific telemetry. Teams that want those layers should add them as hooks or wrapper skills around the `/immutable:ship` invocation rather than maintaining a parallel ship path.
+
+## What v0.16.0 changed (vs. v0.15.2)
+
+- `design_oracle`: a binding item that makes a design the acceptance oracle
+  blocks even when pinned — on tickets created from its `since` date on. Rules
+  gain an optional `since` (profile_schema 7), tickets a `created_at`, rule
+  keys turn strict, `lint` gains `--from-body`, and `/immutable:prd` cross-checks
+  pinned designs. **Bump CI pins before adopting a dated rule.** Details:
+  [`CHANGELOG.md`](CHANGELOG.md).
 
 ## What v0.15.0 changed (vs. v0.14.0)
 

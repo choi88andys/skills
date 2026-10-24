@@ -336,6 +336,16 @@ After the diff is collected, plan one final addition:
 - Replace exactly `profile_schema: <team_value>` with `profile_schema: <bundled_value>`. This is the only IN-PLACE modification the algorithm performs and it is bound to the schema version field specifically (the file's "I am at version X" marker).
 - If the comment immediately above `profile_schema:` is the bundled stock text for the team's old version, update the comment to reflect the bumped version range. Skip the comment update if the user has customized those comment lines (heuristic: any non-stock comment content within the 5 lines before `profile_schema:`).
 
+#### 5.2.6 Dated wording rules (v0.16+, profile_schema 7)
+
+A `requirement_contract.wording_rules[]` entry carrying `since` is **prospective**: it judges only tickets created on or after that date (read in `requirement_contract.since_utc_offset`). The bundled `since` is the date the rule shipped. Copied verbatim into a team that adopts it later, it would reach back over every ticket that team created between the release and the migration — retroactive for that team. So the universal diff treats `since` specially, and nowhere else departs from 5.2.1:
+
+- **ADD of an entry that carries `since`** (bundled `design_oracle`): write the entry with `since:` set to **today** — the migration date in the profile's `since_utc_offset` (the team's value if it has one, else the bundled one), e.g. `python3 -c 'import datetime as d; print(d.datetime.now(d.timezone(d.timedelta(hours=9))).date())'` for `+09:00` — not the bundled date. Show it in the plan preview as `+ requirement_contract.wording_rules[design_oracle] — since <today> (bundled: <bundled since>)`.
+- **The team already has that entry without `since`**: do NOT add `since` to it. A team that wrote the rule with no date chose to apply it to every ticket; narrowing it is a value change, which this skill never makes. List it as a skip.
+- **`since_utc_offset` missing**: an ordinary scalar ADD of the bundled value — always quoted (`"+09:00"`), because YAML 1.1 reads an unquoted `+10:00` as a base-60 integer, which the script refuses.
+
+Every dated rule added is named in the handoff (`migrate.stage6.note_dated_rules`), together with the offset in force — and the warning that matters most: every CI that reads this profile must pin the plugin at `immutable--v0.16.0` or later **before** this change merges. An older engine does not know `since`, skips it as an unknown key, and applies the rule to every ticket, old ones included.
+
 ### 5.3 Plan preview (when Stage 5 is the only stage running)
 
 Already shown in Stage 2 (which renders the structural diff output from 5.2). Skip re-rendering — proceed to 5.4.
@@ -381,7 +391,7 @@ Render `migrate.stage6.handoff` with:
 - `{config_path}` — absolute path of config.yml.
 - `{profile_path}` — absolute path of profile.yml.
 - `{stages_run}` — list of stages that actually executed (e.g., "config v2→v3; profile_schema 1→2 with 6 additions").
-- `{post_migration_notes}` — when Stage 5 added `concern_scope`, include the one-line note about manually bumping `gate.total` / `gate.pass_threshold` if the team wants the criterion to count.
+- `{post_migration_notes}` — when Stage 5 added `concern_scope`, include the one-line note about manually bumping `gate.total` / `gate.pass_threshold` if the team wants the criterion to count. When Stage 5 added a dated wording rule (5.2.6), include `migrate.stage6.note_dated_rules` with `{rules}` = one `  - <id>: since <date written> (bundled <bundled since>)` line per rule and `{offset}` = the `since_utc_offset` in force.
 - `{commit_suggestion}` — `git add .immutable-prd/ && git commit -m "chore: migrate immutable plugin to <vN>"`.
 
 ---
