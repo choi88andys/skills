@@ -1754,7 +1754,9 @@ def compute_gate(parser: argparse.ArgumentParser, args: argparse.Namespace) -> t
             row["errors"].append(e)
             errors.append(f"{tracker} {repo}#{tid}: {e} — the ticket cannot be shown clean")
         lint = compute_lint(compiled, parsed, [], ticket.get("created_at"), f"{tracker} {repo}#{tid}")
-        warnings.extend(w for w in lint["warnings"] if w not in warnings)
+        for w in lint["warnings"]:
+            if w not in warnings:  # a scope warning repeats for every ticket
+                warnings.append(w)
         row["created"] = lint["ticket_created"]
         row["since_skipped"] = lint["since_skipped"]
         for s in lint["since_skipped"]:
