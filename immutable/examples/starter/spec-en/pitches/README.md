@@ -55,6 +55,7 @@ The pitch body describes **"what the app should do"** only. The following elemen
 | Widget / class / package names | App code | Don't write |
 | API endpoint, payload schema | Backend spec | Don't write |
 | Design tokens (color/spacing values) | Figma | Don't write (describe semantics only) |
+| On-screen copy, layout and presentation details | Figma | Don't write — but **what is shown, and when and in what order**, is the pitch's to state. Where the two differ, the pitch governs and the design is fixed. Use the standard sentence in Out of Scope (`TEMPLATE.md` comment) |
 | Exact motion duration/easing values | App code | Describe intent only, no numbers |
 
 Normative keywords (`[MUST]` etc.) and full body rules: see [`../CONTRIBUTING.md`](../CONTRIBUTING.md).

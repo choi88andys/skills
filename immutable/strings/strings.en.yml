@@ -410,10 +410,15 @@ strings:
 
   # v0.13+: wording lint (`requirement_contract.py lint`) — Stage 1.6.0.
   prd.contract.lint_summary: |
-    Wording lint (`requirement_contract.py lint`): {block_items} of {item_count} binding item(s) with a block hit, {warn_count} warn hit(s){fallback_note}
+    Wording lint (`requirement_contract.py lint`): {block_items} of {item_count} binding item(s) with a block hit, {warn_count} warn hit(s){fallback_note}{since_note}
     Every block item is a judgement candidate — it gets a drafted correction, or, when context shows no defect, a proposed one-line dismissal. Either way the verdict is yours.
 
   prd.contract.lint_fallback_note: " (the team profile has no wording rules, so the bundled `{path}` rules were used — run `/immutable:migrate`)"
+
+  # v0.16+: rules with a `since` date — {since_note} in Stage 1.6.0.
+  prd.contract.lint_since_note: " — this ticket (created {created}) predates the rule(s) {rules}, so they did not judge it ({withheld} hit(s) withheld; never retroactive)"
+
+  prd.contract.lint_created_unknown_note: " — the ticket's creation date is unknown, so the dated rule(s) {rules} were applied too"
 
   prd.contract.lint_failed: |
     The wording lint could not run:
@@ -428,6 +433,24 @@ strings:
     [{n}] {section} · {group} {ordinal} — "{match}"
         item: {item_text}
         why: {hint}
+
+  # v0.16+: pinned-design cross-check (`figma_pin_texts.py`) — Stage 1.6.0b.
+  prd.contract.design_check_summary: |
+    Pinned-design cross-check (`figma_pin_texts.py`): {pin_count} design(s), {screen_count} screen(s) — {diff_count} difference(s) from the binding items{unread_line}{unpinned_line}
+    A design is a presentation reference; the binding items are the standard. Pick per difference — (a) the item stands (default): handed over as a design fix / (b) the item is wrong (the design shows what the ticket meant): a correction is drafted and raised as a self-contradiction candidate
+
+  prd.contract.design_check_row: |
+    [{n}] {section} · {group} {ordinal} — {aspect}
+        item: {item_text}
+        design: {design_fact} ({pin_label} · {screen})
+
+  prd.contract.design_check_unread_note: " — {count} design(s) could not be read: {labels} (not counted as agreeing)"
+
+  prd.contract.design_check_unpinned_note: " — {count} design link(s) without a version-id were not compared (today's file is not what the ticket saw)"
+
+  prd.contract.design_check_skipped: |
+    The pinned-design cross-check is skipped: {reason}
+    Judgement continues from the ticket text alone. The Figma MCP tools are not used instead — they cannot read a pinned version, so they would show a different design.
 
   prd.contract.judgement_header: |
     {finding_count} of {item_count} binding item(s) fall under a judgement. Answer per item — (a) accept the judgement / (b) reject it with a one-line reason (kept in the interview transcript only, never written to the pitch)
@@ -480,6 +503,15 @@ strings:
     {items}
     Fold them into the finding if it is the same rule; otherwise state in the evidence why they are unaffected.
 
+  # v0.16+: place propagation — Stage 1.6.1.
+  prd.contract.place_propagation_note: |
+    Other binding items show places outside the enumeration {places} performing the same act:
+    {items}
+    A missing place goes into the finding and its correction; a different act gets its reason in the evidence.
+
+  # v0.16+: the standard sentence for a no-go that hands presentation to the design — Stage 2 Branch E.
+  prd.stage2.nogo_design_line: "- **Copy, layout and presentation of {subject}** — Figma is the SSoT (*Outside scope*). Where what is shown, or when or in what order, differs from the design, this pitch governs."
+
   prd.contract.correction_deferral_warning: |
     The correction is not a decision: "{correction}"
     ({pattern_hint})
@@ -492,6 +524,10 @@ strings:
   prd.contract.handoff_gap_line: |
     - Uncovered items — Epic items no pitch citing this ticket owns yet. Put them in `covers` when the sibling pitch is written:
     {gaps}
+
+  prd.contract.handoff_design_fix_line: |
+    - Design fixes — the binding items are the standard, so these are places the design must change. Hand them to the design team (handing over is the user's job):
+    {fixes}
 
   prd.stage6.supersede_gap: |
     The superseded `{old_file}` defined content that the new draft neither carries nor hands off to an existing active pitch:
@@ -739,6 +775,13 @@ strings:
       total: 8           # was 7
       pass_threshold: 7  # was 6
     ```
+
+  # v0.16+: a wording rule with a `since` date was added — Stage 5.2.6.
+  migrate.stage6.note_dated_rules: |
+    NOTE: wording rule(s) with a `since` date were added, dated today. They judge only tickets created from today on; existing tickets keep the rules they had (never retroactive):
+    {rules}
+    A ticket's creation time is read as a date in `since_utc_offset: "{offset}"` — change it if the team works in another time zone.
+    Before merging, pin every CI that reads this profile at `immutable--v0.16.0` or later. An older engine skips `since` as an unknown key and applies the rule to every ticket, old ones included.
 
   # ==========================================================================
   # common (shared across skills)
