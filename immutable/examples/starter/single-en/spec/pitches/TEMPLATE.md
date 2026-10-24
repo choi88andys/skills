@@ -11,6 +11,7 @@ deprecated: false
 #       id: "3755"
 #       version: "2026-09-08T05:25:01Z"
 #       read_at: 2026-09-08
+#       created_at: "2026-09-01T02:10:00Z"   # the ticket's creation time (v0.16+ — dated wording rules judge by it)
 #       covers:                       # binding groups/items THIS pitch reflects (labels verbatim)
 #         acceptance:
 #           - group: Accrual
@@ -62,14 +63,17 @@ directly under the H2.
 ## Out of Scope
 
 - What this pitch **does not** cover (record exclusions explicitly)
+<!-- When presentation is handed to the design, use the standard sentence — the design governs only the presentation this pitch leaves open:
+- **Copy, layout and presentation of <subject>** — Figma is the SSoT (*Outside scope*). Where what is shown, or when or in what order, differs from the design, this pitch governs.
+-->
 
 ## Requirement Disagreements (optional)
 
 <!--
 Only in repos with requirement_contract enabled, and only when this pitch
-cannot follow a binding ticket item as written — the three admissible
-judgements are: not implementable / self-contradiction / conflict with a
-settled requirement. One `### ` entry per item. While the outcome reads
+cannot follow a binding ticket item as written — the admissible judgements
+are the profile's categories: not implementable / self-contradiction /
+conflict with a settled requirement / not concrete / delegated authority. One `### ` entry per item. While the outcome reads
 "Provisional" this pitch's PR stays open (validator --strict-body blocks the
 merge); rewrite it as "Agreed" or "Deadline passed" once settled, and keep the
 section — it tells a later reader the difference from the ticket is deliberate.
@@ -79,7 +83,7 @@ section — it tells a later reader the difference from the ticket is deliberate
 
 - **Original** <the ticket's sentence, verbatim>
 - **Correction** <the sentence this pitch follows>
-- **Reason** <Self-contradiction | Not implementable | Conflict with a settled requirement> — <evidence>
+- **Reason** <Self-contradiction | Not implementable | Conflict with a settled requirement | Not concrete | Delegated authority> — <evidence>
 - **Outcome** Provisional — correction requested YYYY-MM-DD
 
 ## Feature Flag (optional)

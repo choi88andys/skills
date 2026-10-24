@@ -12,7 +12,10 @@
 # nothing. An acknowledgement whose hit is gone is STALE, so an exemption
 # cannot outlive its cause. The cases pin those verdicts, the off / warn / on
 # switch, and that the gate fails closed: a ticket it cannot fetch, a ledger it
-# cannot trust, a deprecated pitch's disagreement — none buys a pass.
+# cannot trust, a deprecated pitch's disagreement — none buys a pass. Since
+# v0.16.0 a rule may be prospective (`since`); G9 pins that the gate judges a
+# ticket by the rules in force on its creation day, reports what it withheld,
+# and applies everything to a ticket whose creation day it cannot learn.
 #
 # The fixtures are synthetic. Ticket 4431 mirrors the SHAPE of the pilot's
 # case: one block hit, QA 4 「…시안과 일치한다」 (unpinned_oracle).
@@ -36,11 +39,15 @@ trap 'rm -rf "$RIG"' EXIT
 RIG="$(cd "$RIG" && pwd)"
 mkdir -p "$RIG/tickets" "$RIG/pitches"
 
-mkticket() {  # mkticket <id> <body-file>
-  python3 - "$2" "$RIG/tickets/$1.json" "$1" <<'PYX'
+# Tickets default to a creation time before the bundled design_oracle `since`
+# (2026-10-24): G1–G8 pin v0.15 verdicts on tickets that rule never judges.
+# G9 makes one after it.
+mkticket() {  # mkticket <id> <body-file> [created_at]
+  python3 - "$2" "$RIG/tickets/$1.json" "$1" "${3:-2026-09-20T06:00:00Z}" <<'PYX'
 import json, sys
 json.dump({"id": sys.argv[3], "title": "t", "url": "https://example.invalid/" + sys.argv[3],
-           "body": open(sys.argv[1], encoding="utf-8").read(), "version": "v1"},
+           "body": open(sys.argv[1], encoding="utf-8").read(), "version": "v1",
+           "created_at": sys.argv[4]},
           open(sys.argv[2], "w", encoding="utf-8"), ensure_ascii=False)
 PYX
 }
@@ -238,6 +245,47 @@ if [ "$RC" -eq 1 ] && [ "$(q 'len(d["ledger"]["problems"])')" = "2" ] \
   pass "G8 malformed ledger (unknown key, bad kind, duplicate) → fail with the problems"
 else
   fail "G8 ledger problems" "rc=$RC $(q 'd["ledger"]')"
+fi
+
+# G9 — design_oracle is prospective (v0.16.0). A ticket created on or after its
+# `since` in the profile's offset (+09:00: 2026-10-23T15:00:00Z is 2026-10-24
+# 00:00 KST) blocks on a PINNED 「…「X 전달」 시안과 일치한다」 item, which
+# unpinned_oracle exempts. One second earlier (23:59:59 KST on 10-23) the same
+# body is judged without it, and so is 4431: since_skipped names the rule and
+# the hit it withheld per ticket, and stderr says so. A ticket with no creation
+# date is judged by every rule, and a warning names it (fail-closed).
+cat >"$RIG/4448.md" <<'MD'
+### 완료 조건
+
+- [ ] 주문 카드에 증정 상품이 이벤트 개수로 따로 표기된다
+
+### QA 통과 리스트
+
+- [ ] 표기 배지 형태가 「배지 개편 전달」 시안과 일치한다
+MD
+mkticket 4448 "$RIG/4448.md" "2026-10-23T15:00:00Z"
+mkticket 4449 "$RIG/4448.md" "2026-10-23T14:59:59Z"
+python3 - "$RIG/tickets/4448.json" "$RIG/tickets/4450.json" <<'PYX'
+import json, sys
+t = json.load(open(sys.argv[1], encoding="utf-8"))
+del t["created_at"]
+t["id"] = "4450"
+json.dump(t, open(sys.argv[2], "w", encoding="utf-8"), ensure_ascii=False)
+PYX
+mkpitch new.md false "4431 4448 4449 4450"
+gate on --ledger "$RIG/ack.yml" "$RIG/pitches/new.md"
+if [ "$RC" -eq 1 ] \
+  && [ "$(q "$REM")" = "[('4448', 'qa_checklist', None, 1, 'design_oracle'), ('4450', 'qa_checklist', None, 1, 'design_oracle')]" ] \
+  && [ "$(q '[(s["id"], s["rule"], s["ticket_created"], s["withheld_hits"]) for s in d["since_skipped"]]')" = "[('4431', 'design_oracle', '2026-09-20', 1), ('4449', 'design_oracle', '2026-10-23', 1)]" ] \
+  && [ "$(q '[(t["id"], t["created"]) for t in d["tickets"]]')" = "[('4431', '2026-09-20'), ('4448', '2026-10-24'), ('4449', '2026-10-23'), ('4450', None)]" ] \
+  && [ "$(q 'any("acme/tracker#4450 has no creation date" in w and "design_oracle" in w for w in d["warnings"])')" = "True" ] \
+  && grep -qF "withheld 2 hit(s) on 2 ticket(s)" <<<"$ERR"; then
+  pass "G9 since gating: a ticket from the KST since day blocks on a pinned design item; older ones are reported, not judged"
+else
+  fail "G9 since gating" "rc=$RC $(q "$REM")
+since_skipped=$(q 'd["since_skipped"]')
+tickets=$(q '[(t["id"], t["created"]) for t in d["tickets"]]')
+warnings=$(q 'd["warnings"]') err=$ERR"
 fi
 
 echo

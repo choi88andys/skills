@@ -591,6 +591,103 @@ $OUT"
 fi
 rm -f "$LEDGER"
 
+# C16 — the ticket record's creation date (v0.16). The validator lints
+# corrections offline, so the record is the only place a since-gated rule
+# learns when the contested ticket was created — and it is required only where
+# it is read. Once the profile carries a dated rule (the bundled design_oracle,
+# since 2026-10-24), a ticket that a disagreement entry contests needs
+# `created_at` on a pitch dated within a day of that `since` or later (the
+# filename date is the author's local date, which may trail the ticket's day).
+# A ticket no entry contests needs none, nor does an older pitch. A
+# `created_at` the engine cannot read is a violation at any date (always on).
+write_config required
+run --type pitch
+BASE=$(count); BASE=${BASE:-0}
+TICKET_AT() { printf '%s\n      created_at: "%s"' "$TICKET" "$1"; }
+SETTLED="$DISAGREE_HEAD- **결과** 합의 — 10/24"
+mkpitch 2026-10-26-nocorr.md "$TICKET" ""
+mkpitch 2026-10-22-old.md "$TICKET" "$SETTLED"
+mkpitch 2026-10-23-margin.md "$TICKET" "$SETTLED"
+mkpitch 2026-10-25-recorded.md "$(TICKET_AT 2026-10-24T01:00:00Z)" "$SETTLED"
+mkpitch 2026-10-25-badcreated.md "$(TICKET_AT yesterday)" ""
+run --type pitch
+PLAIN_RC=$RC; PLAIN=$(count)
+run --type pitch --strict-body --strict-since 2026-10-01
+if [ "$PLAIN_RC" -eq 1 ] && [ "$PLAIN" = "$((BASE + 1))" ] \
+  && [ "$RC" -eq 1 ] && [ "$(count)" = "$((BASE + 2))" ] \
+  && grep -qF "2026-10-23-margin.md: references.tickets[0] has no created_at — a disagreement entry contests that ticket and the pitch is dated on or after 2026-10-23" <<<"$OUT" \
+  && grep -qF "2026-10-25-badcreated.md: references.tickets[0].created_at 'yesterday' is neither" <<<"$OUT" \
+  && ! grep -qF "nocorr.md" <<<"$OUT" && ! grep -qF "2026-10-22-old.md" <<<"$OUT" && ! grep -qF "recorded.md" <<<"$OUT"; then
+  pass "C16 created_at: required for a contested ticket from a day before since; shape always checked"
+else
+  fail "C16 created_at" "base=$BASE plain rc=$PLAIN_RC/$PLAIN strict rc=$RC violations=$(count)
+$OUT"
+fi
+rm -f "$P"/2026-10-2[23456]-*.md
+
+# C17 — a since-gated rule judges a correction only when the contested ticket
+# (matched by the entry header against the pitch's ticket record) was created
+# on or after its `since`. A design-oracle correction on a ticket created before
+# 2026-10-24 passes, and stderr counts what was withheld; on a ticket created on
+# the since day it is a violation. With no `created_at`, the pitch's own date
+# plus a day stands in: a pitch two days older than the rule is not judged by
+# it; one a day before it, or later, is (and is told to record the date).
+CORR='## 요구사항 이견
+
+### github acme/tracker#3755 · 완료 조건 · 적립 7
+
+- **원문** 1,000원 미만 제외
+- **정정** 구현이 「적립 개편 전달」 시안과 일치한다
+- **사유** 자기모순 — 비고와 다름
+- **결과** 합의 — 10/24'
+mkpitch 2026-10-25-corr-oldticket.md "$(TICKET_AT 2026-09-01T00:00:00Z)" "$CORR"
+mkpitch 2026-10-25-corr-newticket.md "$(TICKET_AT 2026-10-23T15:00:00Z)" "$CORR"
+mkpitch 2026-10-22-corr-oldpitch.md "$TICKET" "$CORR"
+mkpitch 2026-10-23-corr-margin.md "$TICKET" "$CORR"
+mkpitch 2026-10-26-corr-nocreated.md "$TICKET" "$CORR"
+run --type pitch --strict-body --strict-since 2026-10-01
+# BASE (C16) is the always-on violation count of the older fixtures.
+if [ "$RC" -eq 1 ] && [ "$(count)" = "$((BASE + 5))" ] \
+  && grep -qF "2026-10-25-corr-newticket.md: requirement-contract disagreement violation" <<<"$OUT" \
+  && grep -qF "matched wording_rules[design_oracle]" <<<"$OUT" \
+  && grep -qF "2026-10-26-corr-nocreated.md: requirement-contract disagreement violation" <<<"$OUT" \
+  && grep -qF "2026-10-26-corr-nocreated.md: references.tickets[0] has no created_at" <<<"$OUT" \
+  && grep -qF "2026-10-23-corr-margin.md: requirement-contract disagreement violation" <<<"$OUT" \
+  && grep -qF "2026-10-23-corr-margin.md: references.tickets[0] has no created_at" <<<"$OUT" \
+  && grep -qF "note: since-gated wording rule(s) not applied to corrections on tickets created before their since date: design_oracle ×2" <<<"$OUT" \
+  && ! grep -qF "corr-oldticket.md: requirement-contract" <<<"$OUT" && ! grep -qF "corr-oldpitch.md" <<<"$OUT"; then
+  pass "C17 since-gated correction rule: judged by the contested ticket's creation day, the pitch date (+1 day) standing in"
+else
+  fail "C17 since-gated corrections" "rc=$RC violations=$(count)
+$OUT"
+fi
+rm -f "$P"/2026-10-2[2356]-corr-*.md
+
+# C18 — a wording rule the compiler cannot trust (here an unknown key, the
+# shape a newer rule's key takes in an older profile reader) is a violation
+# naming it, never a rule quietly dropped from the correction check — `lint`
+# exits 2 on the same profile. Before v0.16 the key was ignored and the rule
+# applied; dropping it with a warning would have been a weaker gate.
+cat >"$REPO/.immutable-prd/profile.yml" <<'YML'
+profile_schema: 7
+locale: ko
+requirement_contract:
+  categories:
+    - { id: non_concrete, label: "구체성 결함" }
+  wording_rules:
+    - { id: conditional, category: non_concrete, severity: block, applies_to: [ticket_item, correction], regex: "필요 시", note: "팀 메모" }
+YML
+write_config required "profile: .immutable-prd/profile.yml"
+run --type pitch
+if [ "$RC" -eq 1 ] && [ "$(count)" = "$((BASE + 1))" ] \
+  && grep -qF "active profile: requirement_contract.wording_rules[conditional]: unknown key(s) ['note']" <<<"$OUT"; then
+  pass "C18 untrusted wording rule (unknown key) → a violation naming it, not a skipped rule"
+else
+  fail "C18 untrusted rule" "base=$BASE rc=$RC violations=$(count)
+$OUT"
+fi
+rm -f "$REPO/.immutable-prd/profile.yml"
+
 echo
 if [ "$FAILURES" -eq 0 ]; then
   echo "all $PASSES cases passed."
