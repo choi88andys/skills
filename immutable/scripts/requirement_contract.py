@@ -26,8 +26,9 @@ Subcommands
   lint      judge the WORDING of every binding item — or of drafted
             correction sentences — against the profile's wording rules: a
             completion condition nobody can judge (「필요 시」), one deferring to
-            the very pitch that must follow it, an unpinned design made the
-            oracle. Deterministic, no LLM; the skill and CI run the same rules
+            the very pitch that must follow it, a design made the oracle
+            (pinned or not, on tickets created since v0.16's `design_oracle`).
+            Deterministic, no LLM; the skill and CI run the same rules
 
 Nothing tracker-specific is baked in beyond one default adapter:
 
@@ -54,12 +55,20 @@ Nothing tracker-specific is baked in beyond one default adapter:
   * The version coordinate is an opaque string; the only operation this
     script performs on it is equality. GitHub's is the body's last-edit time.
 
-Ticket-input JSON (what an adapter prints; `history` is optional):
+Ticket-input JSON (what an adapter prints; `history` and `created_at` are
+optional):
 
   {"id": "3755", "title": "…", "url": "…", "body": "<markdown>",
    "version": "2026-09-08T05:25:01Z", "state": "OPEN",
    "labels": ["ux"], "milestone": "v2.3.1",
+   "created_at": "2026-09-01T02:10:00Z",
    "history": [{"version": "…", "body": "<markdown at that version>"}, …]}
+
+`created_at` (v0.16+) is when the ticket was created — an ISO 8601 timestamp
+with an offset or `Z`, or a bare `YYYY-MM-DD`. A wording rule with `since`
+judges only tickets created on or after that day; an adapter that cannot say
+leaves the field out, and then every such rule applies (fail-closed) with a
+warning naming the ticket.
 
 Everything the parser recognises is plain GitHub-flavoured markdown:
 
@@ -97,7 +106,8 @@ Output contract (`schema: 2`) — always JSON on stdout, even on failure:
                items, duplicate item text, fenced code inside a binding section
   errors[]     what made the exit code non-zero
   source       `fetch`/`drift`: tracker, repo, id, title, url, state, labels,
-               milestone, version, fetched_at, read_at
+               milestone, version, created_at (null when the adapter gave
+               none), fetched_at, read_at
 
 `drift` adds: `recorded_version`, `current_version`, `drift` (versions
 differ), `history_available` (the recorded body could be retrieved),
@@ -141,9 +151,18 @@ and `wording_strip[]` (profile_schema 5), plus the legacy
 `compile_wording`). A profile without `wording_rules` falls back to the bundled
 default for its `locale`, named in `rules.fallback` and a warning. The ticket
 comes from the same flags as `fetch`, or `--from-json` (the JSON a prior
-`parse`/`fetch` printed — what the author actually read), or the input is
-`--correction SENTENCE` (repeatable) instead of a ticket. Output: `rules`
-(profile, fallback, rule counts per target), `hits[]`, `counts`, plus
+`parse`/`fetch` printed — what the author actually read), or `--from-body
+FILE` (v0.16+: a local markdown body — a draft about to be filed, or the
+ticket template — with `--binding` flags and no tracker), or the input is
+`--correction SENTENCE` (repeatable) instead of a ticket. A rule's `since`
+is compared with the ticket's creation day in the profile's
+`since_utc_offset`: from `source.created_at` for `--id` / `--from-json`, from
+`--created-at` for `--correction` / `--from-body` — a body defaults to today,
+a correction without it applies every rule and warns. Output: `rules`
+(profile, fallback, rule counts per target, `since` per gated rule,
+`since_utc_offset`), `ticket_created` (the day the gating used, or null),
+`hits[]`, `counts` (with `since_withheld`), `since_skipped[]` (every rule
+`since` withheld — `rule`, `since`, `ticket_created`, `withheld_hits`), plus
 `source`, `absent`, `warnings`, `errors` as `fetch` prints them. A hit carries
 the item's ledger coordinate — `binding`, `group`, `in_group` — with
 `ordinal`, `line`, `text`, and the rule's `rule` (id), `source`
@@ -158,8 +177,10 @@ pitches cite and subtracts (1) hits whose item a citing pitch contests in its
 disagreement section — the `### <tracker> <repo>#<id> · <heading> · [<group>
 ]<n>` header — and (2) hits the ledger acknowledges by exact coordinate and
 rule. A `delegates` declaration resolves nothing: it says who owns a literal,
-not that a defective item may bind. Output: `verdict`, `tickets[]` (per-ticket
-counts), `remaining[]`, `stale[]` (ledger entries whose hit is gone — the
+not that a defective item may bind. Each ticket is judged by the rules in
+force on its creation day (`since`, as `lint`). Output: `verdict`, `tickets[]`
+(per-ticket counts, `created`, `since_skipped`), `since_skipped[]` (every
+withheld rule per ticket, with its would-be hits), `remaining[]`, `stale[]` (ledger entries whose hit is gone — the
 ticket was edited, the rule changed, or no active pitch cites the ticket any
 more, so an exemption cannot outlive its cause), `resolved[]`,
 `unmatched_disagreements[]`, `ledger.problems[]`. The ledger format is
@@ -231,6 +252,12 @@ HISTORY_PAGE = 100
 FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---\n", re.DOTALL)
 WORDING_TARGETS = ("ticket_item", "correction")
 WORDING_SEVERITIES = ("block", "warn")
+# Every key a `wording_rules[]` entry may carry. Anything else is a problem:
+# an engine that ignored an unknown key would read a newer rule's `since` as
+# nothing and apply that rule to every ticket, retroactively and silently.
+WORDING_RULE_KEYS = ("id", "category", "severity", "applies_to", "scope", "regex", "unless", "hint", "since")
+UTC_OFFSET_RE = re.compile(r"^([+-])(\d{2}):(\d{2})$")
+DEFAULT_SINCE_UTC_OFFSET = "+00:00"
 BUNDLED_PROFILES = Path(__file__).resolve().parent.parent / "examples" / "_profiles"
 
 # The built-in GitHub adapter. `userContentEdits` holds the FULL body after each
@@ -620,6 +647,7 @@ def github_fetch(repo: str, ticket_id: str) -> dict[str, Any]:
         "url": issue.get("url"),
         "body": issue.get("body") or "",
         "version": version,
+        "created_at": issue.get("createdAt"),
         "state": issue.get("state"),
         "labels": [lb.get("name") for lb in ((issue.get("labels") or {}).get("nodes") or []) if isinstance(lb, dict)],
         "milestone": milestone.get("title") if isinstance(milestone, dict) else None,
@@ -662,12 +690,16 @@ def normalize_ticket(data: dict[str, Any], ticket_id: str) -> dict[str, Any]:
         if isinstance(h, dict) and h.get("version") and isinstance(h.get("body"), str)
     ]
     labels = data.get("labels") or []
+    created = data.get("created_at")
     return {
         "id": str(data.get("id") or ticket_id),
         "title": data.get("title"),
         "url": data.get("url"),
         "body": data["body"],
         "version": version.strip(),
+        # Optional in the contract: an adapter that cannot say when the ticket
+        # was created leaves it out, and every since-gated rule then applies.
+        "created_at": created.strip() if isinstance(created, str) and created.strip() else None,
         "state": data.get("state"),
         "labels": [str(x) for x in labels] if isinstance(labels, list) else [],
         "milestone": data.get("milestone"),
@@ -698,6 +730,7 @@ def source_block(args: argparse.Namespace, ticket: dict[str, Any]) -> dict[str, 
         "labels": ticket["labels"],
         "milestone": ticket["milestone"],
         "version": ticket["version"],
+        "created_at": ticket.get("created_at"),
         "fetched_at": now.isoformat(timespec="seconds"),
         "read_at": now.date().isoformat(),
     }
@@ -980,27 +1013,39 @@ def compile_wording(contract: Any) -> dict[str, Any]:
     Two sources, in this order:
 
       * `wording_rules[]` — `{id, category, severity, applies_to, scope?,
-        regex, unless?, hint}`. Matched case-insensitively against the text
+        regex, unless?, hint, since?}`. Matched case-insensitively against the text
         after every `wording_strip[]` pattern has blanked the quoted UI
         literals: a 「처리 중…」 label is the screen's copy, not the
         requirement's wording. `unless` is matched against the RAW text,
         because what it looks for — a pinned 「X 전달」 delivery name — is
         itself a quoted literal. `scope` (binding ids) limits a rule to those
         sections; a scoped rule never judges a correction, which has none.
+        `since` (v0.16+, a date) makes a rule prospective: it judges only
+        tickets created on or after that date, read in the contract's
+        `since_utc_offset` (`rules_in_force`). Any other key is a problem —
+        an engine that skipped unknown keys would read `since` as nothing.
       * `disagreement.deferral_patterns[]` (v0.11–v0.12) — read as rules that
         apply to corrections only: severity `block`, no category, matched
         case-sensitively on the raw text, exactly as v0.12 matched them, so a
         profile that predates `wording_rules` passes and fails the same pitches.
 
-    Returns `{"rules", "strip", "problems"}`. A problem names a rule the
-    caller must not trust (invalid regex, unknown category, severity or
-    target, duplicate id); that rule is left out of `rules`.
+    Returns `{"rules", "strip", "utc_offset", "problems"}`. A problem names a
+    rule the caller must not trust (unknown key, invalid regex, unknown
+    category, severity or target, duplicate id, a `since` that is not a date);
+    that rule is left out of `rules`. A malformed `since_utc_offset` is a
+    problem too, and the default (UTC) stands in for it.
     """
     contract = contract if isinstance(contract, dict) else {}
     problems: list[str] = []
     categories = {
         str(c["id"]) for c in contract.get("categories") or [] if isinstance(c, dict) and c.get("id")
     }
+    raw_offset = contract.get("since_utc_offset")
+    raw_offset = DEFAULT_SINCE_UTC_OFFSET if raw_offset is None else raw_offset
+    utc_offset = parse_utc_offset(raw_offset)
+    if utc_offset is None:
+        problems.append(f"since_utc_offset must be ±HH:MM, got {raw_offset!r}")
+        utc_offset = parse_utc_offset(DEFAULT_SINCE_UTC_OFFSET)
 
     strip: list[re.Pattern[str]] = []
     for i, pat in enumerate(contract.get("wording_strip") or []):
@@ -1031,6 +1076,16 @@ def compile_wording(contract: Any) -> dict[str, Any]:
             problems.append(f"{where}: id given twice")
             continue
         seen.add(rid)
+        unknown = sorted(str(k) for k in set(entry) - set(WORDING_RULE_KEYS))
+        if unknown:
+            problems.append(f"{where}: unknown key(s) {unknown} — allowed: {list(WORDING_RULE_KEYS)}")
+            continue
+        since: _dt.date | None = None
+        if entry.get("since") is not None:
+            since = parse_date(entry["since"])
+            if since is None:
+                problems.append(f"{where}: since must be a date (YYYY-MM-DD), got {entry['since']!r}")
+                continue
         category = str(entry.get("category") or "")
         if category not in categories:
             problems.append(f"{where}: category {category!r} is not one of requirement_contract.categories {sorted(categories)}")
@@ -1058,6 +1113,7 @@ def compile_wording(contract: Any) -> dict[str, Any]:
             "id": rid, "source": "wording_rules", "category": category, "severity": severity,
             "applies_to": tuple(applies), "scope": tuple(scope) if scope else None,
             "regex": regex, "unless": unless, "hint": str(entry.get("hint") or ""), "strip": True,
+            "since": since,
         })
 
     legacy = (contract.get("disagreement") or {}).get("deferral_patterns") or []
@@ -1072,8 +1128,91 @@ def compile_wording(contract: Any) -> dict[str, Any]:
             "id": pid, "source": "deferral_patterns", "category": None, "severity": "block",
             "applies_to": ("correction",), "scope": None,
             "regex": regex, "unless": None, "hint": str(entry.get("hint") or ""), "strip": False,
+            "since": None,
         })
-    return {"rules": rules, "strip": strip, "problems": problems}
+    return {"rules": rules, "strip": strip, "utc_offset": utc_offset, "problems": problems}
+
+
+def parse_utc_offset(value: Any) -> _dt.timezone | None:
+    """`±HH:MM` → a fixed-offset timezone, else None."""
+    m = UTC_OFFSET_RE.match(str(value).strip()) if isinstance(value, str) else None
+    if not m or int(m.group(2)) > 23 or int(m.group(3)) > 59:
+        return None
+    delta = _dt.timedelta(hours=int(m.group(2)), minutes=int(m.group(3)))
+    return _dt.timezone(-delta if m.group(1) == "-" else delta)
+
+
+def parse_date(value: Any) -> _dt.date | None:
+    """A calendar date — a YAML date or a `YYYY-MM-DD` string — else None.
+    A YAML timestamp is refused: `since` names a day, not an instant."""
+    if isinstance(value, _dt.datetime):
+        return None
+    if isinstance(value, _dt.date):
+        return value
+    try:
+        return _dt.date.fromisoformat(str(value).strip())
+    except ValueError:
+        return None
+
+
+def created_date(value: Any, tz: _dt.timezone) -> _dt.date | None:
+    """The calendar day, in `tz`, a ticket was created on — or None.
+
+    Accepts what adapters print and what a pitch's ticket record holds: an ISO
+    8601 timestamp with an offset or `Z` (converted into `tz`), a bare
+    `YYYY-MM-DD` (already a day, taken as is), or the YAML date / datetime
+    those parse into (a naive YAML datetime is UTC — PyYAML's own reading).
+    A timestamp with no offset is ambiguous by an up-to-a-day margin and is
+    refused (None), which the callers treat as "creation date unknown".
+    """
+    if isinstance(value, _dt.datetime):
+        aware = value if value.tzinfo else value.replace(tzinfo=_dt.timezone.utc)
+        return aware.astimezone(tz).date()
+    if isinstance(value, _dt.date):
+        return value
+    if not isinstance(value, str) or not value.strip():
+        return None
+    s = value.strip()
+    if len(s) == 10:
+        return parse_date(s)
+    try:
+        # Python < 3.11 reads no `Z` suffix.
+        stamp = _dt.datetime.fromisoformat(s[:-1] + "+00:00" if s[-1:] in ("Z", "z") else s)
+    except ValueError:
+        return None
+    if stamp.tzinfo is None:
+        return None
+    return stamp.astimezone(tz).date()
+
+
+def rules_in_force(compiled: dict[str, Any], created: _dt.date | None) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """`compiled` cut down to the rules that judge a ticket created on
+    `created`, plus the rules `since` withholds from it.
+
+    `created` None means the creation date is unknown — every rule is in
+    force (fail-closed), and the caller says so out loud. A rule without
+    `since` is always in force.
+    """
+    if created is None:
+        return compiled, []
+    keep: list[dict[str, Any]] = []
+    withheld: list[dict[str, Any]] = []
+    for rule in compiled["rules"]:
+        (withheld if rule.get("since") is not None and created < rule["since"] else keep).append(rule)
+    return {**compiled, "rules": keep}, withheld
+
+
+def has_since(compiled: dict[str, Any], target: str | None = None) -> bool:
+    """Whether any rule (applying to `target`, when given) carries `since`."""
+    return any(
+        r.get("since") is not None and (target is None or target in r["applies_to"])
+        for r in compiled["rules"]
+    )
+
+
+def earliest_since(compiled: dict[str, Any]) -> _dt.date | None:
+    dates = [r["since"] for r in compiled["rules"] if r.get("since") is not None]
+    return min(dates) if dates else None
 
 
 def strip_literals(strip: list[re.Pattern[str]], text: str) -> str:
@@ -1150,6 +1289,8 @@ def lint_rules(profile_path: str) -> tuple[dict[str, Any], dict[str, Any], list[
         contract["wording_rules"] = bc.get("wording_rules") or []
         if "wording_strip" not in contract:
             contract["wording_strip"] = bc.get("wording_strip") or []
+        if "since_utc_offset" not in contract and "since_utc_offset" in bc:
+            contract["since_utc_offset"] = bc["since_utc_offset"]
         known = {c.get("id") for c in contract.get("categories") or [] if isinstance(c, dict)}
         contract["categories"] = list(contract.get("categories") or []) + [
             c for c in bc.get("categories") or [] if isinstance(c, dict) and c.get("id") not in known
@@ -1165,8 +1306,18 @@ def lint_rules(profile_path: str) -> tuple[dict[str, Any], dict[str, Any], list[
     per_target = {t: sum(t in r["applies_to"] for r in compiled["rules"]) for t in WORDING_TARGETS}
     if not per_target["ticket_item"]:
         warnings.append("no wording rule applies to ticket_item — binding items are not checked")
-    meta = {"profile": profile_path, "fallback": fallback, **per_target}
+    meta = {
+        "profile": profile_path, "fallback": fallback, **per_target,
+        "since": {r["id"]: r["since"].isoformat() for r in compiled["rules"] if r.get("since") is not None},
+        "since_utc_offset": offset_label(compiled["utc_offset"]),
+    }
     return compiled, meta, warnings
+
+
+def offset_label(tz: _dt.timezone) -> str:
+    minutes = int(tz.utcoffset(None).total_seconds() // 60)
+    sign = "-" if minutes < 0 else "+"
+    return f"{sign}{abs(minutes) // 60:02d}:{abs(minutes) % 60:02d}"
 
 
 def load_parsed_json(path: str) -> dict[str, Any]:
@@ -1181,16 +1332,57 @@ def load_parsed_json(path: str) -> dict[str, Any]:
     return data
 
 
-def compute_lint(compiled: dict[str, Any], parsed: dict[str, Any] | None, corrections: list[str]) -> dict[str, Any]:
-    hits: list[dict[str, Any]] = []
-    warnings: list[str] = []
-    items = struck = 0
-    blocked: set[tuple[str, int]] = set()
+def lint_subjects(parsed: dict[str, Any] | None, corrections: list[str]) -> tuple[list[tuple[dict[str, Any], tuple[str, int]]], int]:
+    """Everything a lint judges, as (coordinate, block key) pairs, plus the
+    number of struck items skipped — struck items are withdrawn requirements."""
+    subjects: list[tuple[dict[str, Any], tuple[str, int]]] = []
+    struck = 0
+    for b in (parsed or {}).get("bindings", []):
+        for g in b["groups"]:
+            for it in g["items"]:
+                if it.get("struck"):
+                    struck += 1
+                    continue
+                subjects.append(({
+                    "target": "ticket_item", "binding": b["id"], "heading": b["heading"],
+                    "group": g["label"], "in_group": it["in_group"], "ordinal": it["ordinal"],
+                    "line": it["line"], "text": it["text"],
+                }, (b["id"], it["ordinal"])))
+    for i, sentence in enumerate(corrections, 1):
+        subjects.append(({
+            "target": "correction", "binding": None, "heading": None, "group": None,
+            "in_group": None, "ordinal": None, "line": None, "text": norm_text(sentence),
+        }, ("", i)))
+    return subjects, struck
 
-    def add(h: dict[str, Any], key: tuple[str, int], coord: dict[str, Any]) -> None:
-        hits.append({**coord, **h})
-        if h["severity"] == "block":
-            blocked.add(key)
+
+def compute_lint(
+    compiled: dict[str, Any], parsed: dict[str, Any] | None, corrections: list[str],
+    created_at: Any = None, what: str = "the ticket",
+) -> dict[str, Any]:
+    """Lint `parsed`'s binding items and/or `corrections`.
+
+    `created_at` is when the ticket was created (any form `created_date`
+    reads; None = unknown) and `what` names it in warnings. A rule whose
+    `since` falls after that day is withheld — reported in `since_skipped`
+    with the hits it would have produced, never dropped silently. With the
+    date unknown, every rule applies and a warning says so (fail-closed).
+    """
+    warnings: list[str] = []
+    subjects, struck = lint_subjects(parsed, corrections)
+    targets = {coord["target"] for coord, _ in subjects}
+    created = created_date(created_at, compiled["utc_offset"])
+    if created_at not in (None, "") and created is None:
+        warnings.append(
+            f"{what}: creation date {str(created_at)!r} is neither YYYY-MM-DD nor a timestamp "
+            f"with an offset — read as unknown"
+        )
+    gated = [r["id"] for r in compiled["rules"] if r.get("since") is not None and targets & set(r["applies_to"])]
+    if gated and created is None:
+        warnings.append(
+            f"{what} has no creation date — since-gated rule(s) {gated} applied anyway (fail-closed)"
+        )
+    active, withheld = rules_in_force(compiled, created)
 
     if parsed is not None:
         declared = {b["id"] for b in parsed["bindings"]}
@@ -1201,38 +1393,36 @@ def compute_lint(compiled: dict[str, Any], parsed: dict[str, Any] | None, correc
                     f"wording rule {rule['id']} is scoped to {unknown}, which this run does not declare "
                     f"as bindings {sorted(declared)} — it never fires there"
                 )
-        for b in parsed["bindings"]:
-            for g in b["groups"]:
-                for it in g["items"]:
-                    if it.get("struck"):
-                        struck += 1
-                        continue
-                    items += 1
-                    coord = {
-                        "target": "ticket_item", "binding": b["id"], "heading": b["heading"],
-                        "group": g["label"], "in_group": it["in_group"], "ordinal": it["ordinal"],
-                        "line": it["line"], "text": it["text"],
-                    }
-                    for h in wording_hits(compiled, it["text"], "ticket_item", b["id"]):
-                        add(h, (b["id"], it["ordinal"]), coord)
-    for i, sentence in enumerate(corrections, 1):
-        items += 1
-        text = norm_text(sentence)
-        coord = {
-            "target": "correction", "binding": None, "heading": None, "group": None,
-            "in_group": None, "ordinal": None, "line": None, "text": text,
+
+    def judge(rules: dict[str, Any]) -> list[tuple[dict[str, Any], tuple[str, int]]]:
+        out: list[tuple[dict[str, Any], tuple[str, int]]] = []
+        for coord, key in subjects:
+            for h in wording_hits(rules, coord["text"], coord["target"], coord["binding"]):
+                out.append(({**coord, **h}, key))
+        return out
+
+    judged = judge(active)
+    hits = [h for h, _ in judged]
+    since_skipped = [
+        {
+            "rule": r["id"], "since": r["since"].isoformat(), "ticket_created": created.isoformat(),
+            "withheld_hits": len(judge({**compiled, "rules": [r]})),
         }
-        for h in wording_hits(compiled, text, "correction"):
-            add(h, ("", i), coord)
+        for r in withheld
+        if targets & set(r["applies_to"])
+    ] if created is not None else []
     return {
         "hits": hits,
         "counts": {
-            "items": items,
+            "items": len(subjects),
             "struck_skipped": struck,
-            "items_with_block": len(blocked),
+            "items_with_block": len({key for h, key in judged if h["severity"] == "block"}),
             "block": sum(h["severity"] == "block" for h in hits),
             "warn": sum(h["severity"] == "warn" for h in hits),
+            "since_withheld": sum(row["withheld_hits"] for row in since_skipped),
         },
+        "ticket_created": created.isoformat() if created is not None else None,
+        "since_skipped": since_skipped,
         "warnings": warnings,
     }
 
@@ -1241,13 +1431,35 @@ def run_lint(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
     # The profile first: a rule set that cannot be trusted stops the run before
     # anything is fetched.
     compiled, meta, rule_warnings = lint_rules(args.profile)
+    if args.created_at is not None and not (args.correction or args.from_body):
+        parser.error("--created-at goes with --correction or --from-body; a fetched ticket carries its own")
+    if args.created_at is not None and created_date(args.created_at, compiled["utc_offset"]) is None:
+        parser.error(f"--created-at must be YYYY-MM-DD or a timestamp with an offset, got {args.created_at!r}")
     parsed: dict[str, Any] | None = None
-    if args.id is not None:
+    created_at: Any = args.created_at
+    what = "the corrections (no --created-at)"
+    if args.id is not None or args.from_body:
         bindings = parse_binding_args(parser, args.binding, args.optional_binding)
-        validate_ticket_args(parser, args)
-        ticket = obtain_ticket(args)
-        parsed = parse_body(ticket["body"], bindings)
-        parsed["source"] = source_block(args, ticket)
+        if args.from_body:
+            if args.repo or args.fetch_command:
+                parser.error("--repo / --fetch-command go with --id; --from-body reads a local file")
+            try:
+                parsed = parse_body(read_body(args.from_body), bindings)
+            except (OSError, UnicodeDecodeError) as exc:
+                parser.error(f"cannot read --from-body {args.from_body}: {exc}")
+            # A local body is a draft about to be filed, or the template new
+            # tickets are made from: unless told otherwise it is created today,
+            # so every rule in force today judges it.
+            if created_at is None:
+                created_at = _dt.datetime.now(compiled["utc_offset"]).date().isoformat()
+            what = f"--from-body {args.from_body}"
+        else:
+            validate_ticket_args(parser, args)
+            ticket = obtain_ticket(args)
+            parsed = parse_body(ticket["body"], bindings)
+            parsed["source"] = source_block(args, ticket)
+            created_at = ticket.get("created_at")
+            what = f"ticket {args.repo + '#' if args.repo else ''}{ticket['id']}"
     else:
         if args.binding or args.optional_binding or args.repo or args.fetch_command:
             parser.error(
@@ -1256,13 +1468,20 @@ def run_lint(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
             )
         if args.from_json:
             parsed = load_parsed_json(args.from_json)
-    lint = compute_lint(compiled, parsed, args.correction or [])
+            src = parsed.get("source") if isinstance(parsed.get("source"), dict) else {}
+            created_at = src.get("created_at")
+            what = f"--from-json {args.from_json}" + (
+                f" (ticket {src.get('repo') + '#' if src.get('repo') else ''}{src.get('id')})" if src.get("id") else ""
+            )
+    lint = compute_lint(compiled, parsed, args.correction or [], created_at, what)
     result = {
         "schema": SCHEMA,
         "source": parsed.get("source") if parsed else None,
         "rules": meta,
+        "ticket_created": lint["ticket_created"],
         "hits": lint["hits"],
         "counts": lint["counts"],
+        "since_skipped": lint["since_skipped"],
         "absent": parsed.get("absent", []) if parsed else [],
         "warnings": rule_warnings + lint["warnings"] + (list(parsed.get("warnings", [])) if parsed else []),
         "errors": list(parsed.get("errors", [])) if parsed else [],
@@ -1508,6 +1727,7 @@ def compute_gate(parser: argparse.ArgumentParser, args: argparse.Namespace) -> t
     tickets_out: list[dict[str, Any]] = []
     remaining: list[dict[str, Any]] = []
     resolved: list[dict[str, Any]] = []
+    since_skipped: list[dict[str, Any]] = []
     errors: list[str] = []
     fetch_failed = False
     live_block: set[tuple[Any, ...]] = set()
@@ -1516,7 +1736,8 @@ def compute_gate(parser: argparse.ArgumentParser, args: argparse.Namespace) -> t
         tracker, repo, tid = key
         row: dict[str, Any] = {
             "tracker": tracker, "repo": repo, "id": tid, "cited_by": cited[key], "version": None,
-            "block_hits": 0, "by_disagreement": 0, "by_ledger": 0, "remaining": 0, "errors": [],
+            "created": None, "block_hits": 0, "by_disagreement": 0, "by_ledger": 0, "remaining": 0,
+            "since_skipped": [], "errors": [],
         }
         tickets_out.append(row)
         try:
@@ -1532,7 +1753,13 @@ def compute_gate(parser: argparse.ArgumentParser, args: argparse.Namespace) -> t
         for e in parsed["errors"]:
             row["errors"].append(e)
             errors.append(f"{tracker} {repo}#{tid}: {e} — the ticket cannot be shown clean")
-        for h in compute_lint(compiled, parsed, [])["hits"]:
+        lint = compute_lint(compiled, parsed, [], ticket.get("created_at"), f"{tracker} {repo}#{tid}")
+        warnings.extend(w for w in lint["warnings"] if w not in warnings)
+        row["created"] = lint["ticket_created"]
+        row["since_skipped"] = lint["since_skipped"]
+        for s in lint["since_skipped"]:
+            since_skipped.append({"tracker": tracker, "repo": repo, "id": tid, **s})
+        for h in lint["hits"]:
             if h["severity"] != "block":
                 continue
             row["block_hits"] += 1
@@ -1583,6 +1810,7 @@ def compute_gate(parser: argparse.ArgumentParser, args: argparse.Namespace) -> t
         "remaining": remaining,
         "stale": stale,
         "resolved": resolved,
+        "since_skipped": since_skipped,
         "unmatched_disagreements": unmatched,
         "warnings": warnings,
         "errors": errors,
@@ -1601,6 +1829,13 @@ def run_gate(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
         parser.error(f"--repo must be OWNER/NAME, got {args.repo!r}")
     result, code = compute_gate(parser, args)
     emit(result, args.compact)
+    withheld = [s for s in result["since_skipped"] if s["withheld_hits"]]
+    if withheld:
+        sys.stderr.write(
+            f"note: contract gate: since-gated rule(s) withheld {sum(s['withheld_hits'] for s in withheld)} "
+            f"hit(s) on {len({(s['tracker'], s['repo'], s['id']) for s in withheld})} ticket(s) created "
+            f"before the rule's since date — listed in since_skipped[]\n"
+        )
     if result["verdict"] == "warn":
         sys.stderr.write(
             f"warning: contract gate (warn mode): {len(result['remaining'])} unresolved block hit(s), "
@@ -1744,6 +1979,17 @@ def run(argv: list[str] | None = None) -> int:
     src.add_argument(
         "--correction", action="append", metavar="SENTENCE",
         help="lint a drafted correction sentence instead of a ticket (repeatable)",
+    )
+    src.add_argument(
+        "--from-body", metavar="BODY.md", dest="from_body",
+        help="lint the binding sections of a local markdown body (a draft about to be filed, or a "
+             "ticket template) — no tracker; needs --binding like --id",
+    )
+    p_lint.add_argument(
+        "--created-at", metavar="DATE", dest="created_at",
+        help="with --correction or --from-body: the ticket's creation date (YYYY-MM-DD, or a "
+             "timestamp with an offset) that since-gated rules compare against. --from-body "
+             "defaults to today; --correction without it applies every rule and warns",
     )
     p_lint.add_argument("--repo", metavar="OWNER/NAME", help="with --id: repository the ticket lives in")
     p_lint.add_argument("--tracker", default="github", metavar="NAME", help="with --id: label recorded in `source.tracker`")

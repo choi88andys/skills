@@ -591,6 +591,68 @@ $OUT"
 fi
 rm -f "$LEDGER"
 
+# C16 — the ticket record's creation date (v0.16): the validator lints
+# corrections offline, so the record is the only place a since-gated rule
+# learns when the contested ticket was created. Once the profile carries one
+# (the bundled design_oracle, since 2026-10-24), a pitch dated on or after the
+# earliest `since` that cites a ticket without `created_at` is a violation;
+# an older pitch is not (every ticket it cites predates it). A `created_at` the
+# engine cannot read is a violation at any date. Always on, like the shape check.
+write_config required
+run --type pitch
+BASE=$(count); BASE=${BASE:-0}
+TICKET_AT() { printf '%s\n      created_at: "%s"' "$TICKET" "$1"; }
+mkpitch 2026-10-23-old-nocreated.md "$TICKET" ""
+mkpitch 2026-10-24-new-nocreated.md "$TICKET" ""
+mkpitch 2026-10-25-new-created.md "$(TICKET_AT 2026-10-24T01:00:00Z)" ""
+mkpitch 2026-10-25-badcreated.md "$(TICKET_AT yesterday)" ""
+run --type pitch
+if [ "$RC" -eq 1 ] && [ "$(count)" = "$((BASE + 2))" ] \
+  && grep -qF "2026-10-24-new-nocreated.md: references.tickets[0] has no created_at — a pitch dated on or after 2026-10-24" <<<"$OUT" \
+  && grep -qF "2026-10-25-badcreated.md: references.tickets[0].created_at 'yesterday' is neither" <<<"$OUT" \
+  && ! grep -qF "old-nocreated.md" <<<"$OUT" && ! grep -qF "new-created.md" <<<"$OUT"; then
+  pass "C16 created_at: required from the earliest since on, shape-checked always; older pitches unaffected"
+else
+  fail "C16 created_at" "base=$BASE rc=$RC violations=$(count)
+$OUT"
+fi
+rm -f "$P"/2026-10-2[345]-*.md
+
+# C17 — a since-gated rule judges a correction only when the contested ticket
+# (matched by the entry header against the pitch's ticket record) was created
+# on or after its `since`. A design-oracle correction on a ticket created before
+# 2026-10-24 passes, and stderr counts what was withheld; on a ticket created on
+# the since day it is a violation. With no `created_at`, the pitch's own date
+# stands in: an older pitch is not judged by the newer rule, a newer pitch is
+# (and is also told to record the date).
+CORR='## 요구사항 이견
+
+### github acme/tracker#3755 · 완료 조건 · 적립 7
+
+- **원문** 1,000원 미만 제외
+- **정정** 구현이 「적립 개편 전달」 시안과 일치한다
+- **사유** 자기모순 — 비고와 다름
+- **결과** 합의 — 10/24'
+mkpitch 2026-10-25-corr-oldticket.md "$(TICKET_AT 2026-09-01T00:00:00Z)" "$CORR"
+mkpitch 2026-10-25-corr-newticket.md "$(TICKET_AT 2026-10-23T15:00:00Z)" "$CORR"
+mkpitch 2026-10-20-corr-oldpitch.md "$TICKET" "$CORR"
+mkpitch 2026-10-26-corr-nocreated.md "$TICKET" "$CORR"
+run --type pitch --strict-body --strict-since 2026-10-01
+# BASE (C16) is the always-on violation count of the older fixtures.
+if [ "$RC" -eq 1 ] && [ "$(count)" = "$((BASE + 3))" ] \
+  && grep -qF "2026-10-25-corr-newticket.md: requirement-contract disagreement violation" <<<"$OUT" \
+  && grep -qF "matched wording_rules[design_oracle]" <<<"$OUT" \
+  && grep -qF "2026-10-26-corr-nocreated.md: requirement-contract disagreement violation" <<<"$OUT" \
+  && grep -qF "2026-10-26-corr-nocreated.md: references.tickets[0] has no created_at" <<<"$OUT" \
+  && grep -qF "note: since-gated wording rule(s) not applied to corrections on tickets created before their since date: design_oracle ×2" <<<"$OUT" \
+  && ! grep -qF "corr-oldticket.md: requirement-contract" <<<"$OUT" && ! grep -qF "corr-oldpitch.md" <<<"$OUT"; then
+  pass "C17 since-gated correction rule: judged by the contested ticket's creation day, the pitch date standing in"
+else
+  fail "C17 since-gated corrections" "rc=$RC violations=$(count)
+$OUT"
+fi
+rm -f "$P"/2026-10-2[056]-corr-*.md
+
 echo
 if [ "$FAILURES" -eq 0 ]; then
   echo "all $PASSES cases passed."

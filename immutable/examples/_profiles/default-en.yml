@@ -21,7 +21,10 @@
 # only) and lints ticket items with the bundled rules until it migrates.
 # v5 → v6 (v0.14.0): added the `wording_rules` entries `document_target`,
 # `design_target` and `delivery_step`.
-profile_schema: 6
+# v6 → v7 (v0.16.0): added `requirement_contract.since_utc_offset`, the
+# optional `wording_rules[].since` key and the `design_oracle` entry, which
+# `/immutable:migrate` adds with `since` set to the migration date.
+profile_schema: 7
 
 locale: en
 
@@ -294,6 +297,11 @@ requirement_contract:
   # The Korean rule set was measured on 729 binding items of a live tracker
   # (default-ko.yml). These English patterns mirror its ids and intent but
   # have NOT been measured on a live English tracker — tune them per team.
+  #
+  # since_utc_offset (v0.16+): the UTC offset a ticket's creation timestamp is
+  # read in when a rule's `since` date is compared with it. Quote it — YAML 1.1
+  # reads an unquoted `+10:00` as a base-60 integer.
+  since_utc_offset: "+00:00"
   wording_strip:
     - '「[^」]*」'
     - '`[^`]*`'
@@ -329,6 +337,21 @@ requirement_contract:
       # oracle ("the PRD ... is revised"), with no design word in between (v0.13.1)
       unless: '「[^」]*」 (delivery|handoff)|"[^"]*" (delivery|handoff)|version-id=|\b(PRD|Notion)\b(?:(?!Figma|design|mock-?up)[^\n]){0,30}\b(is|are) (revised|amended|updated|written)\b'
       hint: "an unpinned design or document is made the acceptance oracle, and it can change — pin a named delivery or a version-id link, or write the value to check into the item"
+    # A design made the acceptance oracle, pinned or not (v0.16.0). A design is
+    # a presentation reference (copy, layout, tokens), not an authority above
+    # the ticket or the pitch. The design half of unpinned_oracle without its
+    # pinned exemption; document oracles stay with unpinned_oracle, which is
+    # kept for tickets created before `since`. "design token(s)" and "design
+    # system" name a presentation system, not a mock-up, and are left out.
+    # Prospective: judges only tickets created on or after `since`; migrate
+    # rewrites `since` to the migration date. Unmeasured, like the rest.
+    - id: design_oracle
+      category: delegated_authority
+      severity: block
+      applies_to: [ticket_item, correction]
+      since: 2026-10-24
+      regex: '\b(Figma|design(?!\s+(tokens?|systems?)\b)|mock-?ups?)\b[^\n]{0,25}\b(match(es|ed)?|matching|consistent|as (designed|shown))\b|\b(match(es|ed)?|matching|consistent with|according to|per)\b[^\n]{0,15}\b(Figma|design(?!\s+(tokens?|systems?)\b)|mock-?ups?)\b|\bas designed\b'
+      hint: "a design is made the acceptance oracle — pinning it by a named delivery or a version-id does not exempt it. A design is a presentation reference; what is shown, when and in what order is the ticket's and the pitch's to state. Write what to check into the item and keep the design comparison outside the binding sections"
     # A document revision as the completion condition (v0.14.0) — unmeasured.
     - id: document_target
       category: delegated_authority

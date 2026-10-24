@@ -16,7 +16,11 @@
 # 있다」, 「되도록」, a quoted UI literal, a pinned 「X 전달」 or version-id
 # design); a profile written before the rules existed falling back to the
 # bundled ones out loud; and a profile rule the script cannot compile being an
-# error, never a silently weaker lint.
+# error, never a silently weaker lint. Since v0.16.0 (L13–L16): a design made
+# the oracle blocks even when pinned (design_oracle), but only on tickets
+# created on or after the rule's `since` — older ones are reported, never
+# judged retroactively, and an unknown creation date applies the rule; an
+# unknown rule key is an error; `--from-body` lints a local body.
 #
 # The fixtures are synthetic. They mirror the SHAPE of the pilot's Epics, not
 # any real ticket's content.
@@ -111,18 +115,22 @@ echo
 
 # L1 — the defect shape: exit 1; block hits on 완료 1 (document_target AND
 # delivery_step, v0.14 — the Epic demands the pitch itself), 완료 2
-# (delivery_step — 「앱 구현 + 테스트」), 완료 3 (conditional AND unpinned_oracle),
-# QA 4 and QA 6 (delegated_downstream), QA 7 (unpinned oracle); warn hits on
-# 완료 3 (process_only — acceptance-scoped) and QA 3 (unmeasurable). Every hit carries the ledger coordinate; the struck item is
-# skipped and counted; the backtick path in 완료 1 is stripped before matching.
+# (delivery_step — 「앱 구현 + 테스트」), 완료 3 (conditional, unpinned_oracle
+# AND design_oracle), QA 4 and QA 6 (delegated_downstream), QA 7 (unpinned_oracle
+# AND design_oracle); warn hits on 완료 3 (process_only — acceptance-scoped) and
+# QA 3 (unmeasurable). Every hit carries the ledger coordinate; the struck item
+# is skipped and counted; the backtick path in 완료 1 is stripped before
+# matching. The parsed body has no creation date, so the since-gated
+# design_oracle (v0.16) applies, and a warning says so (fail-closed).
 run lint --profile "$BUNDLED_KO" --from-json "$RIG/hedged.json"
 GOT="$(q "$HITS")"
-WANT="[('ticket_item', 'acceptance', None, 1, 'document_target', 'block'), ('ticket_item', 'acceptance', None, 1, 'delivery_step', 'block'), ('ticket_item', 'acceptance', None, 2, 'delivery_step', 'block'), ('ticket_item', 'acceptance', None, 3, 'conditional', 'block'), ('ticket_item', 'acceptance', None, 3, 'unpinned_oracle', 'block'), ('ticket_item', 'acceptance', None, 3, 'process_only', 'warn'), ('ticket_item', 'qa_checklist', None, 3, 'unmeasurable', 'warn'), ('ticket_item', 'qa_checklist', None, 4, 'delegated_downstream', 'block'), ('ticket_item', 'qa_checklist', None, 6, 'delegated_downstream', 'block'), ('ticket_item', 'qa_checklist', None, 7, 'unpinned_oracle', 'block')]"
+WANT="[('ticket_item', 'acceptance', None, 1, 'document_target', 'block'), ('ticket_item', 'acceptance', None, 1, 'delivery_step', 'block'), ('ticket_item', 'acceptance', None, 2, 'delivery_step', 'block'), ('ticket_item', 'acceptance', None, 3, 'conditional', 'block'), ('ticket_item', 'acceptance', None, 3, 'unpinned_oracle', 'block'), ('ticket_item', 'acceptance', None, 3, 'design_oracle', 'block'), ('ticket_item', 'acceptance', None, 3, 'process_only', 'warn'), ('ticket_item', 'qa_checklist', None, 3, 'unmeasurable', 'warn'), ('ticket_item', 'qa_checklist', None, 4, 'delegated_downstream', 'block'), ('ticket_item', 'qa_checklist', None, 6, 'delegated_downstream', 'block'), ('ticket_item', 'qa_checklist', None, 7, 'unpinned_oracle', 'block'), ('ticket_item', 'qa_checklist', None, 7, 'design_oracle', 'block')]"
 if [ "$RC" -eq 1 ] && [ "$GOT" = "$WANT" ] \
-  && [ "$(q 'd["counts"]')" = "{'items': 10, 'struck_skipped': 1, 'items_with_block': 6, 'block': 8, 'warn': 2}" ] \
+  && [ "$(q 'd["counts"]')" = "{'items': 10, 'struck_skipped': 1, 'items_with_block': 6, 'block': 10, 'warn': 2, 'since_withheld': 0}" ] \
   && [ "$(q '[(h["category"], h["match"], h["line"]) for h in d["hits"] if h["rule"] == "conditional"]')" = "[('non_concrete', '필요 시', 19)]" ] \
-  && [ "$(q 'd["rules"]["fallback"], d["rules"]["ticket_item"], d["rules"]["correction"]')" = "(None, 10, 12)" ]; then
-  pass "L1 defect shape: 6 block items (8 hits) + 2 warns with ledger coordinates; struck item skipped"
+  && [ "$(q 'd["rules"]["fallback"], d["rules"]["ticket_item"], d["rules"]["correction"]')" = "(None, 11, 13)" ] \
+  && [ "$(q 'any("has no creation date" in w and "design_oracle" in w for w in d["warnings"])')" = "True" ]; then
+  pass "L1 defect shape: 6 block items (10 hits) + 2 warns with ledger coordinates; struck item skipped"
 else
   fail "L1 defect shape" "rc=$RC stderr=$ERR
 --- got ---
@@ -137,12 +145,21 @@ fi
 # before the open-enumeration rule sees its ellipsis), a design pinned by a
 # named 「X 전달」 delivery or a version-id link (`unless` reads the RAW text,
 # since the pin is itself a quoted literal), and a process-only line in the QA
-# section (process_only is scoped to acceptance).
+# section (process_only is scoped to acceptance). The ticket predates the
+# bundled design_oracle `since`, so that rule — which does block a pinned
+# design (L13) — is withheld, and `since_skipped` counts the 2 hits it withheld.
+python3 - "$RIG/clean.json" <<'PYX'
+import json, sys
+d = json.load(open(sys.argv[1], encoding="utf-8"))
+d["source"] = {"tracker": "github", "repo": "acme/tracker", "id": "88", "created_at": "2026-10-01T02:00:00Z"}
+json.dump(d, open(sys.argv[1], "w", encoding="utf-8"), ensure_ascii=False)
+PYX
 run lint --profile "$BUNDLED_KO" --from-json "$RIG/clean.json"
-if [ "$RC" -eq 0 ] && [ "$(q 'd["hits"]')" = "[]" ] && [ "$(q 'd["counts"]["items"]')" = "6" ]; then
-  pass "L2 measured false positives: no hit at all, exit 0"
+if [ "$RC" -eq 0 ] && [ "$(q 'd["hits"]')" = "[]" ] && [ "$(q 'd["counts"]["items"]')" = "6" ] \
+  && [ "$(q 'd["since_skipped"]')" = "[{'rule': 'design_oracle', 'since': '2026-10-24', 'ticket_created': '2026-10-01', 'withheld_hits': 2}]" ]; then
+  pass "L2 measured false positives: no hit at all, exit 0 (design_oracle withheld on a pre-since ticket, counted)"
 else
-  fail "L2 false positives" "rc=$RC $(q "$HITS")"
+  fail "L2 false positives" "rc=$RC $(q "$HITS") $(q 'd["since_skipped"]')"
 fi
 
 # L3 — a profile written before `wording_rules` (v0.12 shape: three
@@ -335,10 +352,12 @@ fi
 # L11 — the same principle beyond documents (v0.14.0): the ticket's
 # requirements are the pitch's cause, so a result of the pitch written in their
 # place blocks — a design to be drawn or settled (design_target) and a delivery
-# step (delivery_step: 「개발 완료」, 「QA 완료」, 「앱 구현 + 테스트」). Not caught:
-# the approved pinned exemplar 「구현이 「X 전달」 시안과 일치한다」, a screen
+# step (delivery_step: 「개발 완료」, 「QA 완료」, 「앱 구현 + 테스트」). Not caught
+# by those two: the pinned exemplar 「구현이 「X 전달」 시안과 일치한다」, a screen
 # rendered per a design (unpinned_oracle's case), a product decision phrased
-# with 「구현한다」, and UI rendering with no design word.
+# with 「구현한다」, and UI rendering with no design word. (design_oracle, v0.16,
+# blocks the exemplar and the per-design screen on a new ticket — L13; it is
+# left out of this case.)
 cat >"$RIG/results.md" <<'MD'
 ### 완료 조건
 
@@ -354,7 +373,7 @@ cat >"$RIG/results.md" <<'MD'
 MD
 python3 "$SUT" parse "$RIG/results.md" --binding "$B_ACC" >"$RIG/results.json"
 run lint --profile "$BUNDLED_KO" --from-json "$RIG/results.json"
-GOT="$(q '[(h["in_group"], h["rule"]) for h in d["hits"]]')"
+GOT="$(q '[(h["in_group"], h["rule"]) for h in d["hits"] if h["rule"] != "design_oracle"]')"
 if [ "$RC" -eq 1 ] && [ "$GOT" = "[(1, 'design_target'), (2, 'design_target'), (3, 'delivery_step'), (4, 'delivery_step'), (5, 'delivery_step'), (7, 'unpinned_oracle')]" ]; then
   pass "L11 results in the cause's place: design production and delivery steps block; exemplar and look-alikes do not"
 else
@@ -387,6 +406,139 @@ if [ "$A_RC" -eq 1 ] && [ "$A_GOT" = "[(3, 'deferral', '확인 중'), (4, 'defer
 else
   fail "L12 deferral precision" "rc=$A_RC got=$A_GOT
 correction rc=$RC $(q '[(h["text"], h["rule"]) for h in d["hits"]]')"
+fi
+
+# L13 — design_oracle (v0.16.0, owner decision 2026-10-24): on a ticket created
+# on or after its `since` — read in the profile's +09:00, so
+# 2026-10-23T15:00:00Z is the since day itself — a design made the acceptance
+# oracle blocks whether pinned by a named delivery, pinned by a version-id, or
+# not pinned. Not hit: 「디자인 토큰 기준」 and 「디자인 시스템 기준」 (a named
+# presentation system, not a mock-up — unpinned_oracle still reads them, as it
+# did), a quoted 「시안과 일치한다」 (a template may name the banned phrase in
+# quotes), and a product sentence. The English rule mirrors it.
+cat >"$RIG/oracle16.md" <<'MD'
+### 완료 조건
+
+- [ ] 구현이 「알림 개편 전달」 시안과 일치한다
+- [ ] 화면이 시안과 일치한다 (version-id=8812)
+- [ ] 홈 시트와 결과 토스트가 피그마 시안대로 보인다
+- [ ] 색상은 디자인 토큰 기준으로 쓴다
+- [ ] 버튼은 디자인 시스템 기준을 따른다
+- [ ] 「시안과 일치한다」 문장은 구속 항목에 쓰지 않는다
+- [ ] 알림 설정 토글을 켜면 국외 이전 안내가 함께 보인다
+MD
+mkticket16() {  # mkticket16 <id> <created_at or ->: ticket JSON from oracle16.md
+  python3 - "$RIG/oracle16.md" "$RIG/tickets/$1.json" "$1" "$2" <<'PYX'
+import json, sys
+t = {"id": sys.argv[3], "title": "t", "url": "https://example.invalid/" + sys.argv[3],
+     "body": open(sys.argv[1], encoding="utf-8").read(), "version": "v1"}
+if sys.argv[4] != "-":
+    t["created_at"] = sys.argv[4]
+json.dump(t, open(sys.argv[2], "w", encoding="utf-8"), ensure_ascii=False)
+PYX
+}
+lint16() { run lint --profile "$BUNDLED_KO" --repo acme/tracker --id "$1" --fetch-command "cat $RIG/tickets/{id}.json" --binding "$B_ACC"; }
+DO='[h["in_group"] for h in d["hits"] if h["rule"] == "design_oracle"]'
+mkticket16 71 "2026-10-23T15:00:00Z"
+lint16 71
+N_RC=$RC; N_DO="$(q "$DO")"; N_UO="$(q '[h["in_group"] for h in d["hits"] if h["rule"] == "unpinned_oracle"]')"
+N_META="$(q '(d["ticket_created"], d["since_skipped"], d["rules"]["since"], d["rules"]["since_utc_offset"])')"
+BUNDLED_EN="$SCRIPT_DIR/../examples/_profiles/default-en.yml"
+run lint --profile "$BUNDLED_EN" --created-at 2026-10-24 --correction "The screen matches the 「Alerts revamp」 delivery design" \
+  --correction "The toast order is as designed (version-id=12)" --correction "Spacing is per design tokens"
+if [ "$N_RC" -eq 1 ] && [ "$N_DO" = "[1, 2, 3]" ] && [ "$N_UO" = "[3, 4, 5]" ] \
+  && [ "$N_META" = "('2026-10-24', [], {'design_oracle': '2026-10-24'}, '+09:00')" ] \
+  && [ "$RC" -eq 1 ] && [ "$(q '[h["text"][:20] for h in d["hits"] if h["rule"] == "design_oracle"]')" = "['The screen matches t', 'The toast order is a']" ]; then
+  pass "L13 design_oracle: pinned or not, a design oracle blocks on a since-day ticket; tokens, system, quoted phrase do not"
+else
+  fail "L13 design_oracle" "rc=$N_RC design_oracle=$N_DO unpinned=$N_UO meta=$N_META
+en rc=$RC $(q '[(h["text"], h["rule"]) for h in d["hits"]]')"
+fi
+
+# L14 — `since` gating, both directions and the unknowns. One second before the
+# since day in +09:00 (23:59:59 KST on 10-23) the same ticket is judged without
+# design_oracle: no such hit, and since_skipped counts the 3 it withheld —
+# never silent. A ticket whose adapter gives no creation date, or one it cannot
+# read (a word, a timestamp without an offset), is judged by every rule and a
+# warning names it (fail-closed). A correction with --created-at before since
+# is withheld too; without it, applied with a warning.
+mkticket16 72 "2026-10-23T14:59:59Z"
+lint16 72
+O_RC=$RC; O_DO="$(q "$DO")"; O_SK="$(q 'd["since_skipped"], d["counts"]["since_withheld"]')"
+mkticket16 73 -
+lint16 73
+M_DO="$(q "$DO")"; M_W="$(q 'any("ticket acme/tracker#73 has no creation date" in w for w in d["warnings"])')"
+mkticket16 74 "yesterday"
+lint16 74
+Y_DO="$(q "$DO")"; Y_W="$(q 'any("creation date '"'"'yesterday'"'"' is neither" in w for w in d["warnings"])')"
+mkticket16 75 "2026-10-01T09:00:00"
+lint16 75
+Z_DO="$(q "$DO")"
+run lint --profile "$BUNDLED_KO" --created-at 2026-10-01 --correction "구현이 「X 전달」 시안과 일치한다"
+C_OLD="$RC $(q '[h["rule"] for h in d["hits"]], d["counts"]["since_withheld"]')"
+run lint --profile "$BUNDLED_KO" --correction "구현이 「X 전달」 시안과 일치한다"
+C_NEW="$RC $(q '[h["rule"] for h in d["hits"]]') $(q 'any("no --created-at" in w for w in d["warnings"])')"
+if [ "$O_RC" -eq 1 ] && [ "$O_DO" = "[]" ] \
+  && [ "$O_SK" = "([{'rule': 'design_oracle', 'since': '2026-10-24', 'ticket_created': '2026-10-23', 'withheld_hits': 3}], 3)" ] \
+  && [ "$M_DO" = "[1, 2, 3]" ] && [ "$M_W" = "True" ] && [ "$Y_DO" = "[1, 2, 3]" ] && [ "$Y_W" = "True" ] && [ "$Z_DO" = "[1, 2, 3]" ] \
+  && [ "$C_OLD" = "0 ([], 1)" ] && [ "$C_NEW" = "1 ['design_oracle'] True" ]; then
+  pass "L14 since gating: pre-since ticket judged without the rule and counted; unknown dates apply it with a warning"
+else
+  fail "L14 since gating" "old rc=$O_RC do=$O_DO skipped=$O_SK | missing do=$M_DO warn=$M_W | word do=$Y_DO warn=$Y_W | naive do=$Z_DO
+correction old: $C_OLD | new: $C_NEW"
+fi
+
+# L15 — rule keys are strict (v0.16.0): an engine that skipped unknown keys
+# would read a newer rule's `since` as nothing and apply the rule retroactively
+# — so an unknown or misspelt key is exit 2 naming it, never a quieter lint.
+# So is a `since` that is not a calendar date (a word, a YAML timestamp) and a
+# `since_utc_offset` that is not ±HH:MM (YAML reads an unquoted +10:00 as 600).
+mkprofile "$RIG/unknown.yml" '  wording_rules:' '    - { id: later, category: non_concrete, severity: block, applies_to: [ticket_item], regex: "x", until: 2026-12-31 }'
+mkprofile "$RIG/typo.yml" '  wording_rules:' '    - { id: newish, category: non_concrete, severity: block, applies_to: [ticket_item], regex: "x", sinse: 2026-10-24 }'
+mkprofile "$RIG/badsince.yml" '  wording_rules:' '    - { id: soon, category: non_concrete, severity: block, applies_to: [ticket_item], regex: "x", since: next week }'
+mkprofile "$RIG/stampsince.yml" '  wording_rules:' '    - { id: stamp, category: non_concrete, severity: block, applies_to: [ticket_item], regex: "x", since: 2026-10-24T00:00:00 }'
+mkprofile "$RIG/badoffset.yml" '  since_utc_offset: +10:00' '  wording_rules:' '    - { id: ok, category: non_concrete, severity: block, applies_to: [ticket_item], regex: "x" }'
+OK=1; DETAIL=""
+for pair in "unknown.yml:unknown key(s) ['until']" "typo.yml:unknown key(s) ['sinse']" "badsince.yml:since must be a date" "stampsince.yml:since must be a date" "badoffset.yml:since_utc_offset must be ±HH:MM, got 600"; do
+  run lint --profile "$RIG/${pair%%:*}" --from-json "$RIG/hedged.json"
+  if [ "$RC" -ne 2 ] || ! grep -qF "${pair#*:}" <<<"$ERR" || grep -qF Traceback <<<"$ERR"; then OK=0; DETAIL="$DETAIL ${pair%%:*} rc=$RC $ERR;"; fi
+done
+if [ "$OK" -eq 1 ]; then
+  pass "L15 unknown or misspelt rule key, non-date since, malformed offset → exit 2 naming it"
+else
+  fail "L15 strict rule keys" "$DETAIL"
+fi
+
+# L16 — `lint --from-body` (v0.16.0) lints a local markdown body's binding
+# sections with no tracker: a draft about to be filed, or the ticket template
+# itself. Its creation day defaults to today in the profile's offset, so every
+# rule in force today judges it; --created-at overrides. HTML-comment guidance
+# is blanked first, so a template may explain the ban there. It needs
+# --binding like --id; --created-at goes only with --correction / --from-body.
+cat >"$RIG/draft.md" <<'MD'
+<!-- 구속 섹션에 「…시안과 일치한다」 같은 문장을 쓰지 않는다. 시안과 일치한다. -->
+### 완료 조건
+
+- [ ] 구현이 「알림 개편 전달」 시안과 일치한다
+- [ ] 알림 설정 토글을 켜면 국외 이전 안내가 함께 보인다
+MD
+TODAY_KST="$(python3 -c 'import datetime as d; print(d.datetime.now(d.timezone(d.timedelta(hours=9))).date().isoformat())')"
+run lint --profile "$BUNDLED_KO" --from-body "$RIG/draft.md" --binding "$B_ACC"
+B_RC=$RC; B_GOT="$(q '[(h["line"], h["rule"]) for h in d["hits"]], d["ticket_created"], d["source"]')"
+run lint --profile "$BUNDLED_KO" --from-body "$RIG/draft.md" --binding "$B_ACC" --created-at 2026-01-01
+B_OLD="$RC $(q 'd["hits"], d["counts"]["since_withheld"]')"
+run lint --profile "$BUNDLED_KO" --from-body "$RIG/draft.md"
+U1="$RC"
+run lint --profile "$BUNDLED_KO" --id 71 --fetch-command "cat $RIG/tickets/{id}.json" --binding "$B_ACC" --created-at 2026-01-01
+U2="$RC"; E2="$ERR"
+run lint --profile "$BUNDLED_KO" --from-json "$RIG/hedged.json" --created-at 2026-01-01
+U3="$RC"
+if [ "$B_RC" -eq 1 ] && [ "$B_GOT" = "([(4, 'design_oracle')], '$TODAY_KST', None)" ] \
+  && [ "$B_OLD" = "0 ([], 1)" ] && [ "$U1" -eq 2 ] && [ "$U2" -eq 2 ] && grep -qF -- '--created-at goes with --correction or --from-body' <<<"$E2" \
+  && [ "$U3" -eq 2 ]; then
+  pass "L16 --from-body: lints a local body as created today (override with --created-at); usage errors exit 2"
+else
+  fail "L16 --from-body" "rc=$B_RC got=$B_GOT (today $TODAY_KST) | old: $B_OLD | usage rc=$U1/$U2/$U3 $E2"
 fi
 
 echo
