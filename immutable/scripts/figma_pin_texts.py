@@ -20,7 +20,9 @@ user resolves.
 Input — exactly one of:
   --body FILE          a ticket body (markdown); `-` = stdin
   --from-json FILE     the JSON `requirement_contract.py parse|fetch` printed —
-                       its `sections[]` carry each section's raw text
+                       its `sections[]` carry each section's raw text, so text
+                       above the first heading is not there; for the whole
+                       body without `--section`, use `--body`
 Narrow with `--section HEADING` (repeatable; matched like a binding heading —
 「」, a trailing colon, case and whitespace ignored), conventionally the
 ticket's design section (「기획 / 디자인」). Without it every link in the body
@@ -261,6 +263,11 @@ def main(argv: list[str] | None = None) -> int:
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         fail(f"cannot read the input: {exc}")
 
+    if sections is not None and not args.section:
+        sys.stderr.write(
+            "note: --from-json without --section reads every section, but not text above the "
+            "first heading — use --body to scan the whole body\n"
+        )
     pinned, unpinned = figma_links(scoped_text(body, sections, args.section))
     token = os.environ.get(TOKEN_ENV, "").strip() or None
     if pinned and not args.from_response and not token:

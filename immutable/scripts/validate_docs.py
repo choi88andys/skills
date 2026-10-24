@@ -66,10 +66,11 @@ Coverage (matches SCHEMA.md "Validation invariants"):
      `requirement_contract.py` — the same reader its `lint` uses. A rule
      with `since` (v0.16+) judges a correction only when the contested
      ticket was created on or after it — the day comes from the ticket
-     record's `created_at`, else the pitch's filename date — and every pitch
-     dated on or after the earliest `since` must record `created_at` for
-     each ticket it cites (always on; a malformed one is a violation at any
-     date). The
+     record's `created_at`, else the pitch's filename date plus a day — and a
+     pitch dated within a day of the earliest `since`, or later, records
+     `created_at` for every ticket a disagreement entry contests (a malformed
+     `created_at` is a violation at any date, always on). A wording rule the
+     compiler cannot trust is a violation, as `lint` refuses it. The
      acknowledgement ledger beside config.yml
      (`contract-acknowledgements.yml`, v0.15+), when present, must have the
      shape `requirement_contract.py`'s `ledger_entries` reads — the gate's
@@ -397,8 +398,9 @@ def profile_disagreement_vocabulary(profile: dict[str, Any]) -> dict[str, Any] |
     `compile_wording`: `wording_rules[]` that apply to `correction`, plus the
     legacy `disagreement.deferral_patterns[]`). None when the heading, labels
     or tokens are missing — the caller then skips the check with a warning
-    rather than inventing labels. A rule that does not compile is skipped
-    with a warning naming it."""
+    rather than inventing labels. A rule that does not compile is left out
+    of `wording["rules"]` and named in `wording["problems"]`, which `main`
+    reports as violations (v0.16+)."""
     if not profile:
         return None
     heading = None
@@ -411,8 +413,6 @@ def profile_disagreement_vocabulary(profile: dict[str, Any]) -> dict[str, Any] |
     provisional = block.get("outcome_provisional")
     terminal = block.get("outcome_terminal") or []
     wording = _contract.compile_wording(contract_block)
-    for problem in wording["problems"]:
-        sys.stderr.write(f"warning: requirement_contract.{problem}; skipped.\n")
     if (
         not heading
         or not all(isinstance(fields.get(k), str) and fields[k].strip() for k in DISAGREEMENT_FIELDS)
@@ -954,25 +954,43 @@ def check_ticket_presence(path: Path, fm: dict[str, Any], violations: list[str])
         )
 
 
-def check_ticket_created_at(path: Path, fm: dict[str, Any], cutoff: str, violations: list[str]) -> None:
-    """A pitch dated on or after `cutoff` — the earliest `since` among the
-    profile's wording rules — records when each ticket it cites was created
-    (v0.16+). The validator lints corrections offline, with no ticket fetch,
-    so the record is the only place a since-gated rule can learn whether the
-    contested ticket predates it. Older pitches are unaffected: every ticket
-    they cite existed before they were written, so before `cutoff` too."""
-    if not strict_body_in_scope(path, cutoff):
+# A pitch's filename date is its author's local date, which can trail the
+# day a ticket's creation is read in (`since_utc_offset`) by up to a day. When
+# the filename date stands in for a ticket's creation day it is moved a day
+# later, so a pitch near the boundary is judged by the newer rule, never spared.
+AUTHOR_DATE_MARGIN = datetime.timedelta(days=1)
+
+
+def check_ticket_created_at(
+    path: Path, fm: dict[str, Any], cutoff: datetime.date, heading: str,
+    default_repo: str | None, violations: list[str],
+) -> None:
+    """A ticket a disagreement entry contests carries `created_at` in the
+    pitch's record (v0.16+), once the pitch is dated within a day of `cutoff`
+    — the earliest `since` among the profile's wording rules — or later.
+
+    The validator lints corrections offline, with no ticket fetch, so the
+    record is the only place a since-gated rule learns whether the contested
+    ticket predates it. It is required only where it is read — a ticket no
+    entry contests needs none, so a pitch written before the field existed
+    turns red only if it carries a correction a dated rule would judge.
+    Older pitches are unaffected: every ticket they cite existed before them."""
+    pitch_date = filename_date(path)
+    if pitch_date is not None and pitch_date + AUTHOR_DATE_MARGIN < cutoff:
         return
-    refs = fm.get("references") or {}
-    tickets = refs.get("tickets") if isinstance(refs, dict) else None
-    for i, entry in enumerate(tickets if isinstance(tickets, list) else []):
-        if isinstance(entry, dict) and entry.get("created_at") in (None, ""):
-            warn(
-                violations,
-                f"{path}: references.tickets[{i}] has no created_at — a pitch dated on or after "
-                f"{cutoff} (the earliest wording-rule `since`) must record the ticket's creation "
-                f"date, copied from the parser's source.created_at",
-            )
+    reported: set[int] = set()
+    for title in _contract.disagreement_titles(path.read_text(encoding="utf-8"), heading):
+        record = ticket_record(title, fm, default_repo)
+        if record is None or record[0] in reported or record[1].get("created_at") not in (None, ""):
+            continue
+        reported.add(record[0])
+        warn(
+            violations,
+            f"{path}: references.tickets[{record[0]}] has no created_at — a disagreement entry "
+            f"contests that ticket and the pitch is dated on or after {cutoff - AUTHOR_DATE_MARGIN} "
+            f"(the earliest wording-rule `since`, less a day for the author's time zone), so the "
+            f"ticket's creation date must be recorded — copy the parser's source.created_at",
+        )
 
 
 def filename_date(path: Path) -> datetime.date | None:
@@ -985,27 +1003,36 @@ def filename_date(path: Path) -> datetime.date | None:
         return None
 
 
-def contested_ticket_created(
-    title: str, fm: dict[str, Any] | None, default_repo: str | None, tz: datetime.timezone
-) -> datetime.date | None:
-    """The creation day of the ticket a disagreement entry contests, from the
-    pitch's own ticket record — None when the header names no recorded ticket
-    or the record carries no readable `created_at`."""
+def ticket_record(
+    title: str, fm: dict[str, Any] | None, default_repo: str | None
+) -> tuple[int, dict[str, Any]] | None:
+    """(index, entry) of the pitch's ticket record a disagreement entry's
+    header names, or None when the header names no recorded ticket."""
     m = _contract.DISAGREEMENT_TITLE_RE.match(title)
     refs = (fm or {}).get("references") or {}
     tickets = refs.get("tickets") if isinstance(refs, dict) else None
     if not m or not isinstance(tickets, list):
         return None
     repo = m.group("repo") or default_repo
-    for entry in tickets:
+    for i, entry in enumerate(tickets):
         if not isinstance(entry, dict) or str(entry.get("id")) != m.group("id"):
             continue
         if str(entry.get("tracker") or "github") != m.group("tracker"):
             continue
         if (entry.get("repo") or default_repo) != repo:
             continue
-        return _contract.created_date(entry.get("created_at"), tz)
+        return i, entry
     return None
+
+
+def contested_ticket_created(
+    title: str, fm: dict[str, Any] | None, default_repo: str | None, tz: datetime.timezone
+) -> datetime.date | None:
+    """The creation day of the ticket a disagreement entry contests, from the
+    pitch's own ticket record — None when the header names no recorded ticket
+    or the record carries no readable `created_at`."""
+    record = ticket_record(title, fm, default_repo)
+    return _contract.created_date(record[1].get("created_at"), tz) if record else None
 
 
 def _labelled_bullet_re(label: str) -> re.Pattern[str]:
@@ -1036,9 +1063,10 @@ def validate_pitch_disagreement_outcomes(
     A since-gated wording rule (v0.16+) judges a correction only when the
     ticket the entry contests was created on or after its `since`: the
     creation day comes from the pitch's ticket record (`fm`), and when the
-    record has none, the pitch's own filename date stands in for it — a ticket
-    cannot postdate the pitch citing it, so an older pitch is never judged by
-    a newer rule, and a newer one is judged by every rule (fail-closed).
+    record has none, the pitch's own filename date stands in for it, a day
+    later (`AUTHOR_DATE_MARGIN`) — a ticket cannot postdate the pitch citing
+    it, so an older pitch is never judged by a newer rule, and a newer one is
+    judged by every rule (fail-closed).
     Withheld would-be hits are counted into `withheld` (rule id → hits).
     """
     text = path.read_text(encoding="utf-8")
@@ -1103,7 +1131,9 @@ def validate_pitch_disagreement_outcomes(
         if correction is not None:
             wording = vocab["wording"]
             created = contested_ticket_created(e_title, fm, default_repo, wording["utc_offset"])
-            in_force, held = _contract.rules_in_force(wording, created or filename_date(path))
+            if created is None and filename_date(path) is not None:
+                created = filename_date(path) + AUTHOR_DATE_MARGIN
+            in_force, held = _contract.rules_in_force(wording, created)
             hits = _contract.wording_hits(in_force, correction, "correction")
             for rule in held:
                 n = len(_contract.wording_hits({**wording, "rules": [rule]}, correction, "correction"))
@@ -1552,15 +1582,16 @@ def main() -> int:
     contract_exempt_count = 0
     contract_frozen_count = 0
     disagreement_vocab = profile_disagreement_vocabulary(profile) if contract else None
-    # v0.16+: the earliest wording-rule `since` — from it on, a pitch records
-    # each cited ticket's creation date (`check_ticket_created_at`).
-    since_wording = (
+    # The profile's wording rules, compiled once. A rule the compiler cannot
+    # trust is a violation (v0.16+), never a quietly weaker check — `lint`
+    # exits 2 on the same rule. The earliest `since` decides from when a
+    # contested ticket's creation date must be recorded.
+    contract_wording = (
         disagreement_vocab["wording"] if disagreement_vocab is not None
         else _contract.compile_wording((profile or {}).get("requirement_contract") or {}) if contract
         else None
     )
-    cutoff_date = _contract.earliest_since(since_wording) if since_wording is not None else None
-    created_at_cutoff = cutoff_date.isoformat() if cutoff_date is not None else None
+    created_at_cutoff = _contract.earliest_since(contract_wording) if contract_wording is not None else None
     since_withheld: dict[str, int] = {}
     if contract and args.strict_body and disagreement_vocab is None:
         sys.stderr.write(
@@ -1648,8 +1679,6 @@ def main() -> int:
                     contract_frozen_count += 1
                 else:
                     check_ticket_references(md_path, fm_checked, doc_type, violations)
-                    if doc_type == "pitch" and created_at_cutoff is not None:
-                        check_ticket_created_at(md_path, fm_checked, created_at_cutoff, violations)
                 if args.strict_body:
                     if strict_body_in_scope(md_path, strict_since):
                         validate_body_headings(
@@ -1671,6 +1700,11 @@ def main() -> int:
                             else:
                                 contract_exempt_count += 1
                         if doc_type == "pitch" and disagreement_vocab is not None:
+                            if created_at_cutoff is not None and not doc_frozen:
+                                check_ticket_created_at(
+                                    md_path, fm_checked, created_at_cutoff, disagreement_vocab["heading"],
+                                    contract.get("repo") if contract else None, violations,
+                                )
                             validate_pitch_disagreement_outcomes(
                                 md_path, disagreement_vocab, violations,
                                 fm_checked, contract.get("repo") if contract else None,
@@ -1680,6 +1714,13 @@ def main() -> int:
                         strict_exempt_count += 1
                 collected.append((md_path, fm_checked))
         check_supersede_chain_integrity(doc_type, collected, violations)
+
+    for problem in (contract_wording or {}).get("problems", []):
+        warn(
+            violations,
+            f"active profile: requirement_contract.{problem} — the rule is not applied until the "
+            f"profile is fixed (requirement_contract.py lint refuses the same rule)",
+        )
 
     # v0.15+: the acknowledgement ledger beside config.yml, shape only — whether
     # each entry's hit still exists needs the live ticket (`requirement_contract.py

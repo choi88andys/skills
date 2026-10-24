@@ -134,12 +134,17 @@ fi
 
 # F5 — --from-json reads the same section out of the parser's `sections[]`
 # (what Stage 1.5 kept), so the skill needs no second fetch of the ticket.
+# `sections[]` holds no text above the first heading, so a run without
+# --section says so on stderr instead of implying it scanned the whole body.
 python3 "$PARSER" parse "$RIG/ticket.md" --binding "acceptance=완료 조건" >"$RIG/parsed.json"
 run --from-json "$RIG/parsed.json" --section "기획 / 디자인" --from-response "$RIG/responses"
-if [ "$RC" -eq 1 ] && [ "$(q '[p["node_id"] for p in d["pins"]]')" = "['18388:2385', '18139:8602']" ]; then
-  pass "F5 --from-json: the parser's sections[] give the same pins"
+J_RC=$RC; J_PINS="$(q '[p["node_id"] for p in d["pins"]]')"
+run --from-json "$RIG/parsed.json" --from-response "$RIG/responses"
+if [ "$J_RC" -eq 1 ] && [ "$J_PINS" = "['18388:2385', '18139:8602']" ] \
+  && grep -qF "not text above the first heading — use --body" <<<"$ERR"; then
+  pass "F5 --from-json: the parser's sections[] give the same pins; without --section it says what it cannot see"
 else
-  fail "F5 from-json" "rc=$RC $ERR $(q 'd["pins"]')"
+  fail "F5 from-json" "rc=$J_RC pins=$J_PINS | no-section stderr: $ERR"
 fi
 
 echo

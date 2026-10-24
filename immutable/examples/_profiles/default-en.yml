@@ -350,7 +350,7 @@ requirement_contract:
       severity: block
       applies_to: [ticket_item, correction]
       since: 2026-10-24
-      regex: '\b(Figma|design(?!\s+(tokens?|systems?)\b)|mock-?ups?)\b[^\n]{0,25}\b(match(es|ed)?|matching|consistent|as (designed|shown))\b|\b(match(es|ed)?|matching|consistent with|according to|per)\b[^\n]{0,15}\b(Figma|design(?!\s+(tokens?|systems?)\b)|mock-?ups?)\b|\bas designed\b'
+      regex: '\b(Figma|designs?(?!\s+(tokens?|systems?)\b)|mock-?ups?)\b[^\n]{0,25}\b(match(es|ed)?|matching|consistent|as (designed|shown))\b|\b(match(es|ed)?|matching|consistent with|according to|per)\b[^\n]{0,15}\b(Figma|designs?(?!\s+(tokens?|systems?)\b)|mock-?ups?)\b|\bas designed\b'
       hint: "a design is made the acceptance oracle — pinning it by a named delivery or a version-id does not exempt it. A design is a presentation reference; what is shown, when and in what order is the ticket's and the pitch's to state. Write what to check into the item and keep the design comparison outside the binding sections"
     # A document revision as the completion condition (v0.14.0) — unmeasured.
     - id: document_target

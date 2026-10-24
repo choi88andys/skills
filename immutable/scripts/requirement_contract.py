@@ -1175,9 +1175,14 @@ def created_date(value: Any, tz: _dt.timezone) -> _dt.date | None:
     s = value.strip()
     if len(s) == 10:
         return parse_date(s)
+    # Python < 3.11 reads no `Z` suffix, no `+HHMM` offset (Jira prints
+    # `…000+0900`) and no fraction beyond microseconds; spell them its way.
+    s = re.sub(r"[Zz]$", "+00:00", s)
+    s = re.sub(r"([+-]\d{2})(\d{2})$", r"\1:\2", s)
+    s = re.sub(r"(\.\d{6})\d+", r"\1", s)
+    s = re.sub(r"\.(\d{1,5})(?=[+-]|$)", lambda m: "." + m.group(1).ljust(6, "0"), s)
     try:
-        # Python < 3.11 reads no `Z` suffix.
-        stamp = _dt.datetime.fromisoformat(s[:-1] + "+00:00" if s[-1:] in ("Z", "z") else s)
+        stamp = _dt.datetime.fromisoformat(s)
     except ValueError:
         return None
     if stamp.tzinfo is None:
@@ -1431,16 +1436,18 @@ def run_lint(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
     # The profile first: a rule set that cannot be trusted stops the run before
     # anything is fetched.
     compiled, meta, rule_warnings = lint_rules(args.profile)
-    if args.created_at is not None and not (args.correction or args.from_body):
+    # `is not None`, never truthiness: an empty path (an unset shell variable)
+    # must fail as unreadable, not lint nothing and exit 0.
+    if args.created_at is not None and args.correction is None and args.from_body is None:
         parser.error("--created-at goes with --correction or --from-body; a fetched ticket carries its own")
     if args.created_at is not None and created_date(args.created_at, compiled["utc_offset"]) is None:
         parser.error(f"--created-at must be YYYY-MM-DD or a timestamp with an offset, got {args.created_at!r}")
     parsed: dict[str, Any] | None = None
     created_at: Any = args.created_at
     what = "the corrections (no --created-at)"
-    if args.id is not None or args.from_body:
+    if args.id is not None or args.from_body is not None:
         bindings = parse_binding_args(parser, args.binding, args.optional_binding)
-        if args.from_body:
+        if args.from_body is not None:
             if args.repo or args.fetch_command:
                 parser.error("--repo / --fetch-command go with --id; --from-body reads a local file")
             try:
@@ -1466,7 +1473,7 @@ def run_lint(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
                 "--binding / --optional-binding / --repo / --fetch-command go with --id; "
                 "--from-json carries its own bindings and --correction has none"
             )
-        if args.from_json:
+        if args.from_json is not None:
             parsed = load_parsed_json(args.from_json)
             src = parsed.get("source") if isinstance(parsed.get("source"), dict) else {}
             created_at = src.get("created_at")

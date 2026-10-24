@@ -445,10 +445,11 @@ N_RC=$RC; N_DO="$(q "$DO")"; N_UO="$(q '[h["in_group"] for h in d["hits"] if h["
 N_META="$(q '(d["ticket_created"], d["since_skipped"], d["rules"]["since"], d["rules"]["since_utc_offset"])')"
 BUNDLED_EN="$SCRIPT_DIR/../examples/_profiles/default-en.yml"
 run lint --profile "$BUNDLED_EN" --created-at 2026-10-24 --correction "The screen matches the 「Alerts revamp」 delivery design" \
-  --correction "The toast order is as designed (version-id=12)" --correction "Spacing is per design tokens"
+  --correction "The toast order is as designed (version-id=12)" --correction "Spacing is per design tokens" \
+  --correction "Built according to the designs"
 if [ "$N_RC" -eq 1 ] && [ "$N_DO" = "[1, 2, 3]" ] && [ "$N_UO" = "[3, 4, 5]" ] \
   && [ "$N_META" = "('2026-10-24', [], {'design_oracle': '2026-10-24'}, '+09:00')" ] \
-  && [ "$RC" -eq 1 ] && [ "$(q '[h["text"][:20] for h in d["hits"] if h["rule"] == "design_oracle"]')" = "['The screen matches t', 'The toast order is a']" ]; then
+  && [ "$RC" -eq 1 ] && [ "$(q '[h["text"][:20] for h in d["hits"] if h["rule"] == "design_oracle"]')" = "['The screen matches t', 'The toast order is a', 'Built according to t']" ]; then
   pass "L13 design_oracle: pinned or not, a design oracle blocks on a since-day ticket; tokens, system, quoted phrase do not"
 else
   fail "L13 design_oracle" "rc=$N_RC design_oracle=$N_DO unpinned=$N_UO meta=$N_META
@@ -474,6 +475,12 @@ Y_DO="$(q "$DO")"; Y_W="$(q 'any("creation date '"'"'yesterday'"'"' is neither" 
 mkticket16 75 "2026-10-01T09:00:00"
 lint16 75
 Z_DO="$(q "$DO")"
+mkticket16 76 "2026-10-24T00:30:00.000+0900"
+lint16 76
+J_NEW="$(q "$DO") $(q 'd["ticket_created"]')"
+mkticket16 77 "2026-10-23T23:59:59.1234567+0900"
+lint16 77
+J_OLD="$(q "$DO") $(q 'd["ticket_created"]')"
 run lint --profile "$BUNDLED_KO" --created-at 2026-10-01 --correction "구현이 「X 전달」 시안과 일치한다"
 C_OLD="$RC $(q '[h["rule"] for h in d["hits"]], d["counts"]["since_withheld"]')"
 run lint --profile "$BUNDLED_KO" --correction "구현이 「X 전달」 시안과 일치한다"
@@ -481,11 +488,12 @@ C_NEW="$RC $(q '[h["rule"] for h in d["hits"]]') $(q 'any("no --created-at" in w
 if [ "$O_RC" -eq 1 ] && [ "$O_DO" = "[]" ] \
   && [ "$O_SK" = "([{'rule': 'design_oracle', 'since': '2026-10-24', 'ticket_created': '2026-10-23', 'withheld_hits': 3}], 3)" ] \
   && [ "$M_DO" = "[1, 2, 3]" ] && [ "$M_W" = "True" ] && [ "$Y_DO" = "[1, 2, 3]" ] && [ "$Y_W" = "True" ] && [ "$Z_DO" = "[1, 2, 3]" ] \
-  && [ "$C_OLD" = "0 ([], 1)" ] && [ "$C_NEW" = "1 ['design_oracle'] True" ]; then
+  && [ "$C_OLD" = "0 ([], 1)" ] && [ "$C_NEW" = "1 ['design_oracle'] True" ] \
+  && [ "$J_NEW" = "[1, 2, 3] 2026-10-24" ] && [ "$J_OLD" = "[] 2026-10-23" ]; then
   pass "L14 since gating: pre-since ticket judged without the rule and counted; unknown dates apply it with a warning"
 else
   fail "L14 since gating" "old rc=$O_RC do=$O_DO skipped=$O_SK | missing do=$M_DO warn=$M_W | word do=$Y_DO warn=$Y_W | naive do=$Z_DO
-correction old: $C_OLD | new: $C_NEW"
+correction old: $C_OLD | new: $C_NEW | +0900 forms: $J_NEW / $J_OLD"
 fi
 
 # L15 — rule keys are strict (v0.16.0): an engine that skipped unknown keys
@@ -514,7 +522,8 @@ fi
 # itself. Its creation day defaults to today in the profile's offset, so every
 # rule in force today judges it; --created-at overrides. HTML-comment guidance
 # is blanked first, so a template may explain the ban there. It needs
-# --binding like --id; --created-at goes only with --correction / --from-body.
+# --binding like --id; --created-at goes only with --correction / --from-body;
+# an empty path (an unset variable) is unreadable, never "nothing to lint".
 cat >"$RIG/draft.md" <<'MD'
 <!-- 구속 섹션에 「…시안과 일치한다」 같은 문장을 쓰지 않는다. 시안과 일치한다. -->
 ### 완료 조건
@@ -533,12 +542,14 @@ run lint --profile "$BUNDLED_KO" --id 71 --fetch-command "cat $RIG/tickets/{id}.
 U2="$RC"; E2="$ERR"
 run lint --profile "$BUNDLED_KO" --from-json "$RIG/hedged.json" --created-at 2026-01-01
 U3="$RC"
+run lint --profile "$BUNDLED_KO" --from-body "" --binding "$B_ACC"
+U4="$RC"
 if [ "$B_RC" -eq 1 ] && [ "$B_GOT" = "([(4, 'design_oracle')], '$TODAY_KST', None)" ] \
   && [ "$B_OLD" = "0 ([], 1)" ] && [ "$U1" -eq 2 ] && [ "$U2" -eq 2 ] && grep -qF -- '--created-at goes with --correction or --from-body' <<<"$E2" \
-  && [ "$U3" -eq 2 ]; then
+  && [ "$U3" -eq 2 ] && [ "$U4" -eq 2 ]; then
   pass "L16 --from-body: lints a local body as created today (override with --created-at); usage errors exit 2"
 else
-  fail "L16 --from-body" "rc=$B_RC got=$B_GOT (today $TODAY_KST) | old: $B_OLD | usage rc=$U1/$U2/$U3 $E2"
+  fail "L16 --from-body" "rc=$B_RC got=$B_GOT (today $TODAY_KST) | old: $B_OLD | usage rc=$U1/$U2/$U3/$U4 $E2"
 fi
 
 echo
