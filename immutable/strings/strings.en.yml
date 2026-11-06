@@ -302,6 +302,11 @@ strings:
     The draft line below names another active PRD and says 「{keyword}」:
       {line}
     A PRD changes another PRD's meaning only through `supersedes`. Make this change a new version of `{target}` (or fold the two), and drop the sentence here.
+  # v0.18+: the input contract guard — Stage 6.
+  prd.stage6.input_contract_missing: |
+    The draft speaks of a value the user enters, but the `## {heading}` section does not define it:
+    {lines}
+    For each such value, add a row with all four cells ({columns}) — back to Branch C2. When another PRD defines the value, write one line in the section naming it instead. Behavior the PRD leaves undefined is a gap in the PRD, not a default for the design or the implementation to pick.
 
   prd.stage1_5.intake_prompt_verbatim: |
     Attach supporting material if you have any (reply 'none' if not). Only the following are accepted:
@@ -532,6 +537,18 @@ strings:
 
   # v0.16+: the standard sentence for a no-go that hands presentation to the design — Stage 2 Branch E.
   prd.stage2.nogo_design_line: "- **Copy, layout and presentation of {subject}** — Figma is the SSoT (*Outside scope*). Where what is shown, or when or in what order, differs from the design, this pitch governs."
+
+  # v0.18+: Branch C2 — the user-entered values in scope, then four cells per value.
+  prd.stage2.input_enumeration: |
+    The stories above have the user enter these values (typed or picked):
+    {fields}
+    Is that the whole list? Add any value the stories use that is missing, and drop any this PRD does not define (another PRD owns it — name that PRD).
+  prd.stage2.input_cells_question: |
+    Input «{field}»
+    - {col_entry}: (recommended) {rec_entry}
+    - {col_accepted}: (recommended) {rec_accepted}
+    - {col_invalid}: (recommended) {rec_invalid}
+    Accept, or correct any of the three. {col_invalid} is what the user sees and what the system does when it refuses the value; when no invalid value can be entered, say why.
 
   prd.contract.correction_deferral_warning: |
     The correction is not a decision: "{correction}"
@@ -801,6 +818,15 @@ strings:
     {rules}
     A ticket's creation time is read as a date in `since_utc_offset: "{offset}"` — change it if the team works in another time zone.
     Before merging, pin every CI that reads this profile at `immutable--v0.16.0` or later. An older engine skips `since` as an unknown key and applies the rule to every ticket, old ones included.
+
+  # v0.18+: profile_schema 9 added the input contract — Stage 5.2.8.
+  migrate.stage6.note_input_contract: |
+    NOTE: added the input contract — the `## {heading}` section, `input_markers` and the gate criterion `input_contract` (gate.total / gate.pass_threshold {gate_old} → {gate_new}).
+    `since: {since}` (the day after this migration): a PRD dated from then on that speaks of a user-entered value in a normative line without the section fails `validate_docs.py --strict-body`; existing PRDs are only warned, so none fails on this change.
+    {quality_auditor_line}
+    Pin every CI that reads this profile at `immutable--v0.18.0` or later — an older validator ignores the section, so nothing is checked until then.
+  migrate.stage6.note_input_contract_auditor_replaced: "personas[quality_auditor].checks: stock text, replaced with the schema-9 list (adds \"what happens when this value is wrong?\")."
+  migrate.stage6.note_input_contract_auditor_kept: "personas[quality_auditor].checks: kept — your team edited it. Add the input check from the bundled profile by hand."
 
   # ==========================================================================
   # common (shared across skills)

@@ -43,6 +43,7 @@ The skill is **profile-aware** in v0.5: section headings, the gate threshold, pe
 | `sections[id=user_stories].structure` (v0.5.3+) | Stage 2 Branch B completion criterion + Stage 6 pre-write structure guard. `per_story_grouped` (default) requires each story in a `### ` sub-section carrying a GWT triple + ≥1 bracketed normative line; `consolidated` accepts a single GWT list + single normative list under the H2 (v0.5.2 shape). |
 | `max_bytes` (v0.17+, profile_schema 8) | §1.2.1 size column and the Stage 6 size guard — the one size limit, a byte ceiling per pitch file (Claude Code's Read returns a partial page past about 55 KB of Korean text). The validator enforces the same value under `--strict-body`. |
 | `precedence_keywords[]` (v0.17+, profile_schema 8) | Stage 6 cross-pitch reference guard — a body line naming another pitch's path may not carry one. The validator enforces the same list under `--strict-body`. |
+| `sections[id=input_contract]` (`.heading` / `.columns` / `.since`) and `input_markers[]` (v0.18+, profile_schema 9) | Stage 2 Branch C2 (the four cells per value, labelled by `columns`), Stage 4 `quality_auditor`, Stage 5 `input_contract` criterion, Stage 6 body assembly and input contract guard. The validator reads the same section, columns, `since` and markers under `--strict-body`. A team profile without them uses the bundled values with the §1.bis annotation |
 | `normative_keywords[].token` / `meaning` | Stage 2 Branch C bracket vocabulary |
 | `identifier_patterns[].regex` / `hint` | Stage 3 code-identifier detection |
 | `vague_words[].regex` / `hint` (v0.5.3+) | Stage 3 vague-word detection (skill-side only; not enforced by the CI validator) |
@@ -111,7 +112,7 @@ Stage 1.6: Requirement Judgement  — (contract repos only) wording lint, pinned
 Stage 2: Interview                 — one question at a time, with a recommended answer
 Stage 3: Domain Language Check    — code identifier detection, terminology drift
 Stage 4: Adversarial Review       — four personas each surface at least one gap
-Stage 5: 90% Completeness Gate    — 7-criterion checklist; generate file only if passed
+Stage 5: 90% Completeness Gate    — 8-criterion checklist; generate file only if passed
 Stage 6: File Generation & Handoff
 ```
 
@@ -138,7 +139,7 @@ Use Bash + Glob + Read to collect:
 1.bis. **Profile schema mismatch detection** (added v0.5.7):
    - When the loaded profile is a TEAM profile (config v3 with `profile:` pointer to a repo-local file), read its `profile_schema:` value (default `1` if absent).
    - Read the bundled default profile's `profile_schema:` value for the same `team_language`.
-   - **If `team_profile_schema < bundled_profile_schema`**: render `prd.stage1.profile_schema_mismatch` with `{team_schema}`, `{bundled_schema}`, and a comma-joined list of missing top-level fields detected via direct comparison (e.g., `max_bytes`, `precedence_keywords`, `vague_words`, `personas[quality_auditor]`). Recommend `/immutable:migrate`.
+   - **If `team_profile_schema < bundled_profile_schema`**: render `prd.stage1.profile_schema_mismatch` with `{team_schema}`, `{bundled_schema}`, and a comma-joined list of missing top-level fields detected via direct comparison (e.g., `sections[input_contract]`, `input_markers`, `max_bytes`, `precedence_keywords`, `vague_words`, `personas[quality_auditor]`). Recommend `/immutable:migrate`.
    - **For this run only**: when the skill needs a missing field (e.g., `max_bytes` for the Stage 6 size guard), READ THE VALUE FROM THE BUNDLED DEFAULT and use it. Do NOT write to disk. Do NOT mutate the in-memory team profile object — fetch fallback values via a "look up in team profile, else look up in bundled default" function so the fallback path is auditable.
    - **Skill traceability**: any output that references a value sourced from the bundled default fallback (rather than the team profile) MUST annotate the source — e.g., "(from bundled default-ko v2 — your team profile is v1)".
    - This guard exists to surface silent-skip behavior immediately. Without it, teams who ran `/immutable:migrate` once on plugin v0.5.0-era and never re-migrated would see new features (the size ceiling, etc.) silently disabled.
@@ -553,6 +554,16 @@ When the profile overrides `normative_keywords`, render the team's tokens instea
 
 **Completion criterion**: at least 3 bracketed normative statements across the body (matches `profile.gate.criteria[id=normative_minimum]`).
 
+#### Branch C2 — Inputs (v0.18+)
+
+Every value the user enters — typed or picked: a phone number, a code, a date, a quantity, a free-text reason — is defined by the pitch: how it is entered, what is accepted, what happens to an invalid value. Behavior the pitch leaves undefined is a gap in the pitch, not a default for the design or the implementation to pick (owner, 2026-11-06). The incident: a signup pitch asked for an optional birthdate and said neither; the ticket was silent, the design drew a plain text field, and the app stored six typed digits as impossible dates — while the pitch's edge-case table, holding one-time-code error rows, looked complete.
+
+1. **Enumerate** the values the stories in scope (Branch B / C) have the user enter — for an `update`, those in the sections its change list touches; when that is any, the Inputs section joins the change list (`add` when the predecessor has none, else `modify`). Render `prd.stage2.input_enumeration` with `{fields}` = one `- <value>` line each, and settle the list with the user: add a value the stories use that is missing; drop one this pitch does not define (another pitch owns it — note which).
+2. **Four cells per value**, one value per question: render `prd.stage2.input_cells_question` with `{field}`, the column labels from `profile.sections[id=input_contract].columns` (`{col_entry}`, `{col_accepted}`, `{col_invalid}`) and a recommended answer for each (`{rec_entry}`, `{rec_accepted}`, `{rec_invalid}`), derived by the usual priority — and first from the **same value elsewhere**: when an active pitch already defines this value (the birthdate in profile editing), recommend its entry method and rules verbatim and say so ("use the picker the same value uses in `pitches/profile/…`"). Otherwise recommend the platform's native control for the type (a date picker for a date, a numeric keypad for digits). `{rec_invalid}` is what the user sees and what the system does when it refuses the value; when the entry method makes an invalid value impossible (a picker bounded to past dates), the cell says so and why.
+3. A cell the user cannot decide gets `<profile.gate.unresolved_tag>`, as everywhere — and blocks Stage 5. Never "the design decides" / "the implementation decides" in a cell.
+
+**Completion criterion**: every enumerated value has four decided cells. A pitch whose stories have the user enter nothing skips this branch, and a pitch that only mentions an input another pitch defines records that in one line instead (Stage 6).
+
 #### Branch D — Edge Cases
 
 Offer a checklist of common candidates:
@@ -566,7 +577,7 @@ Offer a checklist of common candidates:
 | External app missing | Y/N |
 | Extreme input (max length, unicode, RTL) | Y/N |
 
-For each applicable case, elicit the expected handling.
+For each applicable case, elicit the expected handling. A value the user enters gets its invalid-value handling in its Branch C2 row, not here — an edge-case row about one input never stands in for another input's row.
 
 **Completion criterion**: at least 2 edge-case rows with explicit handling.
 
@@ -664,6 +675,7 @@ Apply the checks from `profile.personas[id=quality_auditor].checks[]`. The bundl
 - Pass/fail decidability of every GWT Then (can a test or reviewer give a binary verdict without subjective judgment?).
 - Missing-subject or passive-voice sentences that hide the responsible actor.
 - Depth-to-complexity balance — thin MUST/edge-case counts in a pitch that drew on substantial Stage 1.5 intake is a drift signal.
+- Inputs (v0.18+) — for every value the user enters, ask **"what happens when this value is wrong?"** and check the pitch answers it: the Branch C2 table states how it is entered, the accepted values and the handling of an invalid value, no cell left to the design or the implementation, and no value the stories use is missing from it.
 
 This persona complements the Stage 3 regex-based vague-word scan (which is deterministic and shallow) with semantic judgment. The two layers are expected to overlap; overlap is a feature, not redundancy.
 
@@ -680,7 +692,7 @@ For each finding, offer three options (rendered in the active locale via profile
 
 ## Stage 5 — 90% Completeness Gate
 
-### Checklist (7 criteria, v0.17+)
+### Checklist (8 criteria, v0.18+)
 
 The criteria list is sourced from `profile.gate.criteria[]` (id-keyed). Defaults below.
 
@@ -693,15 +705,17 @@ The criteria list is sourced from `profile.gate.criteria[]` (id-keyed). Defaults
 | 5 | `no_gos_minimum` | At least 1 item with reason or handoff |
 | 6 | `no_code_identifiers` | Stage 3 passed cleanly |
 | 7 | `feature_scope` | Passes the single-flag toggle test, and the pitch covers one user-facing feature area — the product_lead review found no second one. Length and story count are not part of it |
+| 8 | `input_contract` (v0.18+) | Every value the user enters has a Branch C2 row with all four cells decided — none left to the design or the implementation, none `<profile.gate.unresolved_tag>`. A pitch that introduces or changes no input passes |
 
-`concern_scope` (v0.5.6-v0.16, the anti-monolith tier criterion) is retired; a team profile that still lists it is judged without it (§1.2 step 1.bis).
+`concern_scope` (v0.5.6-v0.16, the anti-monolith tier criterion) is retired; a team profile that still lists it is judged without it (§1.2 step 1.bis). A team profile below profile_schema 9 has no `input_contract` criterion: judge it anyway, from the bundled default, without counting it toward that profile's `gate.total` (§1.bis annotation).
 
 ### Judgment
 
-- Use `profile.gate.pass_threshold` (default 6 of 7 in default-ko / default-en since v0.17) → proceed to Stage 6
+- Use `profile.gate.pass_threshold` (default 7 of 8 in default-ko / default-en since v0.18) → proceed to Stage 6
 - Below threshold → refuse generation; loop to the relevant branch
 - **Any `<profile.gate.unresolved_tag>` tag remains anywhere** → refuse generation regardless of count
 - **`feature_scope` failed on a second feature area** → refuse generation regardless of count, AND offer to author the second area as its own pitch (or, for an existing pitch, `refactor-split`)
+- **`input_contract` failed** (v0.18+) → refuse generation regardless of count and loop to Branch C2 for the value(s) without four decided cells — a pitch that leaves an input undefined hands the gap to whoever implements it, and the validator refuses it once it is dated on or after the section's `since`
 - **A ticket is bound** (v0.11+) → accounting is by **ledger**, at the level of the **set** of pitches that cite the ticket — never by per-item no-gos. This pitch declares in `references.tickets[].covers` the binding groups (or in-group item numbers — the parser's `in_group`) it *reflects* — a contested item counts as reflected through its correction — and in `references.tickets[].delegates` the items it reflects in substance while the literal is owned elsewhere (copy → Figma, an identifier → the backend spec), naming the owner. A `delegates` declaration says who owns a literal; it never resolves a lint `block` hit on that item (v0.15+ — the gate ignores it), which is contested by a disagreement or acknowledged in the ledger. Items in neither belong to a sibling and need **no** no-go here: the 범위 제외 section carries at most ONE bullet saying that the rest of the Epic is owned by sibling pitches citing the same ticket, **without filenames** (an append-only list of siblings rots the moment one more is written). Group labels are copied verbatim from the parser's `bindings[].groups[].label`. Then run `requirement_contract.py coverage` over every pitch in the repo plus this draft (the §8 command, carrying the same `--binding` and `--optional-binding` flags §1.5.1 used) and refuse generation when: (1) a declared group or item is not actually reflected in the draft — render `prd.contract.unaccounted_items` with the declared-but-unreflected items; (2) the report lists `overlaps` (two pitches claim an item without `shared: true` on both sides) or `stale` (a declaration naming a binding, group or item the ticket does not have — including a claim on a section the ticket never supplied, which the report names as such). A binding listed in the report's `absent[]` binds nothing here: it is reported to the user, never silently skipped, and its unclaimed work is carried into the handoff like an `uncovered` item. `uncovered` items are the Epic's remaining gaps, not this pitch's defect: render `prd.contract.coverage_summary`, carry them into the handoff (`prd.contract.handoff_gap_line`), and refuse only when the user says this pitch is the last of the set. One sentence that genuinely spans two pitches (one item, two screens) is claimed by both with `shared: true`. The Stage 6 supersede completeness guard still applies to what the superseded pitch used to state. This is the contract's own rule ("the list is honoured in full"), not a coverage check against anything outside the ticket.
 
 ### Refusal message
@@ -791,6 +805,7 @@ Start from `pitches/TEMPLATE.md`. Populate sections from interview answers, usin
 - `# <title>` — user-confirmed title
 - `## <profile.sections[id=background].heading>` — Branch A content
 - `## <profile.sections[id=user_stories].heading>` — Branch B + Branch C content (internal shape controlled by `structure`, see below)
+- `## <profile.sections[id=input_contract].heading>` — Branch C2 content (v0.18+, only when the pitch defines or mentions a user-entered value; shape below)
 - `## <profile.sections[id=edge_cases].heading>` — Branch D content
 - `## <profile.sections[id=no_gos].heading>` — Branch E content
 - `## <profile.sections[id=feature_flag].heading>` — Branch F (only when used)
@@ -835,6 +850,20 @@ Section order MUST follow the order of entries in `profile.sections`. Skill cons
 - **`consolidated`** — emit a single GWT list followed by a single bracketed-keyword list under the H2 (v0.5.2 shape). Do NOT add `### ` sub-sections in this mode.
 
 If the `structure` field is missing (profile predates v0.5.3), treat it as `per_story_grouped`.
+
+#### Inputs section shape (v0.18+)
+
+One table, the header the four `profile.sections[id=input_contract].columns` labels in order, one row per Branch C2 value:
+
+```
+## <heading>
+
+| <columns.field> | <columns.entry> | <columns.accepted> | <columns.invalid> |
+|---|---|---|---|
+| 생년월일 (선택) | 날짜 선택기 — 연, 월, 일을 고른다 | 오늘 이전의 실제 날짜 | 선택기가 미래 날짜와 없는 날짜를 고를 수 없게 한다 |
+```
+
+Name the field as the stories name it, so a reader (and the validator's per-field warning) can match a story line to its row; alternatives go in the same cell as `휴대폰 번호 / 전화번호`. When the pitch defines no input but its normative lines mention one that another pitch defines, the section holds one line instead of a table — "이 pitch 는 입력을 정하지 않는다 — 휴대폰 번호와 인증번호는 `pitches/auth/<file>.md` 가 정한다" — citing the owner by path (cross-pitch reference guard applies). A pitch that neither defines nor mentions an input has no such section.
 
 #### Disagreement section shape (v0.11+, contract repos only)
 
@@ -905,6 +934,17 @@ Scan the draft (outside fenced code) for lines that name another pitch's path (`
 
 `validate_docs.py --strict-body` enforces both in CI.
 
+### Input contract guard (v0.18+)
+
+The section is required exactly when the pitch speaks of a user-entered value, so it is guarded like a required section with a condition. Before writing (for a copy, before flipping its predecessor):
+
+1. Collect the draft's bracketed normative lines outside fenced code that match any `profile.input_markers` regex (case-insensitive) — the same net the validator casts.
+2. Hits and no `## <profile.sections[id=input_contract].heading>` → render `prd.stage6.input_contract_missing` with `{heading}`, `{columns}` (the four labels) and `{lines}` (one hit per line), do not write, loop to Branch C2.
+3. A table there must have the four column labels as its header, at least one row, four cells a row, no empty or placeholder cell, no `<profile.gate.unresolved_tag>` or TBD cell, and no field twice; a section without a table must hold its one-line statement. Any failure → the same render with the offending rows, loop to Branch C2.
+4. With a table, a hit line that names none of its fields is a value Branch C2 missed until the user says otherwise — ask, then add its row or keep the line as is.
+
+The markers are a net, not the definition: a value the stories have the user enter is declared even when no marker catches its wording. `validate_docs.py --strict-body` enforces steps 2 and 3 in CI — step 2 as a violation only for a pitch dated on or after the section's `since`, a warning before it — and warns on step 4.
+
 ### Handoff output
 
 After writing, emit a handoff message by rendering `prd.stage6.handoff` with:
@@ -973,6 +1013,7 @@ FILES='["<pitch-relative-path>"]'   # e.g. ["pitches/state/use-riverpod.md"]
 11. **Never write to the tracker** (v0.11+). Correction requests, registration comments, status updates — every outbound write is handed to the user as rendered text. The skill reads tickets; it never posts.
 12. **Never write a disagreement entry outside the profile's `requirement_contract.categories`, with a field missing, or with a terminal outcome** (v0.11+). The bundled profiles ship five — the protocol's three on content and, since v0.13, two on wording (`non_concrete`, `delegated_authority`); a team that agrees a further category with its counterpart adds it to the profile, never to this file. "A better way" is a next-list candidate, a missing field is an unfinished judgement, and a terminal outcome is a claim the skill cannot make.
 13. **Never treat a topic the ticket did not raise as a defect** (v0.11+). The contract binds the ticket's stated items only; everything else is the pitch's to decide. No coverage check against Notion, Figma, or any other source. The pinned-design cross-check (§1.6.0b, v0.16+) is not one: it reads only the designs the ticket itself pins and compares only what a binding item states — a design element no item speaks about is never a difference.
+14. **Never leave a user-entered value undefined, or hand its definition to the design or the implementation** (v0.18+). Every value the user enters has its four Branch C2 cells decided in the pitch; "the design decides the input control" is the gap this rule closes, not an answer — in a cell or in a no-go.
 
 ---
 

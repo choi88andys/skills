@@ -168,6 +168,7 @@ deprecated: false                   # 폐기 여부 (기본 false)
 
 - 배경과 문제
 - 사용자 스토리 및 수용 조건 (Given/When/Then)
+- 입력 항목 (사용자가 입력하는 값이 있을 때 — 값마다 입력 방식, 받는 값, 잘못된 값일 때)
 - 엣지 케이스
 - 범위 제외 (No-gos)
 - Feature Flag (사용 시만)

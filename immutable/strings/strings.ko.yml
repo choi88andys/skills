@@ -328,6 +328,11 @@ strings:
     아래 초안 줄은 다른 active PRD 를 적고 「{keyword}」 라고 말합니다:
       {line}
     다른 PRD 의 뜻을 바꾸는 관계는 `supersedes` 하나입니다. 이 변경은 `{target}` 의 새 버전으로 만들고 (또는 둘을 합치고), 여기 문장은 지우세요.
+  # v0.18+: the input contract guard — Stage 6.
+  prd.stage6.input_contract_missing: |
+    초안이 사용자가 입력하는 값을 말하는데, `## {heading}` 섹션이 그 값을 정하지 않았습니다:
+    {lines}
+    값마다 네 칸({columns})을 모두 채운 행을 추가하세요 — Branch C2 로 돌아갑니다. 다른 PRD 가 정하는 값이면 섹션에 그 PRD 를 적는 한 줄을 대신 씁니다. PRD 가 정하지 않은 동작은 시안이나 구현이 고를 기본값이 아니라 PRD 의 빈칸입니다.
 
   prd.stage1_5.intake_prompt_verbatim: |
     참고 자료가 있으면 첨부해주세요 (없으면 '없음'). 다음 중 해당되는 것만:
@@ -558,6 +563,18 @@ strings:
 
   # v0.16+: 표현을 시안에 넘기는 범위 제외의 표준 문장 — Stage 2 Branch E.
   prd.stage2.nogo_design_line: "- **{subject}의 문구·배치·표현** — Figma 가 SSoT (*Outside scope*). 무엇을 보이는지와 언제 어떤 순서로 보이는지가 시안과 다르면 본 Pitch 를 따른다."
+
+  # v0.18+: Branch C2 — the user-entered values in scope, then four cells per value.
+  prd.stage2.input_enumeration: |
+    위 스토리에서 사용자가 입력하는 값(직접 쓰거나 고르는 값)은 이렇습니다:
+    {fields}
+    빠진 값이 있나요? 스토리에 나오는데 목록에 없는 값은 더하고, 이 PRD 가 정하지 않는 값(다른 PRD 가 정함 — 그 PRD 를 알려 주세요)은 빼 주세요.
+  prd.stage2.input_cells_question: |
+    입력 항목 «{field}»
+    - {col_entry}: (추천) {rec_entry}
+    - {col_accepted}: (추천) {rec_accepted}
+    - {col_invalid}: (추천) {rec_invalid}
+    그대로 받거나, 세 칸 중 고칠 것을 알려 주세요. {col_invalid}는 그 값을 거절할 때 사용자가 보는 것과 시스템이 하는 일입니다. 잘못된 값을 넣을 수 없다면 왜 없는지를 씁니다.
 
   prd.contract.correction_deferral_warning: |
     정정 문장이 결정이 아닙니다: "{correction}"
@@ -827,6 +844,15 @@ strings:
     {rules}
     티켓 생성 시각은 `since_utc_offset: "{offset}"` 의 날짜로 읽습니다 — 다른 시간대의 팀이면 바꾸세요.
     머지 전에 이 profile 을 읽는 모든 CI 의 플러그인 고정 버전을 `immutable--v0.16.0` 이상으로 올리세요. 그 전 엔진은 `since` 를 모르는 키로 건너뛰어 규칙을 모든 티켓에 소급 적용합니다.
+
+  # v0.18+: profile_schema 9 added the input contract — Stage 5.2.8.
+  migrate.stage6.note_input_contract: |
+    NOTE: 입력 계약을 추가했습니다 — `## {heading}` 섹션, `input_markers`, gate 기준 `input_contract` (gate.total / gate.pass_threshold {gate_old} → {gate_new}).
+    `since: {since}` (이 마이그레이션 다음 날): 이날부터 날짜가 붙은 PRD 가 normative 줄에서 사용자 입력 값을 말하는데 이 섹션이 없으면 `validate_docs.py --strict-body` 가 막습니다. 기존 PRD 는 경고만 받으므로 이 변경으로 실패하는 PRD 는 없습니다.
+    {quality_auditor_line}
+    이 profile 을 읽는 모든 CI 의 플러그인 고정 버전을 `immutable--v0.18.0` 이상으로 올리세요 — 그 전 validator 는 이 섹션을 모르므로 그때까지 아무것도 검사하지 않습니다.
+  migrate.stage6.note_input_contract_auditor_replaced: "personas[quality_auditor].checks: 손대지 않은 기본 문구라 schema 9 목록으로 바꿨습니다 (「이 값이 잘못되면 무엇이 일어나는가?」 추가)."
+  migrate.stage6.note_input_contract_auditor_kept: "personas[quality_auditor].checks: 팀이 고친 목록이라 그대로 두었습니다. bundled profile 의 입력 점검 항목을 직접 추가하세요."
 
   # ==========================================================================
   # common (shared across skills)
