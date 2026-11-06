@@ -38,8 +38,9 @@ Branch protection 없음 — 실수는 앱 구현 단계에서 owner가 교차 �
 1. **기존 최신 Pitch 파일 전체 복사**
 2. 새 파일명 `YYYY-MM-DD-<slug>.md`로 저장
 3. `supersedes`에 이전 파일명 기입
-4. 내용 갱신 (추가·수정·제거 모두 반영된 **full snapshot**)
-5. 이전 파일의 `deprecated: false` → `deprecated: true`로 변경 (본문·다른 필드는 건드리지 않음)
+4. 바꾸는 절만 고친다 — 나머지 줄은 복사한 그대로 둔다 (다시 쓰면 문구가 바뀐다). 고친 절은 frontmatter `changes: [{section: <제목>, kind: add|modify|remove}]` 에 적는다
+5. `validate_docs.py --supersede-diff <새 파일>` 로 선언하지 않은 차이가 없는지 확인한다
+6. 이전 파일의 `deprecated: false` → `deprecated: true`로 변경 (본문·다른 필드는 건드리지 않음)
 6. PR → 리뷰 → Merge
 
 ### 기능 폐기 (승계 없음)
@@ -108,7 +109,9 @@ deprecated: false                   # 폐기 여부 (기본 false)
 
 ## Pitch 단위 (Goldilocks)
 
-**Feature 수준**: 유저에게 독립적 가치 + 한 번의 배포 사이클(2~6주) 내 완결 가능.
+**Feature 수준**: 사용자에게 보이는 기능 영역 하나. 길이는 쪼갤 이유가 아니다 — 한 기능 영역에 스토리가 많이 필요하면 한 Pitch 에 모두 둔다. 크기 제한은 파일 하나당 `max_bytes` (기본 50000 바이트) 하나뿐이다.
+
+**규칙마다 Pitch 하나**: 다른 Pitch 가 이미 정한 규칙을 바꾸려면 그 Pitch 의 새 버전을 쓴다. 다른 Pitch 의 경로를 적은 줄에 「우선한다」「대체한다」를 쓰지 않는다 — 다른 Pitch 의 뜻을 바꾸는 관계는 `supersedes` 하나다 (validator 가 막는다).
 
 | 수준 | 예시 | 판정 |
 |---|---|---|

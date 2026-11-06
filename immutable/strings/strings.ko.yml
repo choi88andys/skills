@@ -215,7 +215,7 @@ strings:
   prd.stage1.confirmation: |
     [{domain}] {intent_desc}
     기준 파일: {base_file}
-    {anti_monolith_summary}
+    {ownership_summary}
     인터뷰를 시작할까요?
 
     (1) 맞음 — 인터뷰 시작
@@ -223,31 +223,25 @@ strings:
     (3) 신규 도메인 — 허용 목록 추가 절차 안내
     (4) 폐기만 — 인터뷰 없이 deprecated 플립
 
-  prd.intent_desc.new: "기존 도메인에 신규 PRD 추가로 이해했습니다 (별도 supersede 체인 — 도메인 내 multiple actives 정상)"
+  prd.intent_desc.new: "아직 어느 active PRD 도 정하지 않은 규칙으로 이해했습니다 — 기존 도메인에 신규 PRD 추가 (별도 supersede 체인 — 도메인 내 multiple actives 정상)"
   prd.intent_desc.new_domain: "새 도메인 + 새 PRD 생성으로 이해했습니다"
-  prd.intent_desc.update: "특정 PRD의 정의 자체를 재선언하는 것으로 이해했습니다 (드문 의도 — 같은 chain의 supersede)"
-  prd.intent_desc.refactor_split: "기존 oversized PRD를 N개 small PRD로 분해 (의미 변화 없음, 구조 refactor만)"
-  prd.intent_desc.split_from: "기존 oversized PRD를 분해한 뒤, 분해된 것 중 하나에 신규 변경 적용 (Stage 1 + Stage 2)"
+  prd.intent_desc.update: "이 규칙을 이미 정한 active PRD 의 새 버전으로 이해했습니다 (그 chain 의 supersede — 바꾸지 않는 절은 그대로 복사됩니다)"
+  prd.intent_desc.refactor_split: "사용자에게 보이는 기능 영역을 둘 이상 다루는 PRD 를 영역마다 하나씩 분리 (의미 변화 없음, 구조 refactor만)"
+  prd.intent_desc.split_from: "기능 영역을 둘 이상 다루는 PRD 를 분리한 뒤, 분리된 것 중 하나에 신규 변경 적용 (Stage 1 + Stage 2)"
+  prd.intent_desc.fold: "한 기능 영역을 나눠 적은 active PRD 들을 하나로 합침 (`supersedes` 에 모두 나열; 본문은 그대로 옮겨 적음)"
   prd.intent_desc.deprecate_only: "폐기 처리로 이해했습니다"
 
-  # Anti-monolith pre-check (v0.5.6+) — rendered into {anti_monolith_summary}
-  # placeholder of prd.stage1.confirmation. Empty when the domain has no
-  # active PRDs; otherwise lists each active with its tier classification.
-  prd.stage1.anti_monolith_summary_template: |
-    도메인 active PRD 현황 (anti-monolith tier):
+  # Ownership pre-check (v0.17+, §1.2.1) — rendered into {ownership_summary}
+  # of prd.stage1.confirmation. Empty when the domain has no active PRD.
+  prd.stage1.ownership_summary_template: |
+    도메인 active PRD — 각자 정하는 규칙:
     {per_pitch_rows}
-  prd.stage1.anti_monolith_row_pass: "  - {filename} [통과 — sub-section {sub_count}, normative {norm_count}]"
-  prd.stage1.anti_monolith_row_l1: "  - {filename} [L1 hint — sub-section {sub_count}, normative {norm_count}]"
-  prd.stage1.anti_monolith_row_l2: "  - {filename} [L2 — split 권장. update 시 사유 필요]"
-  prd.stage1.anti_monolith_row_l3: "  - {filename} [L3 — update 차단. refactor-split / split-from / new 만 허용]"
-  prd.stage1.anti_monolith_l3_block_message: |
-    선택한 작업이 L3 PRD `{filename}` 를 update 하려고 합니다.
-    이 PRD는 sub-section {sub_count}개, normative {norm_count}개로 anti-monolith
-    L3 임계를 초과합니다. update 는 차단되며, 다음 중 하나만 가능합니다:
+  prd.stage1.ownership_row: "  - {filename} ({size_kb} KB) — {sections}"
+  prd.stage1.ownership_question: |
+    이 변경이 건드리는 규칙을 가질 수 있는 active PRD 가 둘 이상입니다:
+    {candidates}
 
-    (a) refactor-split — 의미 변화 없이 N개 small PRD 로 분해 (Stage 1만)
-    (b) split-from     — 분해 후 신규 변경 적용 (Stage 1 + Stage 2)
-    (c) new            — 별도 작은 PRD 추가, 기존은 그대로 둠
+    지금 그 규칙을 정한 PRD 는 어느 것인가요? PRD 를 지목하면 그 PRD 의 새 버전이 변경을 담습니다. (n) 어느 것도 아님 — 아직 어느 PRD 도 정하지 않은 규칙 (`new`).
 
   # Profile schema mismatch detection (v0.5.7+) — surfaces silent-skip when
   # team profile predates plugin update (e.g., v0.5.0-era v1 profile + v0.5.6 plugin).
@@ -266,14 +260,6 @@ strings:
     (override 보존 — 누락 필드만 추가됩니다.)
 
   prd.stage1.profile_fallback_annotation: " (from bundled default-{team_language} v{bundled_schema} — your team profile is v{team_schema})"
-
-  prd.stage1.anti_monolith_skipped_no_threshold: |
-    ⚠ anti-monolith pre-check skipped — profile lacks both `anti_monolith` block and `sections[user_stories].max_items` field. `/immutable:migrate` 실행으로 활성화하세요.
-
-  # Stage 5 anti-monolith warnings (v0.5.6+)
-  prd.stage5.l1_hint: "anti-monolith L1 hint — sub-section {sub_count}, normative {norm_count}. 진행 가능하지만 다음 작업부터는 더 작은 단위 PRD 권장."
-  prd.stage5.l2_warning: "anti-monolith L2 — sub-section {sub_count}, normative {norm_count}. 작성 중 PRD 가 multi-feature 묶음일 가능성 높음. 그래도 진행하시겠습니까?"
-  prd.stage5.concern_scope_violation: "concern_scope criterion 실패 (L3) — sub-section {sub_count}/normative {norm_count}. 작성 중 PRD 가 너무 큽니다. refactor-split 으로 분해 후 다시 작성하세요."
 
   # Refactor-split (v0.5.6+) — §1.7
   prd.refactor_split.boundary_proposal: |
@@ -309,6 +295,39 @@ strings:
   # Split-from (v0.5.6+) — §1.8
   prd.split_from.stage2_prompt: "Stage 1 (refactor-split) 완료. 신규 변경을 적용할 Stage 2 를 진행하시겠습니까? (Y) 다음 단계 / (N) separate commit 가시성 확보를 위해 종료, 나중에 update 호출"
   prd.split_from.stage2_target_question: "신규 변경은 분해된 PRD 중 어디에 적용됩니까? {candidates}"
+
+  # Fold (v0.17+) — §1.9
+  prd.fold.handoff: |
+    fold 완료. 작성된 파일:
+    - `{new_file}` (PRD {n}개를 supersede)
+
+    deprecated 처리:
+    {old_files}
+
+    권장 commit 메시지:
+      refactor({domain}): fold {n} pitches into {new_file_name}
+
+    의미 변화 없는 구조 refactor 입니다. 단독 commit 으로 두고, 의미 변경은 합친 PRD 의 `update` 로 이어서 하세요.
+
+  # Mechanical supersede (v0.17+) — Stage 6
+  prd.stage6.change_list_confirmation: |
+    이번 버전은 아래 절만 바꿉니다. 나머지는 {base_files} 에서 그대로 복사합니다:
+    {change_rows}
+
+    맞나요? (Y) 맞음 — 인터뷰는 이 절만 다룸 (N) 목록 조정
+  prd.stage6.change_row: "  - {kind} — {section}"
+  prd.stage6.supersede_diff_failure: |
+    새 파일이 선언한 `changes` 밖에서 {base_files} 와 다릅니다:
+    {violations}
+
+    이전 버전은 deprecated 로 바꾸지 않았습니다. 의도하지 않은 편집을 되돌리세요. 의도한 차이라면 사용자 확인 후 그 절을 `changes` 에 더하세요.
+  prd.stage6.size_over: |
+    작성한 PRD 가 {bytes} 바이트로 `max_bytes` {max_bytes} 를 넘습니다. 이보다 크면 Claude Code 의 Read 가 파일 일부만 돌려주고, 읽는 쪽이 PRD 절반으로 작업할 수 있습니다.
+    사용자에게 보이는 기능 영역을 따라 나누세요 (refactor-split). 내용을 깎아서 맞추지 않습니다.
+  prd.stage6.precedence_prose: |
+    아래 초안 줄은 다른 active PRD 를 적고 「{keyword}」 라고 말합니다:
+      {line}
+    다른 PRD 의 뜻을 바꾸는 관계는 `supersedes` 하나입니다. 이 변경은 `{target}` 의 새 버전으로 만들고 (또는 둘을 합치고), 여기 문장은 지우세요.
 
   prd.stage1_5.intake_prompt_verbatim: |
     참고 자료가 있으면 첨부해주세요 (없으면 '없음'). 다음 중 해당되는 것만:
@@ -350,7 +369,7 @@ strings:
     `/immutable:plan-review-eng` Phase 3에서 ADR-authoring trigger가 review의
     OUTPUT으로 surface되며, pitch 직후 입력으로 미리 작성하지 않습니다.
 
-  prd.stage6.deprecated_line: "- (update인 경우) `{old_file_path}` — deprecated: true로 플립됨"
+  prd.stage6.deprecated_line: "- (update / fold인 경우) `{old_file_path}` — deprecated: true로 플립됨"
 
   prd.stage6.missing_required_section: |
     파일 생성을 중단합니다. 프로파일이 요구하는 필수 섹션이 본문에 누락되었습니다.
@@ -790,19 +809,17 @@ strings:
     ```
 
     참고:
-    - profile.yml의 sections / personas / gate / naming / anti_monolith 필드를 자유롭게 편집하세요.
+    - profile.yml의 sections / personas / gate / naming / max_bytes 필드를 자유롭게 편집하세요.
     - 편집하지 않은 필드는 bundled default로 fallback됩니다.
     - 문제 발생 시 위 commit 메시지의 변경사항을 `git restore`로 되돌릴 수 있습니다.
 
-  migrate.stage6.note_concern_scope_threshold: |
-    NOTE: `concern_scope` gate criterion이 추가되었지만 `gate.total` / `gate.pass_threshold`는 자동 변경하지 않았습니다 (override 보존 원칙).
-    이 criterion을 gate 통과 조건에 포함시키려면 직접 수정:
-
-    ```yaml
-    gate:
-      total: 8           # was 7
-      pass_threshold: 7  # was 6
-    ```
+  # v0.17+: profile_schema 8 retired the pitch size caps — Stage 5.2.7.
+  migrate.stage6.note_retired_fields: |
+    NOTE: profile_schema 8 에서 pitch 크기 상한을 없앴습니다 — pitch 하나는 사용자에게 보이는 기능 영역 하나이고, 길다는 것만으로 나누지 않습니다. profile.yml 에서 지운 항목:
+    {removed}
+    팀이 고쳐 쓴 값이라 남겨 둔 항목 — 직접 검토하세요 (bundled 문구에는 sub-section 개수나 2~6주 기준이 더는 없습니다):
+    {kept}
+    남은 크기 제한은 `max_bytes` (bundled 50000) 하나이며 `validate_docs.py --strict-body` 가 검사합니다.
 
   # v0.16+: 적용일(`since`)이 있는 문구 규칙을 추가했을 때 — Stage 5.2.6.
   migrate.stage6.note_dated_rules: |

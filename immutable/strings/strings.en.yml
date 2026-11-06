@@ -189,7 +189,7 @@ strings:
   prd.stage1.confirmation: |
     [{domain}] {intent_desc}
     Base file: {base_file}
-    {anti_monolith_summary}
+    {ownership_summary}
     Start the interview?
 
     (1) Confirm — start the interview
@@ -197,29 +197,25 @@ strings:
     (3) New domain — walk through the allowlist addition flow
     (4) Deprecate only — flip `deprecated` without interviewing
 
-  prd.intent_desc.new: "interpreted as adding a new PRD to the existing domain (separate supersede chain — multiple actives per domain are normal)"
+  prd.intent_desc.new: "interpreted as a rule no active PRD states yet — a new PRD in the existing domain (its own supersede chain; multiple actives per domain are normal)"
   prd.intent_desc.new_domain: "interpreted as a new domain + new PRD"
-  prd.intent_desc.update: "interpreted as re-declaring the exact scope of a specific existing PRD (rare — supersede on the same chain)"
-  prd.intent_desc.refactor_split: "interpreted as decomposing an oversized PRD into N small PRDs (no semantic change, structural refactor only)"
-  prd.intent_desc.split_from: "interpreted as decomposing an oversized PRD then applying a new change to one of the resulting small PRDs (Stage 1 + Stage 2)"
+  prd.intent_desc.update: "interpreted as a new version of the active PRD that already states this rule (supersede on its chain — the sections you do not change are copied verbatim)"
+  prd.intent_desc.refactor_split: "interpreted as splitting a PRD that covers more than one user-facing feature area into one PRD per area (no semantic change, structural refactor only)"
+  prd.intent_desc.split_from: "interpreted as splitting a PRD that covers more than one user-facing feature area, then applying a new change to one of the resulting PRDs (Stage 1 + Stage 2)"
+  prd.intent_desc.fold: "interpreted as folding active PRDs that describe one user-facing feature area into one PRD (`supersedes` lists them all; their text is carried verbatim)"
   prd.intent_desc.deprecate_only: "interpreted as a deprecate-only flip"
 
-  # Anti-monolith pre-check (v0.5.6+).
-  prd.stage1.anti_monolith_summary_template: |
-    Active PRDs in this domain (anti-monolith tier):
+  # Ownership pre-check (v0.17+, §1.2.1) — rendered into {ownership_summary}
+  # of prd.stage1.confirmation. Empty when the domain has no active PRD.
+  prd.stage1.ownership_summary_template: |
+    Active PRDs in this domain — the rules each one states:
     {per_pitch_rows}
-  prd.stage1.anti_monolith_row_pass: "  - {filename} [pass — {sub_count} sub-sections, {norm_count} normatives]"
-  prd.stage1.anti_monolith_row_l1: "  - {filename} [L1 hint — {sub_count} sub-sections, {norm_count} normatives]"
-  prd.stage1.anti_monolith_row_l2: "  - {filename} [L2 — split recommended; update requires reason]"
-  prd.stage1.anti_monolith_row_l3: "  - {filename} [L3 — update blocked. only refactor-split / split-from / new are offered]"
-  prd.stage1.anti_monolith_l3_block_message: |
-    The selected operation would `update` an L3 PRD `{filename}`.
-    This PRD has {sub_count} sub-sections and {norm_count} normatives, exceeding
-    the anti-monolith L3 thresholds. `update` is blocked. Choose one of:
+  prd.stage1.ownership_row: "  - {filename} ({size_kb} KB) — {sections}"
+  prd.stage1.ownership_question: |
+    More than one active PRD could own the rule this change touches:
+    {candidates}
 
-    (a) refactor-split — decompose into N small PRDs without semantic change (Stage 1 only)
-    (b) split-from     — decompose then apply your new change (Stage 1 + Stage 2)
-    (c) new            — add a separate small PRD; leave the existing one alone
+    Which one states it now? Name the PRD (its new version carries the change), or (n) neither — this is a rule no PRD states yet (`new`).
 
   # Profile schema mismatch detection (v0.5.7+) — surfaces silent-skip when
   # team profile predates plugin update (e.g., v0.5.0-era v1 profile + v0.5.6 plugin).
@@ -238,14 +234,6 @@ strings:
     (Overrides preserved — only missing fields are added.)
 
   prd.stage1.profile_fallback_annotation: " (from bundled default-{team_language} v{bundled_schema} — your team profile is v{team_schema})"
-
-  prd.stage1.anti_monolith_skipped_no_threshold: |
-    ⚠ anti-monolith pre-check skipped — profile lacks both `anti_monolith` block and `sections[user_stories].max_items` field. Run `/immutable:migrate` to enable.
-
-  # Stage 5 anti-monolith warnings (v0.5.6+)
-  prd.stage5.l1_hint: "anti-monolith L1 hint — {sub_count} sub-sections, {norm_count} normatives. Allowed to proceed, but consider smaller PRDs for subsequent work."
-  prd.stage5.l2_warning: "anti-monolith L2 — {sub_count} sub-sections, {norm_count} normatives. The in-flight PRD is likely a multi-feature bundle. Proceed anyway?"
-  prd.stage5.concern_scope_violation: "concern_scope criterion failed (L3) — {sub_count} sub-sections / {norm_count} normatives. The in-flight PRD is too large. Run refactor-split first."
 
   # Refactor-split (v0.5.6+) — §1.7
   prd.refactor_split.boundary_proposal: |
@@ -281,6 +269,39 @@ strings:
   # Split-from (v0.5.6+) — §1.8
   prd.split_from.stage2_prompt: "Stage 1 (refactor-split) complete. Proceed to Stage 2 (apply the new semantic change)? (Y) continue / (N) end here so the refactor commit stands alone — invoke /immutable:prd later for the update"
   prd.split_from.stage2_target_question: "Which split-out PRD does the new change target? {candidates}"
+
+  # Fold (v0.17+) — §1.9
+  prd.fold.handoff: |
+    fold complete. File written:
+    - `{new_file}` (supersedes {n} PRDs)
+
+    Deprecated:
+    {old_files}
+
+    Suggested commit message:
+      refactor({domain}): fold {n} pitches into {new_file_name}
+
+    This is a structure-only refactor (no semantic change). Commit it alone — a semantic change follows as an `update` of the folded PRD.
+
+  # Mechanical supersede (v0.17+) — Stage 6
+  prd.stage6.change_list_confirmation: |
+    This version changes only these sections; everything else is copied from {base_files} unchanged:
+    {change_rows}
+
+    Correct? (Y) yes — the interview covers only these (N) adjust the list
+  prd.stage6.change_row: "  - {kind} — {section}"
+  prd.stage6.supersede_diff_failure: |
+    The new file differs from {base_files} outside its declared `changes`:
+    {violations}
+
+    No predecessor was flipped. Undo the stray edits — or, when a difference is intended, add its section to `changes` after the user confirms it.
+  prd.stage6.size_over: |
+    The assembled PRD is {bytes} bytes, over `max_bytes` {max_bytes}: past it, Claude Code's Read returns only part of the file and a reader can act on half a PRD.
+    Split it along its user-facing feature areas (refactor-split) — never trim content to fit.
+  prd.stage6.precedence_prose: |
+    The draft line below names another active PRD and says 「{keyword}」:
+      {line}
+    A PRD changes another PRD's meaning only through `supersedes`. Make this change a new version of `{target}` (or fold the two), and drop the sentence here.
 
   prd.stage1_5.intake_prompt_verbatim: |
     Attach supporting material if you have any (reply 'none' if not). Only the following are accepted:
@@ -323,7 +344,7 @@ strings:
     surfaces ADR-authoring triggers as an OUTPUT of review, NOT an input
     authored upfront after the pitch.
 
-  prd.stage6.deprecated_line: "- (on update) `{old_file_path}` — flipped to deprecated: true"
+  prd.stage6.deprecated_line: "- (on update / fold) `{old_file_path}` — flipped to deprecated: true"
 
   prd.stage6.missing_required_section: |
     Stopping file generation. The profile requires sections that are missing from the assembled body.
@@ -762,19 +783,17 @@ strings:
     ```
 
     Notes:
-    - Edit any of the sections / personas / gate / naming / anti_monolith fields in profile.yml freely.
+    - Edit any of the sections / personas / gate / naming / max_bytes fields in profile.yml freely.
     - Fields you do not edit fall back to the bundled default.
     - To roll back on trouble, `git restore` the changes shown above.
 
-  migrate.stage6.note_concern_scope_threshold: |
-    NOTE: `concern_scope` gate criterion was added but `gate.total` / `gate.pass_threshold` were NOT changed (override-preservation policy).
-    To include this criterion in the gate pass condition, edit manually:
-
-    ```yaml
-    gate:
-      total: 8           # was 7
-      pass_threshold: 7  # was 6
-    ```
+  # v0.17+: profile_schema 8 retired the pitch size caps — Stage 5.2.7.
+  migrate.stage6.note_retired_fields: |
+    NOTE: profile_schema 8 retired the pitch size caps — a pitch is one user-facing feature area, and length alone is no reason to split it. Removed from profile.yml:
+    {removed}
+    Kept because your team edited them — review by hand (the bundled text no longer mentions sub-section counts or a 2–6 week bound):
+    {kept}
+    The only size limit left is `max_bytes` (bundled 50000), checked by `validate_docs.py --strict-body`.
 
   # v0.16+: a wording rule with a `since` date was added — Stage 5.2.6.
   migrate.stage6.note_dated_rules: |

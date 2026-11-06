@@ -147,18 +147,19 @@ Render a combined plan covering both config migration (when needed) and profile 
 
 ### 2.2 Compute profile field diff (when Stage 5 will run)
 
-Apply the per-version migration recipes (see Stage 5.2 below) against the team profile to enumerate **specific fields that will be added**. Each entry in `{profile_field_diff}` names the field path and a one-line description. Example:
+Apply the universal diff (Stage 5.2 below) against the team profile to enumerate **specific fields that will be added**, and — when the team profile is below profile_schema 8 — the retirements of Stage 5.2.7 (`-` removed, `~` stock text replaced). Each entry in `{profile_field_diff}` names the field path and a one-line description. Example (a schema-7 team profile, bundled schema 8):
 
 ```
-+ sections[user_stories].max_items: 3 (anti-monolith hard cap)
-+ anti_monolith block (3-tier escalation L1/L2/L3)
-+ vague_words list (Stage 3 vague-word detection)
-+ personas[quality_auditor] (4th adversarial persona)
-+ gate.criteria[concern_scope] + gate.total/threshold bump
-+ adr.anti_monolith block
++ max_bytes: 50000 (byte ceiling per pitch — the one size limit)
++ precedence_keywords (phrases that mark a prose override of another pitch)
+- anti_monolith block (retired — length is no reason to split)
+- sections[user_stories].max_items (retired)
+- gate.criteria[concern_scope] (retired) — gate.total 8 → 7, gate.pass_threshold 7 → 6
+~ personas[product_lead].question / .checks (stock text → one-feature-area check)
+~ gate.criteria[feature_scope].pass_condition (stock text → drops "2~6주")
 ```
 
-Fields already present in the team profile are NOT listed (they are preserved; never modified).
+Fields already present in the team profile are NOT listed (they are preserved; never modified) — except the retirements, which are the one sanctioned removal (5.2.7).
 
 ### 2.3 Render preview
 
@@ -256,7 +257,7 @@ If any assertion fails, surface the failure to the user with a hardcoded English
 
 ## Stage 5 — Profile field migration (v0.5.7+, conditional, v0.5.8+ universal diff)
 
-Add fields introduced by newer plugin versions into the team profile.yml. **Existing values are never modified.** Only missing fields are inserted. Idempotent.
+Add fields introduced by newer plugin versions into the team profile.yml. **Existing values are never modified.** Only missing fields are inserted — with one exception, the retirements a schema bump declares (5.2.7), which remove what no plugin reads any more. Idempotent.
 
 **v0.5.7 → v0.5.8 change**: replaced per-version recipe enumeration with a universal structural diff algorithm (5.2 below). The recipe approach was easy to miss fields (the v0.5.7 recipe omitted `sections[user_stories].structure`, requiring a v0.5.8 fix). The universal diff compares the team profile's structure against the bundled default's structure and identifies every additive difference automatically — no recipe maintenance needed when future plugin versions add new fields.
 
@@ -307,27 +308,22 @@ The algorithm enforces these invariants:
 - **Comments in the team profile are never touched** (Edit operations only insert new blocks; existing text untouched).
 - **Description / heading text edits in bundled defaults do not propagate.** Teams who explicitly customized those keep their text.
 
-#### 5.2.4 Worked example: v1 → v2 transition (current dogfood case)
+#### 5.2.4 Worked example: v7 → v8 transition
 
-A v1 team profile (v0.5.0-era) running through the algorithm against the v2 bundled default-ko:
+A schema-7 team profile (plugin v0.16-era, values untouched) running through 5.2.1 and 5.2.7 against the schema-8 bundled default-ko:
 
 ```
-ADD top-level: vague_words[*]                 (entire list — locale-specific hedge words)
-ADD top-level: anti_monolith                  (3-tier escalation block + header comment)
-ADD nested:    sections[user_stories].max_items: 3
-ADD nested:    sections[user_stories].structure: per_story_grouped
-ADD entry:     personas[quality_auditor]      (4th adversarial persona)
-ADD entry:     gate.criteria[concern_scope]   (8th gate criterion)
-ADD nested:    adr.anti_monolith              (ADR-side block)
-SKIP modify:   sections[user_stories].min_items (team has 2, bundled has 1 — preserve team)
-SKIP modify:   sections[edge_cases].min_items   (same)
-SKIP modify:   personas[product_lead].checks    (anonymous list — preserve team)
-SKIP modify:   personas[customer_support].checks (anonymous list — preserve team)
-SKIP modify:   gate.total / gate.pass_threshold  (scalars — preserve team)
-SKIP modify:   sections[user_stories].description (scalar text update — preserve team)
+ADD top-level: max_bytes: 50000
+ADD top-level: precedence_keywords[*]          (anonymous list, with header comments)
+REMOVE:        anti_monolith                   (5.2.7 — and its stock header comment)
+REMOVE:        sections[user_stories].max_items (5.2.7 — and its stock comment lines)
+REMOVE:        gate.criteria[concern_scope]    (5.2.7) → gate.total 8 → 7, pass_threshold 7 → 6
+REPLACE stock: personas[product_lead].question / .checks, personas[quality_auditor].checks,
+               sections[user_stories].description, gate.criteria[feature_scope].pass_condition
+SKIP modify:   adr.anti_monolith               (ADR block — not retired)
 ```
 
-This example is **descriptive, not prescriptive** — the algorithm above is the source of truth. Future v2→v3 transitions will produce their own diff list automatically without any update to this SKILL.md.
+This example is **descriptive, not prescriptive** — 5.2.1 and 5.2.7 are the source of truth. (Before v0.17 this section walked the v1 → v2 transition, which added `anti_monolith`, `max_items` and `concern_scope`; the bundled defaults no longer carry them, so a v1 profile migrated today never gains them.)
 
 #### 5.2.5 Schema bump
 
@@ -346,6 +342,16 @@ A `requirement_contract.wording_rules[]` entry carrying `since` is **prospective
 
 Every dated rule added is named in the handoff (`migrate.stage6.note_dated_rules`), together with the offset in force — and the warning that matters most: every CI that reads this profile must pin the plugin at `immutable--v0.16.0` or later **before** this change merges. An older engine does not know `since`, skips it as an unknown key, and applies the rule to every ticket, old ones included.
 
+#### 5.2.7 Retired fields (v0.17+, profile_schema 8)
+
+profile_schema 8 retired the pitch size caps: a pitch is one user-facing feature area, and length alone is no reason to split it. The bundled defaults no longer carry the caps, so 5.2.1 never re-adds them — but a copy left in a team profile reads as a live knob while no skill reads it, and a `concern_scope` criterion left in `gate.criteria` would skew the gate's count. So, only when `team_profile_schema < 8 <= bundled_profile_schema`, apply `${CLAUDE_PLUGIN_ROOT}/migrate/retired_v8.yml`:
+
+1. **`remove`** — delete each listed path that is present: the top-level `anti_monolith` block, `max_items` under `sections[id=user_stories]`, and the `gate.criteria` entry with `id: concern_scope`. Also delete the comment block immediately above a removed key when it is the bundled stock comment (same heuristic as 5.2.5); a comment the team wrote stays. The ADR block `adr.anti_monolith` is not retired — leave it.
+2. **Gate counts** — when step 1 removed `concern_scope`, lower `gate.total` and `gate.pass_threshold` by one each (8/7 → 7/6, a customised 9/8 → 8/7), so the team keeps its own tolerance. When the team's list held no `concern_scope`, leave both.
+3. **`replace_if_stock`** — for each path listed under the team's `team_language`, compare the team value with the entry: equal (lists element by element, in order) means untouched stock, so replace it with the bundled schema-8 value; different means the team's own wording, so keep it and list it in `{kept}` of `migrate.stage6.note_retired_fields`. Never edit inside a kept value.
+
+Every removal and replacement appears in the Stage 2 plan (`-` / `~` lines) and in the handoff note. This is the only place the skill removes or rewrites a team value; it never extends to fields a retirement file does not list.
+
 ### 5.3 Plan preview (when Stage 5 is the only stage running)
 
 Already shown in Stage 2 (which renders the structural diff output from 5.2). Skip re-rendering — proceed to 5.4.
@@ -356,11 +362,13 @@ For each addition from 5.2's diff list:
 
 1. Run a Grep against the team profile to confirm the field is still missing (defensive — handles the rare case where the user edited the file between Stage 2 and Stage 5).
 2. If missing: use Edit to insert the new content at the position dictated by the addition's yaml_path and type:
-   - **Top-level mapping/sequence** (`anti_monolith`, `vague_words`, etc.) — append at end of file, preceded by a blank line, including the bundled default's header comment block (lines prefixed with `#` immediately above the key in the bundled file).
-   - **Nested scalar** (`sections[user_stories].max_items`, `.structure`) — use Edit with enough surrounding context to make the match unique (typically the entry's `id:` line plus the preceding field acts as anchor). Include inline comments from bundled when present.
-   - **Id-keyed sequence entry append** (`personas[quality_auditor]`, `gate.criteria[concern_scope]`) — use Edit matching the last entry of the sequence as old_string, replace with `<last_entry> + blank_line + new_entry`. Preserve YAML indentation.
+   - **Top-level mapping/sequence** (`max_bytes`, `precedence_keywords`, `vague_words`, etc.) — append at end of file, preceded by a blank line, including the bundled default's header comment block (lines prefixed with `#` immediately above the key in the bundled file).
+   - **Nested scalar** (`sections[user_stories].structure`) — use Edit with enough surrounding context to make the match unique (typically the entry's `id:` line plus the preceding field acts as anchor). Include inline comments from bundled when present.
+   - **Id-keyed sequence entry append** (`personas[quality_auditor]`) — use Edit matching the last entry of the sequence as old_string, replace with `<last_entry> + blank_line + new_entry`. Preserve YAML indentation.
    - **Nested mapping under id-keyed entry** (e.g., a new field inside `sections[user_stories]`) — Edit matching the entry's id declaration as anchor, insert the new field at the natural position.
 3. If present (race condition / already-merged): SKIP and note in handoff. Do NOT abort.
+
+Then apply the 5.2.7 retirements the plan listed, one Edit per removal or replacement, with the same defensive re-check (a path already gone is a SKIP, never an error).
 
 If any Edit fails (old_string not found or not unique), abort the stage with `migrate.stage5.edit_failure` pointing at the specific addition and suggesting manual merge from `${CLAUDE_PLUGIN_ROOT}/examples/_profiles/default-<lang>.yml`. Do NOT continue with further additions — leave the profile in a consistent partial state and let the user inspect.
 
@@ -371,7 +379,7 @@ After all additions land:
 1. Edit `profile_schema:` line per 5.2.5.
 2. Read the updated profile.yml fully (no Grep-only check — a full Read catches any structural damage).
 3. Confirm the bumped `profile_schema` value matches `bundled_profile_schema`.
-4. Confirm each planned addition is now present (Grep checks for top-level keys and id-keyed entry ids).
+4. Confirm each planned addition is now present (Grep checks for top-level keys and id-keyed entry ids), and each planned removal absent.
 5. Confirm the file still parses as valid YAML (re-run the skill's internal parser against the updated content).
 
 If verification fails, surface the failure with the specific failing assertion and suggest rollback (`git restore .immutable-prd/profile.yml`).
@@ -391,7 +399,7 @@ Render `migrate.stage6.handoff` with:
 - `{config_path}` — absolute path of config.yml.
 - `{profile_path}` — absolute path of profile.yml.
 - `{stages_run}` — list of stages that actually executed (e.g., "config v2→v3; profile_schema 1→2 with 6 additions").
-- `{post_migration_notes}` — when Stage 5 added `concern_scope`, include the one-line note about manually bumping `gate.total` / `gate.pass_threshold` if the team wants the criterion to count. When Stage 5 added a dated wording rule (5.2.6), include `migrate.stage6.note_dated_rules` with `{rules}` = one `  - <id>: since <date written> (bundled <bundled since>)` line per rule and `{offset}` = the `since_utc_offset` in force.
+- `{post_migration_notes}` — when Stage 5 applied the 5.2.7 retirements, include `migrate.stage6.note_retired_fields` with `{removed}` = one `  - <path>` line per removal or replacement (the gate counts as `  - gate.total / gate.pass_threshold <old> → <new>`) and `{kept}` = one `  - <path>` line per stock-check that kept the team's text (or `  - (none)`). When Stage 5 added a dated wording rule (5.2.6), include `migrate.stage6.note_dated_rules` with `{rules}` = one `  - <id>: since <date written> (bundled <bundled since>)` line per rule and `{offset}` = the `since_utc_offset` in force.
 - `{commit_suggestion}` — `git add .immutable-prd/ && git commit -m "chore: migrate immutable plugin to <vN>"`.
 
 ---
@@ -399,13 +407,13 @@ Render `migrate.stage6.handoff` with:
 ## Hard Prohibitions
 
 1. **Never run git operations.** `git add`, `git commit`, `git restore` are user-only. Only suggest commands.
-2. **Never overwrite an existing profile.yml content.** Stage 3.1 skips file creation if it exists. Stage 5 only INSERTS missing fields — never modifies existing values, even when the bundled default differs.
+2. **Never overwrite an existing profile.yml content.** Stage 3.1 skips file creation if it exists. Stage 5 only INSERTS missing fields — never modifies existing values, even when the bundled default differs. The one exception is a retirement file (5.2.7): it removes the paths it lists and replaces only values equal to its recorded stock text.
 3. **Never edit files outside `.immutable-prd/`.** Pitches, ADRs, READMEs, templates are untouched.
 4. **Never proceed past Stage 1 when fully current.** The skill aborts cleanly when both config and profile schema are at the bundled defaults.
 5. **Never proceed past Stage 2 without explicit user confirmation.** No auto-execute.
 6. **Never leave the repo in a partially-migrated state.** Either the planned operations all land (with documented skips for 3.1 / 3.3 / 5.4-individual-addition idempotency) or the skill aborts before touching anything.
 7. **Never modify the bundled starter / profile files.** They live in the plugin (read-only).
-8. **Never change existing profile.yml values in Stage 5.** The migration adds missing fields only. Default value changes (e.g., `min_items: 2 → 1` in v0.5.6 defaults) are NOT propagated — teams who set explicit values likely want them.
+8. **Never change existing profile.yml values in Stage 5** beyond 5.2.7. The migration adds missing fields only. Default value changes (e.g., `min_items: 2 → 1` in v0.5.6 defaults) are NOT propagated — teams who set explicit values likely want them. A retirement replaces a value only when it is the recorded stock text, i.e. a value the team never chose.
 
 ---
 

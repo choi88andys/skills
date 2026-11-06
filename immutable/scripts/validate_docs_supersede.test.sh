@@ -20,6 +20,14 @@
 # domains stay distinct (S4, which a filename-only key fails in either glob
 # order) and a cross-domain pitch edge stays unresolvable (S5).
 #
+# FAN-IN (v0.17): a pitch may fold several pitches of its own domain into one,
+# `supersedes: [a.md, b.md]`. Before v0.17 a list reached the chain check as a
+# dict key and crashed the validator (`TypeError: unhashable type: 'list'`).
+# Pinned: a fold of two deprecated pitches is clean (F1); each listed edge is
+# judged on its own — an active or missing member fails, a cross-domain member
+# stays unresolvable (F2); malformed lists are reported, never crash (F3); an
+# ADR list is a violation, since fan-in is pitch-only (F4).
+#
 # Usage:  bash immutable/scripts/validate_docs_supersede.test.sh
 # Exit:   0 all cases passed · 1 a case failed · 2 the test could not run.
 # Needs:  python3 + PyYAML — no git.
@@ -93,6 +101,30 @@ mkpitch "$C/pitches/beta/2026-01-02-next.md"        beta  2026-01-01-initial.md 
 mkpitch "$C/pitches/alpha/2026-01-01-alpha-only.md" alpha null                     true
 mkpitch "$C/pitches/beta/2026-01-03-cross.md"       beta  2026-01-01-alpha-only.md false
 
+# --- repo F: fan-in (a fold) ---
+F="$RIG/fan-in"; mkrepo "$F"
+mkpitch "$F/pitches/alpha/2026-01-01-a.md" alpha null true
+mkpitch "$F/pitches/alpha/2026-01-01-b.md" alpha null true
+mkpitch "$F/pitches/alpha/2026-01-02-fold.md" alpha '[2026-01-01-a.md, 2026-01-01-b.md]' false
+
+# --- repo G: fan-in edges that must fail ---
+G="$RIG/fan-in-negatives"; mkrepo "$G"
+mkpitch "$G/pitches/alpha/2026-01-01-dead.md"   alpha null true
+mkpitch "$G/pitches/alpha/2026-01-01-live.md"   alpha null false
+mkpitch "$G/pitches/beta/2026-01-01-other.md"   beta  null true
+mkpitch "$G/pitches/alpha/2026-01-02-fold.md"   alpha '[2026-01-01-dead.md, 2026-01-01-live.md, 2026-01-01-other.md, 2026-01-01-ghost.md]' false
+
+# --- repo H: malformed lists, and an ADR list ---
+H="$RIG/fan-in-malformed"; mkrepo "$H"
+mkpitch "$H/pitches/alpha/2026-01-01-dead.md"   alpha null true
+mkpitch "$H/pitches/alpha/2026-01-02-empty.md"  alpha '[]' false
+mkpitch "$H/pitches/alpha/2026-01-03-twice.md"  alpha '[2026-01-01-dead.md, 2026-01-01-dead.md]' false
+mkpitch "$H/pitches/alpha/2026-01-04-mixed.md"  alpha '[2026-01-01-dead.md, 7]' false
+mkpitch "$H/pitches/alpha/2026-01-01-feature.md" alpha null false
+mkadr "$H/adr/2026-01-01-one.md"  alpha null true
+mkadr "$H/adr/2026-01-01-two.md"  alpha null true
+mkadr "$H/adr/2026-01-02-both.md" alpha '[2026-01-01-one.md, 2026-01-01-two.md]' false
+
 FAILURES=0
 pass() { printf 'PASS  %s\n' "$1"; }
 fail() { printf 'FAIL  %s\n        %s\n' "$1" "$2"; FAILURES=$((FAILURES + 1)); }
@@ -156,9 +188,48 @@ else
 $OUT"
 fi
 
+# F1 — a fold of two deprecated pitches is clean.
+run "$F"
+if [ "$RC" -eq 0 ] && grep -qF 'all checks passed.' <<<"$OUT"; then
+  pass "F1 fan-in of two deprecated pitches resolves"
+else
+  fail "F1 fan-in" "rc=$RC violations=$GOT_V
+$OUT"
+fi
+
+# F2 — each listed edge on its own: active, cross-domain and missing members fail.
+run "$G"
+if [ "$RC" -eq 1 ] && [ "$GOT_V" = "3" ] && ! grep -qF 'Traceback' <<<"$OUT" \
+  && grep -qF 'supersedes `2026-01-01-live.md` but target is still active' <<<"$OUT" \
+  && grep -qF 'supersedes `2026-01-01-other.md` but target file not found in pitch set under domain `alpha`' <<<"$OUT" \
+  && grep -qF 'supersedes `2026-01-01-ghost.md` but target file not found' <<<"$OUT" \
+  && ! grep -qF '2026-01-01-dead.md` but' <<<"$OUT"; then
+  pass "F2 fan-in judges every member; cross-domain stays unresolvable"
+else
+  fail "F2 fan-in negatives" "rc=$RC violations=$GOT_V
+$OUT"
+fi
+
+# F3 + F4 — malformed lists and an ADR list are reported, never a crash.
+run "$H"
+if [ "$RC" -eq 1 ] && [ "$GOT_V" = "4" ] && ! grep -qF 'Traceback' <<<"$OUT" \
+  && grep -qF '2026-01-02-empty.md: `supersedes: []`' <<<"$OUT" \
+  && grep -qF '2026-01-03-twice.md: `supersedes` names 2026-01-01-dead.md more than once' <<<"$OUT" \
+  && grep -qF '2026-01-04-mixed.md: every `supersedes` entry must be a filename' <<<"$OUT"; then
+  pass "F3 malformed pitch lists reported (empty, duplicate, non-string)"
+else
+  fail "F3 malformed lists" "rc=$RC violations=$GOT_V
+$OUT"
+fi
+if grep -qF '2026-01-02-both.md: `supersedes` lists 2 files; an ADR supersedes one file' <<<"$OUT"; then
+  pass "F4 an ADR list is a violation, not a crash"
+else
+  fail "F4 ADR list" "$OUT"
+fi
+
 echo
 if [ "$FAILURES" -eq 0 ]; then
-  echo "all 5 cases passed."
+  echo "all 9 cases passed."
   exit 0
 fi
 echo "$FAILURES case(s) failed."

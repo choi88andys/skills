@@ -84,6 +84,15 @@ mkdoc "$D/fan1.md"    '---' 'domain: order' 'supersedes: fan.md' 'deprecated: fa
                       'Split part one.'
 mkdoc "$D/fan2.md"    '---' 'domain: order' 'supersedes: fan.md' 'deprecated: true' '---' '' \
                       'Split part two, itself already superseded.'
+# A fold (v0.17+): one successor lists two predecessors. Comparing the raw `supersedes`
+# value to a filename (the pre-v0.17 test) never matches a list, so both banners said
+# "No successor found" while the fold stood right beside them.
+mkdoc "$D/part-a.md"  '---' 'domain: order' 'supersedes: null' 'deprecated: true' '---' '' \
+                      'CANARY-PART-A body, folded.'
+mkdoc "$D/part-b.md"  '---' 'domain: order' 'supersedes: null' 'deprecated: true' '---' '' \
+                      'CANARY-PART-B body, folded.'
+mkdoc "$D/folded.md"  '---' 'domain: order' 'supersedes:' '  - part-a.md' '  - part-b.md' \
+                      'deprecated: false' '---' '' 'The two parts, as one pitch.'
 # ADRs are flat, so a successor filed under ANOTHER domain is still a sibling — the
 # validator resolves ADR edges by filename alone (v0.15.1), and the banner must agree.
 mkdoc "$SPEC/adr/2026-01-01-old-decision.md"   '---' 'type: adr' 'domain: order' 'supersedes: null' \
@@ -91,6 +100,7 @@ mkdoc "$SPEC/adr/2026-01-01-old-decision.md"   '---' 'type: adr' 'domain: order'
 mkdoc "$SPEC/adr/2026-01-02-moved-decision.md" '---' 'type: adr' 'domain: billing' \
                       'supersedes: 2026-01-01-old-decision.md' 'deprecated: false' '---' '' \
                       'The same decision, now filed under billing.'
+printf -- '---\r\ndomain: order\r\nsupersedes: null\r\ndeprecated: true\r\n---\r\n\r\nCANARY-CRLF body.\r\n' > "$D/crlf.md"
 mkdoc "$D/notes.txt"  '---' 'deprecated: true' '---' '' 'Not markdown, must pass.'
 mkdoc "$ROOT/outside/dead.md" '---' 'deprecated: true' '---' '' 'CANARY-OUTSIDE no .immutable-prd ancestor.'
 
@@ -144,6 +154,7 @@ echo "===== YAML directions a line grep gets wrong ====="
 expect_withheld Y1-capital-True "$D/cap.md" 'CANARY-CAP'
 expect_withheld Y2-double-space "$D/spaced.md" 'CANARY-SPACED'
 expect_pass     Y3-fenced-body-line "$D/fenced.md"
+expect_withheld Y4-crlf-line-endings "$D/crlf.md" 'CANARY-CRLF'
 
 echo "===== supersede topology ====="
 expect_withheld S1-no-successor "$D/solo.md" 'CANARY-SOLO'
@@ -151,6 +162,10 @@ if grep -qF 'No successor found' <<<"$CONTENT"; then ok S2-says-so; else bad S2-
 expect_withheld S3-fanout "$D/fan.md" 'CANARY-FAN'
 if grep -qF 'fan1.md' <<<"$CONTENT" && grep -qF 'fan2.md' <<<"$CONTENT"; then ok S4-both-listed; else bad S4-both-listed "fan-out successors missing"; fi
 if grep -qF 'itself deprecated' <<<"$CONTENT"; then ok S5-dead-successor-marked; else bad S5-dead-successor-marked "deprecated successor not marked"; fi
+expect_withheld S8-fold-predecessor "$D/part-a.md" 'CANARY-PART-A'
+if grep -qF 'folded.md' <<<"$CONTENT" && ! grep -qF 'No successor found' <<<"$CONTENT"; then ok S9-fold-successor-named; else bad S9-fold-successor-named "list supersedes not matched"; fi
+expect_withheld S10-fold-other-predecessor "$D/part-b.md" 'CANARY-PART-B'
+if grep -qF 'folded.md' <<<"$CONTENT"; then ok S11-fold-successor-named-for-each; else bad S11-fold-successor-named-for-each "second predecessor lacks the fold"; fi
 expect_withheld S6-adr-cross-domain "$SPEC/adr/2026-01-01-old-decision.md" 'CANARY-ADR-OLD'
 if grep -qF '2026-01-02-moved-decision.md' <<<"$CONTENT"; then ok S7-adr-successor-in-other-domain-named; else bad S7-adr-successor-in-other-domain-named "banner lacks the successor filed under another domain"; fi
 
