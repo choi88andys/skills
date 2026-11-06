@@ -41,21 +41,25 @@ Both `pitch` and `adr` are append-only:
 - File body is **immutable** once committed. The only allowed in-place change is `deprecated: false → true`.
 - Changes require a **new file** via `supersedes: <previous-filename>`.
 - **Per-edge integrity**: when a file F has `F.supersedes = T`, the target T must be `deprecated: true`. (Changed in v0.5.6 — there is no longer a global per-(domain, type) cap on actives. Multiple chains may have active leaves in the same domain — see "Granularity" below.)
-- **Fan-out is permitted**: a single predecessor may be superseded by N successors — the canonical use is a `refactor-split` that decomposes one oversized PRD into several smaller ones. The shared predecessor must still be deprecated.
+- **Fan-out is permitted**: a single predecessor may be superseded by N successors — the canonical use is a `refactor-split` that splits a pitch covering several user-facing feature areas into one pitch per area. The shared predecessor must still be deprecated.
+- **Fan-in is permitted** (v0.17+, pitches only): one successor may supersede several pitches **of its own domain** — `supersedes: [a.md, b.md]`, the canonical use a `fold` of pitches that describe one feature area. Every listed predecessor must be deprecated. A supersede never crosses domains: it is resolved by (domain, filename).
+- **`supersedes` is the only relation that changes another pitch's meaning** (v0.17+). A pitch may cite another by path ("owned by `pitches/x/y.md`"), but never outrank, replace or override one of its clauses in prose — the validator refuses a body line that names another pitch's path together with a `precedence_keywords` phrase. To change a rule another pitch states, write that pitch's new version.
+- **A new version is a copy plus declared edits** (v0.17+). The successor starts as a copy of its predecessor(s), changes only the sections its `changes` frontmatter lists, and `validate_docs.py --supersede-diff` proves it. A supersede is cheap that way, and cannot drift silently.
 - Deleting an old file is forbidden — history is the audit trail.
 
-### Granularity (added v0.5.6)
+### Granularity (v0.5.6; reshaped v0.17)
 
-- **1 PRD = 1 feature/policy**, not 1 PRD = 1 domain. Domain is a categorization tag; multiple PRDs naturally coexist in the same domain.
-- Feature ↔ Domain is **M:N** — one feature may span multiple domains (cross-reference via `references.pitches`), and one domain hosts multiple features (each as its own PRD chain).
-- A PRD that grows beyond `profile.sections[user_stories].max_items` (default 3) `### ` sub-sections triggers `anti_monolith` escalation (hint / strong-recommend / block) — see "Anti-patterns" below.
+- **1 pitch = 1 user-facing feature area**, not 1 pitch = 1 domain. Domain is a categorization tag; several pitches naturally coexist in one domain.
+- **Each rule lives in exactly one active pitch.** A second live statement of a rule — a restatement, or an override in prose — is the defect, whatever the files' sizes.
+- **Length is not a reason to split.** A feature area that needs 30 stories is one pitch. The one size limit is `profile.max_bytes` (default 50000), because Claude Code's Read returns a partial page past about 55 KB of Korean pitch text (25,000 tokens; measured 2026-11-06) and a reader can act on part of a pitch as if it were the whole. A pitch that outgrows it is two feature areas, split along that line.
+- Feature ↔ Domain is **M:N** — one feature may span multiple domains (cross-reference by path), and one domain hosts multiple features (each as its own pitch chain).
+- The v0.5.6 count caps (`max_items`, the `anti_monolith` tiers, the `concern_scope` criterion) are retired in profile_schema 8 — see "Pitch granularity" below for why.
 
 ### Cultural guidance (not mechanical)
 
-- Pitch and ADR both expect **rare** supersession on the *same* concern. Each new version of a given chain is a load-bearing policy shift on that specific scope. Reviewers push back hard.
-- Adding a new chain (`supersedes: null`) for a *different* concern in the same domain is **not** supersession — it is decomposition. Encouraged when the existing chain's scope doesn't cover the new concern.
-- Frequent churn on a single chain signals either (a) the decision wasn't load-bearing enough to warrant a file, or (b) the original framing was too broad and should be split.
-- A single PRD attempting to cover an entire domain is the **domain-charter anti-pattern** (see "Anti-patterns" section). Use `refactor-split` to decompose without a semantic change.
+- **Version or new pitch is decided by ownership, never by a lean.** A change to a behavior some active pitch already states is a new version of that pitch; a behavior no active pitch states is a new pitch. Ask only when two pitches could own it. (Before v0.17 this guidance called supersession "rare" and decomposition "encouraged"; that lean is what spread one rule area across sibling files.)
+- Superseding is cheap and safe by construction — a copy and the declared edits — so a small, frequent new version of the owning pitch is better than a sibling that patches it from outside.
+- A pitch that covers more than one user-facing feature area is split with `refactor-split`; feature areas spread over several sibling pitches are joined with `fold`. Both are structural, without semantic change.
 
 ---
 
@@ -277,8 +281,11 @@ Both pitch and ADR share this core:
 ---
 type: pitch | adr
 domain: <name>                # pitch: required; ADR: required (may be "_global")
-supersedes: <filename|null>
+supersedes: <filename|null>   # pitch, v0.17+: or a list of filenames of its own domain (a fold)
 deprecated: false
+changes:                      # pitch, v0.17+, only with supersedes: the sections this version changes
+  - section: <## or ### heading>
+    kind: modify              # add | modify | remove
 references:
   pitches: [<filename>, …]    # ADR MUST have ≥1 unless domain == "_global"
   tickets:                    # pitch, v0.11+: the tracker tickets this pitch is authored against
@@ -310,6 +317,9 @@ references:
 - `type` is explicit — lets validators distinguish docs regardless of directory. **Optional** when the doc lives in a conventional directory (validator falls back to parent-dir inference per `pitches_path` / `adr_path`).
 - `domain: _global` is reserved for ADRs that cut across all domains. The validator special-cases `_global` and does **not** require it to appear in `pitches/README.md`.
 - `references.pitches` filenames only (no paths). Resolved against the configured pitches location (local for spec repo, `spec_repo_path` for app repo).
+- `supersedes` (v0.17+): a filename or `null`; a pitch may also list several filenames of its own domain (fan-in), each once — never `[]`. An ADR supersedes one file.
+- `changes` (pitch only, v0.17+) is the successor's declared difference from its predecessor(s): one `{section, kind}` per changed unit, where a unit is the text under a `## ` up to its first `### ` (named by the `## ` heading), a `### ` sub-section (named by its heading), or the text before the first `## ` (named `# <title>`); `kind` is `add`, `modify` or `remove`. Only on a pitch that supersedes something. The validator checks the shape always; `--supersede-diff` checks the body against it.
+- **Citing another pitch in the body** is by its path (`pitches/<domain>/<file>.md`). The path names a supersede **chain**, not one version: an older version still resolves (the read guard names its successor), so citers need no new version when the cited pitch gets one. A citation fails only when its chain reaches no active pitch.
 - The entire `references:` block is **optional** for pitches. For ADRs it is required unless `domain: _global`.
 - When present, `references.pitches` MAY be empty. Non-empty lists MUST reference files that exist at generation time — stale references are a validation error.
 - A deprecated doc's references are frozen — no back-edits allowed. If the referenced pitch is superseded, the ADR stays pointing at the old filename (history snapshot) unless a new ADR is issued.
@@ -363,8 +373,8 @@ ADR TEMPLATE carries one worked example per area. See `adr/TEMPLATE.md`.
 Checked at generation time by the `/immutable:prd` and `/immutable:adr` skills, and — in any repo bootstrapped from a v0.8.0+ starter — by `scripts/validate_docs.py` running in CI on every push and pull request:
 
 1. **Frontmatter schema**: required fields present and typed correctly.
-2. **Supersede chain integrity (per-edge)**: for each file F with non-null `F.supersedes`, the target T must (a) exist in the same doc-type set and (b) have `deprecated: true`. Per-edge is the whole of it — cycle detection across a chain is deferred (`validate_docs.py` docstring, "Not covered"), so the validator checks each edge, not the graph. The target is looked up by **(domain, filename)** for a pitch, because the same filename legitimately repeats across `pitches/<domain>/` directories — so a pitch supersede never crosses a domain — and by **filename alone** for an ADR (v0.15.1): ADRs are flat, so the filename already names one file, and a chain whose subject moves to another domain stays expressible.
-3. **No global per-(domain, type) cap on actives** (changed in v0.5.6): multiple `deprecated: false` files MAY coexist in the same domain provided each is on its own supersede chain. Fan-out (one predecessor superseded by N successors — e.g., a `refactor-split`) is permitted as long as the shared predecessor is deprecated. Rationale: 1 PRD = 1 feature/policy, and a domain naturally hosts multiple features. The previous "exactly one active per (domain, type)" cap forced domain-charter monoliths and triggered fake-domain workarounds for ADRs (see "Anti-patterns" below).
+2. **Supersede chain integrity (per-edge)**: for each file F with non-null `F.supersedes`, the target T must (a) exist in the same doc-type set and (b) have `deprecated: true`. Per-edge is the whole of it — cycle detection across a chain is deferred (`validate_docs.py` docstring, "Not covered"), so the validator checks each edge, not the graph. The target is looked up by **(domain, filename)** for a pitch, because the same filename legitimately repeats across `pitches/<domain>/` directories — so a pitch supersede never crosses a domain — and by **filename alone** for an ADR (v0.15.1): ADRs are flat, so the filename already names one file, and a chain whose subject moves to another domain stays expressible. A pitch's list `supersedes` (fan-in, v0.17+) is judged edge by edge; before v0.17 a list crashed the validator (`TypeError: unhashable type: 'list'`).
+3. **No global per-(domain, type) cap on actives** (changed in v0.5.6): multiple `deprecated: false` files MAY coexist in the same domain provided each is on its own supersede chain. Fan-out (one predecessor superseded by N successors — e.g., a `refactor-split`) is permitted as long as the shared predecessor is deprecated, and so is fan-in (one pitch superseding N of its domain — a `fold`, v0.17+). Rationale: 1 PRD = 1 feature/policy, and a domain naturally hosts multiple features. The previous "exactly one active per (domain, type)" cap forced domain-charter monoliths and triggered fake-domain workarounds for ADRs (see "Anti-patterns" below).
 4. **Reference existence**: every filename in `references.pitches` exists at the configured pitches location.
 5. **Reference policy**: ADR `references.pitches` non-empty unless the domain is declared `adr_only` in `profile.domain_allowlist.reserved_domains` (e.g., `_global`).
 6. **Domain allowlist**: pitch/ADR `domain` is in `pitches/README.md`, with reserved domains special-cased (validator reads the reserved list + `adr_only` flag from the profile and skips allowlist lookup for reserved IDs).
@@ -384,6 +394,14 @@ Checked at generation time by the `/immutable:prd` and `/immutable:adr` skills, 
    - *`--strict-body`, within the `--strict-since` scope (v0.16+)*: once the profile carries a wording rule with `since`, a pitch dated within a day of the earliest one, or later, records `created_at` for every ticket a disagreement entry contests. The validator lints corrections offline, with no ticket fetch, so the record is the only place a dated rule learns when the contested ticket was created; it is required only there. The day of margin covers the filename date being the author's local date. Older pitches are unaffected — every ticket they cite existed before they were written.
    - *always on, the acknowledgement ledger (v0.15+)*: `.immutable-prd/contract-acknowledgements.yml`, when present beside `config.yml`, has the shape `requirement_contract.py`'s `ledger_entries` reads (`schema: 1`, entries with the full hit coordinate, `kind` one of `accepted_violation` / `false_positive`, a non-empty `reason` and `decided_by`, a `date`; no unknown keys, no duplicate coordinate). Whether each entry's hit still exists needs the live ticket and is the merge gate's job ("Merge gate" below).
    - *`--strict-body`, within the `--strict-since` scope*: a pitch whose disagreement section (`profile.sections[id=requirement_disagreement].heading`) exists holds ≥1 `### ` entry, and every entry carries the four labelled bullets (`profile.requirement_contract.disagreement.fields`) with an outcome that begins with a terminal token (`outcome_terminal`). An outcome beginning with `outcome_provisional` is a violation — this is the merge gate that keeps a pitch PR open until its correction request is settled. The correction bullet must also be a **decision**: it is judged by the profile's wording rules that apply to corrections — `requirement_contract.wording_rules[]` with `correction` in `applies_to` (v0.13+), plus the legacy `disagreement.deferral_patterns[]` ("확인 필요", "협의", "확정한다", "TBD" and their English counterparts), read as correction-only `block` rules exactly as v0.12 matched them. A `block` hit is a violation, because a correction becomes the requirement when the ticket stays silent past the response window, and a deferral, a hedge or a hand-off cannot be confirmed by silence; a `warn` hit is a stderr warning. The rules are compiled by `requirement_contract.py` — the module `lint` uses — so the merge gate and the lint cannot disagree about a rule. A rule with `since` (v0.16+) judges a correction only when the contested ticket — matched by the entry header against the pitch's ticket record — was created on or after it; with no `created_at`, the pitch's filename date plus a day stands in (a ticket cannot postdate the pitch citing it; the day covers the author's time zone). What a dated rule withheld is counted on stderr. When the active profile lacks the vocabulary (a team profile not yet migrated), each missing part is skipped with a stderr warning, never silently; a profile with `deferral_patterns` but no `wording_rules` is told it predates them.
+
+10. **Cross-pitch references (v0.17+)** — `--strict-body`, within the `--strict-since` scope, for an **active** pitch (a deprecated one is frozen, as in 9). Lines inside fenced code do not count; the pitch's own `supersedes` targets are exempt from both rules:
+   - a body line that names another pitch's path must not carry a `profile.precedence_keywords` phrase (literal, case-insensitive; bundled ko 「우선한다」「대체한다」, en "takes precedence", "overrides", "supersedes", "replaces"). Measured 2026-11-06 in lounge-x-spec: 6 of 71 active pitches carry one;
+   - a cited pitch path must be a pitch, and its supersede chain must reach an active pitch. A citation of an older version whose chain ends in active pitches passes; the count goes to stderr, with each chain that forks into several active pitches named (the reader must pick the owner). Failing every older-version citation would make each supersede re-version every citer, transitively — 29 of the same 71 cite an older version, almost all as "owned by" pointers.
+11. **Size (v0.17+)** — same scope: an active pitch file is at most `profile.max_bytes` bytes (default 50000; a malformed value is a violation and the default applies). The only size limit — see "Pitch granularity".
+12. **Supersede diff (v0.17+, a separate mode)** — `validate_docs.py --supersede-diff <successor>... [--base REV]` diffs each successor against its predecessor(s), unit by unit (see `changes` above) after whitespace normalization, and fails on a difference `changes` does not declare, a declaration of the wrong kind, or a declaration nothing matches. Lines compare as sets, so a split may repeat a cross-cutting line and a fold may merge two tables in any order; the frontmatter and fenced headings are not units. Successors sharing a predecessor are judged as one group — pass all of a split's files together. `--base` judges every pitch added since that commit: the CI and pre-push form. Exit 0 clean, 1 violation, 2 cannot run.
+
+A team profile that predates `max_bytes` / `precedence_keywords` (profile_schema < 8) reads the bundled default's values, and the validator says so on stderr — never a check that is off because nobody migrated.
 
 **Profile awareness** (v0.5+): the CI validator loads the profile via the same resolution order as the skills — config.yml `profile:` → bundled `default-<team_language>.yml` → hardcoded last-resort defaults. v2 configs get the bundled default automatically; no config bump required.
 
@@ -426,7 +444,6 @@ sections:
     heading: "<user-facing heading>"
     required: true | false
     min_items: <int>              # minimum blocks/rows for 90% gate credit
-    max_items: <int>  # optional, user_stories only — anti-monolith sub-section cap (v0.5.6+)
     structure: per_story_grouped | consolidated  # optional, user_stories only (v0.5.3+)
     description: "<interview hint + gate pass condition>"
   # …
@@ -493,14 +510,10 @@ feature_flag:
   default_initial: <state>
   required_fields: [key, states, initial_state, fallback_ux]
 
-# Anti-monolith escalation tiers (Stage 1.2/1.3/5). OR semantics — exceeding
-# either metric in a tier trips it.
-anti_monolith:
-  enabled: true | false
-  tiers:
-    L1: { action: hint,             sub_sections: <int>, normative_lines: <int> }
-    L2: { action: strong_recommend, sub_sections: <int>, normative_lines: <int> }
-    L3: { action: block,            sub_sections: <int>, normative_lines: <int> }
+# Pitch size and cross-pitch references (v0.17+, profile_schema 8). Read by
+# `validate_docs.py --strict-body` and the /immutable:prd Stage 6 guards.
+max_bytes: <int>                  # byte ceiling per pitch file (bundled 50000)
+precedence_keywords: ["<phrase>", …]  # marks a prose override of another pitch
 
 # Requirement contract vocabulary (v0.11+, profile_schema 3). Inert unless
 # config.yml declares `requirement_contract:`. See "Requirement contract".
@@ -609,76 +622,28 @@ Additional locales (e.g., `default-ja`) may be added without schema change.
 
 ---
 
-## Anti-monolith escalation (v0.5.6, profile_schema 2)
+## Pitch granularity (v0.17, profile_schema 8)
 
-A 3-tier guard that detects PRDs and ADRs which bundle multiple decisions into a single file. Operates as a profile-driven block (`anti_monolith` for pitches, `adr.anti_monolith` for ADRs).
+A pitch is one user-facing feature area, each rule lives in exactly one active pitch, length is not a reason to split, and a supersede is cheap and cannot drift silently.
 
-### Why
+### Why the size caps were retired
 
-The previous "single active per (domain, type)" cap forced a domain-charter pattern — one PRD per domain, every change requires copy-pasting the full PRD into a supersede file. Symptoms observed in dogfood: 197-line `order-history` PRD with 8 sub-sections, `settings` chain superseded 4 times in a single day, 8 cross-cutting ADRs unable to coexist because all needed `_global` (which had a single-active cap). v0.5.6 drops the cap and adds this guard so the new flexibility doesn't regress into multi-feature dumping.
+v0.5.6 added count caps — `sections[user_stories].max_items` (3), a three-tier `anti_monolith` block on `### ` and normative counts (L1 hint, L2 strong-recommend, L3 removes `update` from the menu) and a `concern_scope` gate criterion — after a 197-line order-history PRD with 8 sub-sections and a settings chain superseded 4× in one day (CHANGELOG `[0.5.6]`). The real defect then was a pitch that bundled several features. The caps measured length instead, and together with a menu that called `new` "most common" and `update` "rare" they steered every change toward a new sibling pitch. In lounge-x-spec (measured 2026-11-06) one rule area ended up spread over several files; siblings overrode a baseline's clause with prose naming its file (「그 조항에 한해 … 우선한다」); a later re-authored supersede of the baseline copied the overridden clause back, and two live pitches demanded 4 and 3 payment-auth methods. The caps did not prevent that drift either: the drifted predecessors were 74–107 lines. Drift came from re-authoring — successors written whole from the interview kept 5 of 15 inherited normative lines identical — while successors made by copying stayed byte-identical outside their change.
 
-### Tier semantics
+### What replaced them
 
-| Tier | Action | Skill behavior |
-|---|---|---|
-| **L1** | `hint` | One-line warning at Stage 1.2 environment scan. No flow change. |
-| **L2** | `strong_recommend` | Stage 1.3 intent classification surfaces `refactor-split` / `split-from` as the default option. Choosing `update` requires an explicit reason (recorded in interview transcript, not frontmatter). |
-| **L3** | `block` | `update` intent is removed from the menu. Only `refactor-split` (Stage 1 only), `split-from` (Stage 1 + Stage 2), or `new` (separate small PRD) are offered. Stage 5 `concern_scope` criterion fails for in-flight drafts that exceed L3. |
+| Concern | Mechanism |
+|---|---|
+| A pitch bundles several features | `product_lead` persona: "does this pitch cover more than one user-facing feature area?"; the `feature_scope` gate criterion includes it. Remedy: `refactor-split` along the areas |
+| A pitch too long to read in one call | `max_bytes` (invariant 11) — the one machine size limit. Remedy: the same split, never trimming |
+| Two live statements of one rule | Routing by ownership (`/immutable:prd` §1.3); no prose override (invariant 10); `fold` for an area spread over siblings |
+| A supersede drifting from its predecessor | Copy plus declared edits (`changes`), proven by `--supersede-diff` (invariant 12) |
 
-### Metrics (pitch)
+`/immutable:migrate` removes the retired fields from a team profile below schema 8 and replaces their untouched stock text (`migrate/retired_v8.yml`); a team profile that still carries them is read as if it did not.
 
-OR semantics — exceeding either trips the tier:
+### ADR anti-monolith (v0.5.6, unchanged)
 
-- `sub_sections` — count of `### ` headers under the user_stories H2 slice
-- `normative_lines` — count of bracketed-keyword lines (`[MUST]`, `[MUST NOT]`, `[SHOULD]`, …) across the entire body
-
-### Metrics (ADR)
-
-OR semantics:
-
-- `alternatives_count` — items in the alternatives section
-- `consequences_count` — total positive + negative + cost-of-adoption lines
-
-### Fallback (block omitted)
-
-If the `anti_monolith` block is absent or `enabled: false`, thresholds are derived from `sections[user_stories].max_items`:
-
-```
-L1.sub_sections = max_items + 1
-L2.sub_sections = max_items + 2
-L3.sub_sections = max_items × 3
-L1/L2/L3.normative_lines = sub_sections × 5    (assumes ~5 normatives per feature)
-```
-
-So a profile with only `max_items: 3` (no anti_monolith block) gets L1/L2/L3 sub_sections of 4/5/9 and normative_lines of 20/25/45 automatically.
-
-### Skill integration
-
-`/immutable:prd` and `/immutable:adr` consult the active profile's anti_monolith block at:
-
-1. **Stage 1.2 environment scan** — compute metrics for every active PRD in the domain; classify into tier; surface in the pre-check message.
-2. **Stage 1.3 intent classification** — when `update` would target an L2/L3 PRD, inject `refactor-split` / `split-from` ahead of `update` in the menu (L2) or remove `update` entirely (L3).
-3. **Stage 5 gate** — `concern_scope` criterion checks the in-flight draft against L3; failure blocks file generation.
-
-### Override examples
-
-```yaml
-# Strict team (single happy path features only):
-anti_monolith:
-  enabled: true
-  tiers:
-    L1: { action: hint,             sub_sections: 3, normative_lines: 15 }
-    L2: { action: strong_recommend, sub_sections: 4, normative_lines: 20 }
-    L3: { action: block,            sub_sections: 6, normative_lines: 30 }
-
-# Lenient team (4-step linear flows are common, e.g., checkout/onboarding):
-sections:
-  - id: user_stories
-    max_items: 4    # bumped from 3
-# anti_monolith block omitted → derived: L1=5, L2=6, L3=12
-```
-
----
+ADRs keep their tier guard, `adr.anti_monolith`: an ADR that bundles several decisions is caught by its alternatives and consequences counts (OR semantics — exceeding either trips the tier). L1 `hint` warns at the Stage 1.2 scan; L2 `strong_recommend` puts split options first and asks a reason for `update`; L3 `block` removes `update` from the menu. `/immutable:adr` documents the consumption.
 
 ## Requirement contract (v0.11.0, profile_schema 3)
 
@@ -825,7 +790,7 @@ acknowledgements:
 
 `accepted_violation` — a pitch was bound to the item before the rule could be raised; the decision to live with it is a human's, never the skill's. `false_positive` — the rule is wrong in context; `/immutable:prd` writes these when the user accepts a dismissal of a block hit (Stage 1.6.2). The reader is `requirement_contract.py`'s `ledger_entries` — strict: an unknown key is a problem, because a typo in a coordinate key would drop the coordinate and silently widen the exemption — and `validate_docs.py` checks the file's shape with that same reader (invariant 9).
 
-## Anti-patterns (v0.5.6)
+## Anti-patterns (v0.5.6; v0.17 additions)
 
 ### Domain-charter
 
@@ -833,7 +798,31 @@ acknowledgements:
 
 **Why it's wrong**: (a) any partial change produces a 100+ line diff dominated by copy-paste noise, (b) volatile sub-scopes (e.g., a marketing-policy-driven section) drag stable sub-scopes into every supersede, (c) adversarial review effectiveness degrades on large drafts, (d) supersede frequency explodes (`settings` superseded 4× in one day during dogfood), (e) creates pressure for fake sub-domain workarounds (`_arch_layering`, `_arch_state`, …).
 
-**Fix**: 1 PRD = 1 feature/policy. Same domain hosts multiple active PRDs, each on its own supersede chain. `refactor-split` decomposes legacy charters without semantic change.
+**Fix**: 1 PRD = 1 user-facing feature area. Same domain hosts multiple active PRDs, each on its own supersede chain. `refactor-split` decomposes legacy charters along feature areas without semantic change. (The copy-paste noise of (a) is gone since v0.17: a new version is a copy plus declared edits, and its diff shows only them.)
+
+### Override in prose (v0.17)
+
+**Symptom**: a pitch changes another pitch's rule by naming its file — 「`pitches/auth/…-lock.md` 의 그 조항에 한해 본 Pitch 가 우선한다」, "this takes precedence over `pitches/x/y.md`".
+
+**Why it's wrong**: the overridden pitch still states the old rule, and nothing in it points at the override. Its next version — written by someone reading it, not the sibling — carries the old clause forward, and two live pitches now contradict each other (lounge-x-spec, 2026-11-06: 4 versus 3 payment-auth methods).
+
+**Fix**: write the owning pitch's new version, or `fold` the two into one. The validator refuses the line (invariant 10).
+
+### Splitting by length (v0.17)
+
+**Symptom**: a pitch split, or a change routed to a new sibling, because the owner "has too many stories".
+
+**Why it's wrong**: it spreads one feature area — and so one set of rules — over several files, which is how restatements and prose overrides start. Length is not the defect.
+
+**Fix**: split only along user-facing feature areas; below `max_bytes` any length is fine. Route a change to the pitch that owns the rule.
+
+### Re-authored supersede (v0.17)
+
+**Symptom**: a new version written whole from the interview, "with no change in meaning" outside its stated edit.
+
+**Why it's wrong**: retyping rewords. Measured 2026-11-06: a successor written that way kept 5 of 15 inherited normative lines identical and added a duty; another resurrected three items its parent had removed.
+
+**Fix**: copy the predecessor, edit the declared sections, run `--supersede-diff`.
 
 ### Fake reserved domains
 
@@ -1015,7 +1004,7 @@ v0.3 makes no promise of backward compatibility for the dropped doc types. They 
 
 ### Profile field migration (v0.5.7+, universal diff in v0.5.8+)
 
-Plugin updates may add new fields to `profile_schema`. v0.5.6 introduced `profile_schema: 2` (added `sections[].max_items`, `sections[].structure`, top-level `anti_monolith` block, `gate.criteria[concern_scope]`, `personas[quality_auditor]`, `vague_words` list, `adr.anti_monolith`). Teams who ran `/immutable:migrate` before this update have a frozen v1 team profile that does not benefit from the new defaults — until they re-run `/immutable:migrate` v0.5.7+.
+Plugin updates may add new fields to `profile_schema`. v0.5.6 introduced `profile_schema: 2` (added `sections[].max_items`, `sections[].structure`, top-level `anti_monolith` block, `gate.criteria[concern_scope]`, `personas[quality_auditor]`, `vague_words` list, `adr.anti_monolith`). Teams who ran `/immutable:migrate` before this update have a frozen v1 team profile that does not benefit from the new defaults — until they re-run `/immutable:migrate` v0.5.7+. profile_schema 8 (v0.17.0) retired the pitch-side of that list (`max_items`, `anti_monolith`, `concern_scope`) and added `max_bytes` and `precedence_keywords`; migrate removes the retired fields (its Stage 5.2.7), the one place it removes anything.
 
 `/immutable:migrate` v0.5.7+ has two responsibilities:
 
