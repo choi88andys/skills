@@ -168,6 +168,7 @@ This document (CONTRIBUTING.md) is the SSoT for the keyword definitions; individ
 
 - Background and Problem
 - User Stories and Acceptance Criteria (Given/When/Then)
+- Inputs (when the user enters a value — per value: how it is entered, accepted values, on an invalid value)
 - Edge Cases
 - Out of Scope
 - Feature Flag (only when used)

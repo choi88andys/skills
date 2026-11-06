@@ -88,6 +88,14 @@ Coverage (matches SCHEMA.md "Validation invariants"):
  11. Size (v0.17+) — under the same scope, an ACTIVE pitch file is at most the
      profile's `max_bytes` (default 50000): Claude Code's Read returns a
      partial page past about 55 KB of Korean pitch text.
+ 13. Input contract (v0.18+) — under the same scope, for an ACTIVE pitch: the
+     `sections[id=input_contract]` section, when present, holds either a table
+     whose header is the profile's four `columns` and whose every row has four
+     decided cells and a field of its own, or a statement that the pitch
+     defines no input; a bracketed normative line matching `input_markers` in a
+     pitch without the section is a warning, and a violation for a pitch dated
+     on or after the section's `since`. See `check_input_contract`.
+     (12 is the `--supersede-diff` mode below.)
 
 Not covered (deferred): cycle detection on supersede chains.
 
@@ -198,6 +206,27 @@ NON_PITCH_FILES = ("README.md", "TEMPLATE.md")
 DIFF_SAMPLE_LINES = 6
 # Internal key for the content before a pitch's first `## ` — its title unit.
 TITLE_KEY = "\x00title"
+# The four cells of an Inputs table row, in column order (v0.18+): the field, how
+# it is entered, the accepted values, what happens on an invalid value. The
+# labels come from `sections[id=input_contract].columns`.
+INPUT_COLUMNS = ("field", "entry", "accepted", "invalid")
+# A cell holding nothing but placeholder punctuation says nothing.
+PLACEHOLDER_CELL_RE = re.compile(r"^[\s\-–—.…_*`~]*$")
+# Undecided markers every locale writes the same way; the profile's
+# `gate.unresolved_tag` is added per run.
+TBD_RE = re.compile(r"\bTB[DC]\b", re.IGNORECASE)
+# One cell of a GFM delimiter row: at least one dash, optional alignment colons.
+TABLE_DELIMITER_CELL_RE = re.compile(r"^:?-+:?$")
+# A heading as CommonMark reads it — up to three spaces of indent, an optional
+# closing run of `#` (`## 입력 항목 ##`). The input contract finds its section with
+# it, so a heading a renderer shows is never reported missing.
+ATX_HEADING_RE = re.compile(r"^ {0,3}(#{1,6})[ \t]+(.*?)(?:[ \t]+#+)?[ \t]*$")
+BLOCKQUOTE_PREFIX_RE = re.compile(r"^\s*(?:>\s?)+")
+UNESCAPED_PIPE_RE = re.compile(r"(?<!\\)\|")
+MARKDOWN_LINK_RE = re.compile(r"\[([^\]]*)\]\([^)]*\)")
+HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
+# How many lines one input-contract message lists.
+INPUT_SAMPLE_LINES = 5
 
 
 def die(msg: str) -> None:
@@ -331,7 +360,9 @@ def load_profile(config: dict[str, Any], repo_root: Path) -> dict[str, Any]:
             try:
                 with candidate.open("r", encoding="utf-8") as fh:
                     return yaml.safe_load(fh) or {}
-            except yaml.YAMLError as exc:
+            except (yaml.YAMLError, ValueError) as exc:
+                # ValueError: an unquoted impossible date (`since: 2026-02-30`) —
+                # PyYAML builds a date object and `datetime` raises, as in load_config.
                 sys.stderr.write(
                     f"warning: profile at {candidate} failed to parse ({exc}); "
                     f"falling back to bundled default.\n"
@@ -344,7 +375,7 @@ def load_profile(config: dict[str, Any], repo_root: Path) -> dict[str, Any]:
         try:
             with bundled.open("r", encoding="utf-8") as fh:
                 return yaml.safe_load(fh) or {}
-        except yaml.YAMLError as exc:
+        except (yaml.YAMLError, ValueError) as exc:
             sys.stderr.write(
                 f"warning: bundled profile {bundled} failed to parse ({exc}); "
                 f"using hardcoded defaults.\n"
@@ -365,7 +396,7 @@ def load_bundled_profile(config: dict[str, Any]) -> dict[str, Any]:
     try:
         with bundled.open("r", encoding="utf-8") as fh:
             data = yaml.safe_load(fh) or {}
-    except (OSError, yaml.YAMLError):
+    except (OSError, yaml.YAMLError, ValueError):
         return {}
     return data if isinstance(data, dict) else {}
 
@@ -419,6 +450,124 @@ def profile_precedence_keywords(
             return [str(k).strip() for k in fallback if isinstance(k, str) and k.strip()], True
         return [], True
     return [k.strip() for k in value], from_bundled
+
+
+def _section_entry(profile: dict[str, Any], section_id: str) -> dict[str, Any] | None:
+    """The `sections[id=section_id]` entry of `profile`, or None."""
+    for entry in (profile or {}).get("sections") or []:
+        if isinstance(entry, dict) and entry.get("id") == section_id:
+            return entry
+    return None
+
+
+def _columns_ok(value: Any) -> bool:
+    return isinstance(value, dict) and all(
+        isinstance(value.get(k), str) and value[k].strip() for k in INPUT_COLUMNS
+    )
+
+
+def profile_input_contract(
+    profile: dict[str, Any], bundled: dict[str, Any], problems: list[str]
+) -> dict[str, Any] | None:
+    """What the input-contract check reads (v0.18+, profile_schema 9), or None
+    when neither the profile nor the bundled default defines the section.
+
+    `sections[id=input_contract]` gives the heading, the four column labels
+    (`columns`, in `INPUT_COLUMNS` order) and `since`; the top-level
+    `input_markers` regexes find normative lines that speak of an input. A
+    field the team profile lacks comes from the bundled default and is named
+    in `from_bundled`. `blocking` is False when the SECTION itself is the
+    bundled one: its `since` is the plugin's date, not one the team chose at
+    migration, and applying it would block pitches written before the team
+    knew the rule — so an unmigrated profile warns and never blocks. A team
+    section without `since` blocks every pitch (the team chose no date). A
+    malformed field is reported in `problems` (a violation under
+    --strict-body) and the bundled value applies; a malformed `since` also
+    leaves the rule warn-only, since the run already fails on the problem."""
+    team = _section_entry(profile, "input_contract")
+    base = _section_entry(bundled, "input_contract")
+    entry = team or base
+    if entry is None:
+        return None
+    from_bundled: list[str] = [] if team is not None else ["sections[id=input_contract]"]
+
+    heading = entry.get("heading")
+    if not isinstance(heading, str) or not heading.strip():
+        problems.append("sections[id=input_contract].heading must be a non-empty string")
+        heading = (base or {}).get("heading")
+        if not isinstance(heading, str) or not heading.strip():
+            return None
+    columns = entry.get("columns")
+    if not _columns_ok(columns):
+        problems.append(
+            f"sections[id=input_contract].columns must map each of {list(INPUT_COLUMNS)} "
+            f"to a non-empty label — the bundled labels apply until the profile is fixed"
+        )
+        columns = (base or {}).get("columns")
+        if not _columns_ok(columns):
+            return None
+    assert isinstance(columns, dict)
+
+    since: str | None = None
+    blocking = team is not None
+    if team is not None and "since" in team:
+        raw = team["since"]
+        value = raw.isoformat() if isinstance(raw, datetime.date) else str(raw).strip()
+        try:
+            if not _DATE_RE.match(value):
+                raise ValueError
+            datetime.date.fromisoformat(value)
+            since = value
+        except ValueError:
+            problems.append(
+                f"sections[id=input_contract].since must be a YYYY-MM-DD date, got {raw!r} — "
+                f"an undeclared input is warned, not blocked, until the profile is fixed"
+            )
+            blocking = False
+
+    # A key present with no value (`input_markers:`) is malformed, not absent: read
+    # as absent it would skip both the check and the bundled fallback, silently.
+    raw_markers, markers_bundled = profile_field(profile, bundled, "input_markers")
+    markers: list[re.Pattern[str]] = []
+    if markers_bundled:
+        from_bundled.append("input_markers")
+    if raw_markers is not None or not markers_bundled:
+        try:
+            if not isinstance(raw_markers, list) or not all(isinstance(m, str) and m.strip() for m in raw_markers):
+                raise ValueError("must be a list of non-empty regex strings")
+            markers = [re.compile(m, re.IGNORECASE) for m in raw_markers]
+        except (ValueError, re.error) as exc:
+            problems.append(f"input_markers {exc} — the bundled list applies until the profile is fixed")
+            fallback = bundled.get("input_markers")
+            markers = [
+                re.compile(m, re.IGNORECASE) for m in fallback if isinstance(m, str) and m.strip()
+            ] if isinstance(fallback, list) else []
+
+    # The tag key by key: a team `gate` that sets only its counts keeps the bundled tag.
+    tag = next(
+        (
+            g["unresolved_tag"].strip()
+            for g in ((profile or {}).get("gate"), bundled.get("gate"))
+            if isinstance(g, dict) and isinstance(g.get("unresolved_tag"), str) and g["unresolved_tag"].strip()
+        ),
+        None,
+    )
+    if team is None:
+        warn_only = "the team profile predates the rule (profile_schema 9)"
+    elif not blocking:
+        warn_only = "the profile's sections[id=input_contract].since is malformed (reported as a profile violation)"
+    else:
+        warn_only = f"dated before its since {since}"
+    return {
+        "heading": norm_line(heading),
+        "columns": [norm_line(str(columns[k])) for k in INPUT_COLUMNS],
+        "since": since,
+        "blocking": blocking,
+        "warn_only": warn_only,
+        "markers": markers,
+        "unresolved_tag": tag,
+        "from_bundled": from_bundled,
+    }
 
 
 def profile_filename_pattern(profile: dict[str, Any]) -> re.Pattern[str]:
@@ -1683,6 +1832,212 @@ def check_pitch_size(path: Path, max_bytes: int, violations: list[str]) -> None:
         )
 
 
+def _table_cells(line: str) -> list[str]:
+    """The cells of one markdown table row, whitespace-normalized; `\\|` is a
+    literal bar, and the leading and trailing pipes are optional, as in GFM."""
+    inner = line.strip()
+    if inner.startswith("|"):
+        inner = inner[1:]
+    if inner.endswith("|") and not inner.endswith("\\|"):
+        inner = inner[:-1]
+    return [norm_line(c.replace("\\|", "|")) for c in UNESCAPED_PIPE_RE.split(inner)]
+
+
+def _field_bare(cell: str) -> str:
+    """A field cell as plain text: link markup reduced to its text, emphasis,
+    code and quote marks dropped."""
+    return re.sub(r"[`*_「」『』\"]", "", MARKDOWN_LINK_RE.sub(r"\1", cell)).strip()
+
+
+def _field_key(cell: str) -> str:
+    """The identity of a declared field: its plain text without parentheticals,
+    casefolded — so 「생년월일」, 「**생년월일**」 and 「생년월일 (선택)」 are one
+    field, and declaring it twice is caught even when the rows are marked up
+    differently (the incident's shape: one value, two contradictory rows)."""
+    return norm_line(re.sub(r"\s*[(（][^)）]*[)）]", "", _field_bare(cell))).casefold()
+
+
+def _field_names(cell: str) -> list[str]:
+    """The names a field cell gives its value, casefolded, for matching a story
+    line: the plain text with and without parentheticals, and each
+    alternative separated by `/` or `,` (「휴대폰 번호 / 전화번호」)."""
+    bare = _field_bare(cell)
+    names = {bare.casefold(), _field_key(cell)}
+    names.update(p.strip().casefold() for p in re.split(r"\s*[/,、]\s*", _field_key(cell)))
+    return sorted(n for n in names if n)
+
+
+def check_input_contract(
+    path: Path,
+    ic: dict[str, Any],
+    tokens: list[str],
+    violations: list[str],
+    counts: dict[str, int],
+) -> None:
+    """Every value the user enters is declared, per field (v0.18+).
+
+    The incident (lounge-x-app 2.3.1, 2026-11-06): the signup pitch asked for an
+    optional birthdate and said neither how it is entered nor what happens to a
+    wrong value; the ticket was silent and the design drew a plain text field,
+    so the app stored six typed digits as impossible dates. A pitch-level rule
+    ("the edge table has an invalid-input row") passed that very pitch — its
+    table had one-time-code error rows — and flagged 1 of the 9 input-bearing
+    pitches of the repo. So the check is per field, and the author declares the
+    fields in the `ic["heading"]` section:
+
+    * a table there must have the profile's four column labels as its header,
+      a GFM delimiter row of as many cells, at least one row, four cells a row,
+      no empty or placeholder cell, no undecided cell (`gate.unresolved_tag`,
+      TBD/TBC) and no field twice, however the two rows mark it up — a
+      violation, at any date: the section is new, so no existing pitch has one;
+    * a section with no table must say something — one line that the pitch
+      defines no input and which pitch does, held to what a cell is held to (not
+      a sub-heading, a dash or an undecided marker). A broken table never counts
+      as that line: any line holding an unescaped `|`, with or without the
+      leading pipe and inside a blockquote too, is judged as a table;
+    * a bracketed normative line matching `ic["markers"]` in a pitch WITHOUT the
+      section is a warning, and a violation when `ic["blocking"]` and the
+      pitch is dated on or after `ic["since"]` — the rule is prospective, like
+      the dated wording rules;
+    * with a table, such a line naming none of its fields is a warning — the
+      per-field net for the measured miss (a table for the code, none for the
+      birthdate). It never blocks: a story may name a field differently.
+
+    Warnings go to stderr; `counts` collects them for the summary note."""
+    # An HTML comment (the template's guidance) is neither a statement nor a
+    # table; blanking it keeps every line number.
+    text = HTML_COMMENT_RE.sub(lambda m: "\n" * m.group(0).count("\n"), path.read_text(encoding="utf-8"))
+    body = iter_body(text)
+    heading = ic["heading"]
+    in_section = False
+    section: list[tuple[int, str, bool]] = []
+    present = False
+    normative = _bracketed_normative_re(tokens)
+    marked: list[tuple[int, str]] = []
+    for n, line, fenced in body:
+        m = None if fenced else ATX_HEADING_RE.match(line)
+        if m and len(m.group(1)) <= 2:
+            in_section = len(m.group(1)) == 2 and norm_line(m.group(2)) == heading
+            present = present or in_section
+            continue
+        if fenced:
+            continue
+        if in_section:
+            section.append((n, line, bool(m)))
+        elif normative.search(line) and any(p.search(line) for p in ic["markers"]):
+            marked.append((n, line.strip()))
+
+    def sample(lines: list[tuple[int, str]]) -> str:
+        shown = ", ".join(str(n) for n, _ in lines[:INPUT_SAMPLE_LINES])
+        more = f" (+{len(lines) - INPUT_SAMPLE_LINES} more)" if len(lines) > INPUT_SAMPLE_LINES else ""
+        return f"line(s) {shown}{more}"
+
+    if not present:
+        if not marked:
+            return
+        head = (
+            f"{len(marked)} normative line(s) speak of a user-entered value — {sample(marked)} — "
+            f"but the pitch has no `## {heading}` section"
+        )
+        remedy = (
+            f"Declare each value the user enters as a row of `| {' | '.join(ic['columns'])} |`, "
+            f"or, when another pitch defines it, say so in one line of that section"
+        )
+        if ic["blocking"] and strict_body_in_scope(path, ic["since"]):
+            excerpt = "\n  - ".join(
+                f"line {n}: {t if len(t) <= 120 else t[:117] + '...'}" for n, t in marked[:INPUT_SAMPLE_LINES]
+            )
+            warn(violations, f"{path}: input contract violation: {head}. {remedy}.\n  - {excerpt}")
+            return
+        sys.stderr.write(f"warning: {path}: {head} — a warning, not a violation: {ic['warn_only']}. {remedy}.\n")
+        counts["undeclared"] = counts.get("undeclared", 0) + 1
+        return
+
+    undecided = [t for t in (ic["unresolved_tag"],) if t]
+
+    def is_undecided(text: str) -> bool:
+        return bool(TBD_RE.search(text)) or any(t in text for t in undecided)
+
+    # Any line holding an unescaped `|` — with or without the leading pipe, inside
+    # a blockquote too — is a table line: GFM renders `a | b` rows as a table,
+    # and a table the check did not see as one would pass as the statement.
+    tables: list[list[tuple[int, str]]] = []
+    statement: list[str] = []
+    for n, line, is_heading in section:
+        bare = BLOCKQUOTE_PREFIX_RE.sub("", line)
+        if not is_heading and UNESCAPED_PIPE_RE.search(bare):
+            if tables and tables[-1][-1][0] == n - 1:
+                tables[-1].append((n, bare))
+            else:
+                tables.append([(n, bare)])
+        elif not is_heading and not PLACEHOLDER_CELL_RE.match(bare):
+            statement.append(bare.strip())
+    issues: list[str] = []
+    if not tables:
+        # The statement is held to what a cell is held to: a sub-heading, a dash
+        # or an undecided marker says nothing about which pitch defines the input.
+        if not statement:
+            issues.append(
+                f"`## {heading}` holds neither a table nor a statement — declare the values the user "
+                f"enters, or say in one line that this pitch defines none and which pitch does"
+            )
+        elif any(is_undecided(s) for s in statement):
+            issues.append(f"`## {heading}` — the statement is undecided: {next(s for s in statement if is_undecided(s))}")
+    fields: dict[str, int] = {}
+    names: list[str] = []
+    columns = ic["columns"]
+    for table in tables:
+        (h_n, h_line), rest = table[0], table[1:]
+        # A header cell may carry emphasis (`**항목**`); the label itself is exact.
+        if [re.sub(r"^[*_]+|[*_]+$", "", c).strip() for c in _table_cells(h_line)] != columns:
+            issues.append(
+                f"line {h_n}: the table header must be `| {' | '.join(columns)} |`, got `{h_line.strip()}`"
+            )
+            continue
+        delimiter = _table_cells(rest[0][1]) if rest else []
+        if len(delimiter) != len(columns) or not all(TABLE_DELIMITER_CELL_RE.match(c) for c in delimiter):
+            issues.append(
+                f"line {h_n}: the header is not followed by a delimiter row of {len(columns)} cells (`|---|`)"
+            )
+            continue
+        if len(rest) == 1:
+            issues.append(f"line {h_n}: the table has no row — one row per value the user enters")
+        for n, line in rest[1:]:
+            cells = _table_cells(line)
+            if len(cells) != len(columns):
+                issues.append(f"line {n}: a row has {len(cells)} cell(s), the table {len(columns)}")
+                continue
+            field = cells[0] or "(no field)"
+            for label, cell in zip(columns, cells):
+                if PLACEHOLDER_CELL_RE.match(cell):
+                    issues.append(f"line {n}: «{field}» — `{label}` is empty")
+                elif is_undecided(cell):
+                    issues.append(f"line {n}: «{field}» — `{label}` is undecided: {cell}")
+            key = _field_key(cells[0])
+            if not key or PLACEHOLDER_CELL_RE.match(cells[0]):
+                continue
+            if key in fields:
+                issues.append(f"line {n}: «{field}» is declared twice (first at line {fields[key]})")
+            else:
+                fields[key] = n
+                names.extend(_field_names(cells[0]))
+    if issues:
+        bullet = "\n  - " + "\n  - ".join(issues)
+        warn(violations, f"{path}: input contract violation:{bullet}")
+    if not names:
+        return
+    for n, line in marked:
+        folded = line.casefold()
+        if not any(name in folded for name in names):
+            excerpt = line if len(line) <= 120 else line[:117] + "..."
+            sys.stderr.write(
+                f"warning: {path}: line {n} speaks of a user-entered value but names no field of "
+                f"`## {heading}` — add its row, or leave it when the line is about a value this "
+                f"pitch does not define: {excerpt}\n"
+            )
+            counts["unnamed"] = counts.get("unnamed", 0) + 1
+
+
 def check_supersede_chain_integrity(
     doc_type: str,
     docs: list[tuple[Path, dict[str, Any]]],
@@ -1978,7 +2333,12 @@ def supersede_diff_group(
         return f"## {k[1]}" if k[0] == "##" else (f"{k[1]} / {k[2]}" if k[1] else f"### {k[2]}")
 
     def resolve(raw: str) -> tuple[tuple[str, ...] | None, str | None]:
-        """The unit a `changes[].section` names, or (None, why not)."""
+        """The unit a `changes[].section` names, or (None, why not).
+
+        `<parent> / <child>` names a `### ` under a `## `; when no such pair
+        exists the whole string is read as one heading, because a heading may
+        itself hold " / " (「결제 시점 본인 잠금 (PIN / 생체)」 — before v0.18 it
+        was split and reported as no such section)."""
         raw = raw.strip()
         if re.match(r"^#(?!#)\s", raw):
             return (TITLE_KEY,), None
@@ -1986,11 +2346,13 @@ def supersede_diff_group(
             want = [k for k in keys if k[0] == "###" and k[2] == section_key(raw)]
         elif raw.startswith("## "):
             want = [k for k in keys if k[0] == "##" and k[1] == section_key(raw)]
-        elif " / " in raw:
-            parent, _, child = raw.partition(" / ")
-            want = [k for k in keys if k[0] == "###" and k[1] == section_key(parent) and k[2] == section_key(child)]
         else:
-            want = [k for k in keys if k[0] != TITLE_KEY and k[-1] == section_key(raw)]
+            want = []
+            if " / " in raw:
+                parent, _, child = raw.partition(" / ")
+                want = [k for k in keys if k[0] == "###" and k[1] == section_key(parent) and k[2] == section_key(child)]
+            if not want:
+                want = [k for k in keys if k[0] != TITLE_KEY and k[-1] == section_key(raw)]
             if not want and section_key(raw) in succ_titles:
                 return (TITLE_KEY,), None
         if len(want) == 1:
@@ -2361,6 +2723,26 @@ def main() -> int:
             f"note: the active profile has no {' / '.join(fields)} (profile_schema 8) — using the "
             f"bundled default-{config.get('team_language', 'en')} value. Run /immutable:migrate.\n"
         )
+    # v0.18+: the per-field input contract. A team profile without the section
+    # reads the bundled vocabulary and only warns — see profile_input_contract.
+    input_contract = profile_input_contract(profile, bundled_profile, profile_problems)
+    input_counts: dict[str, int] = {}
+    if args.strict_body and input_contract is not None and input_contract["from_bundled"] and config.get("profile"):
+        unmigrated = "sections[id=input_contract]" in input_contract["from_bundled"]
+        sys.stderr.write(
+            f"note: the active profile has no {' / '.join(input_contract['from_bundled'])} (profile_schema 9) — "
+            f"using the bundled default-{config.get('team_language', 'en')} value"
+            + (
+                "; an undeclared input is warned, never blocked, until /immutable:migrate adds the "
+                "section with its since date.\n" if unmigrated else ". Run /immutable:migrate.\n"
+            )
+        )
+    if args.strict_body and input_contract is not None and not input_contract["markers"]:
+        # An empty list is a team's choice, never a silent one: say what it turns off.
+        sys.stderr.write(
+            "note: no input_markers are in force — a normative line that speaks of a user-entered "
+            "value is never detected; only a present input table is checked.\n"
+        )
 
     pitches_ref_root, pitches_ref_error = resolve_pitches_for_reference(config, repo_root)
 
@@ -2445,6 +2827,10 @@ def main() -> int:
                                 pitch_successors, precedence_keywords, violations,
                                 stale_citations,
                             )
+                            if input_contract is not None:
+                                check_input_contract(
+                                    md_path, input_contract, normative_tokens, violations, input_counts,
+                                )
                         if doc_type == "pitch" and contract_required and not doc_frozen:
                             if strict_body_in_scope(md_path, since_contract):
                                 check_ticket_presence(md_path, fm_checked, violations)
@@ -2512,6 +2898,16 @@ def main() -> int:
             sys.stderr.write(
                 f"  {citer} -> {target.parent.name}/{target.name} -> {', '.join(e.name for e in ends)}\n"
             )
+    if input_counts and input_contract is not None:
+        parts = []
+        if input_counts.get("undeclared"):
+            parts.append(
+                f"{input_counts['undeclared']} pitch(es) speak of a user-entered value without a "
+                f"`## {input_contract['heading']}` section and were warned, not blocked"
+            )
+        if input_counts.get("unnamed"):
+            parts.append(f"{input_counts['unnamed']} normative line(s) name no field of their pitch's table")
+        sys.stderr.write(f"note: input contract: {'; '.join(parts)}.\n")
     if contract_frozen_count:
         sys.stderr.write(
             f"note: {contract_frozen_count} deprecated doc(s) frozen: the requirement-contract "

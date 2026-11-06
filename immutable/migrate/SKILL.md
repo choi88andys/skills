@@ -147,7 +147,16 @@ Render a combined plan covering both config migration (when needed) and profile 
 
 ### 2.2 Compute profile field diff (when Stage 5 will run)
 
-Apply the universal diff (Stage 5.2 below) against the team profile to enumerate **specific fields that will be added**, and — when the team profile is below profile_schema 8 — the retirements of Stage 5.2.7 (`-` removed, `~` stock text replaced). Each entry in `{profile_field_diff}` names the field path and a one-line description. Example (a schema-7 team profile, bundled schema 8):
+Apply the universal diff (Stage 5.2 below) against the team profile to enumerate **specific fields that will be added**, and — when the team profile is below profile_schema 8 — the retirements of Stage 5.2.7 (`-` removed, `~` stock text replaced), and — below profile_schema 9 — the additions of Stage 5.2.8. Each entry in `{profile_field_diff}` names the field path and a one-line description. Example (a schema-8 team profile, bundled schema 9, migrated on 2026-11-20):
+
+```
++ sections[input_contract] — after sections[user_stories]; since 2026-11-21 (the day after this migration; bundled: 2026-11-07)
++ input_markers (regexes that find a normative line speaking of a user-entered value)
++ gate.criteria[input_contract] — gate.total 7 → 8, gate.pass_threshold 6 → 7
+~ personas[quality_auditor].checks (stock text → adds "what happens when this value is wrong?")
+```
+
+A schema-7 team profile shows the schema-8 lines first:
 
 ```
 + max_bytes: 50000 (byte ceiling per pitch — the one size limit)
@@ -159,7 +168,7 @@ Apply the universal diff (Stage 5.2 below) against the team profile to enumerate
 ~ gate.criteria[feature_scope].pass_condition (stock text → drops "2~6주")
 ```
 
-Fields already present in the team profile are NOT listed (they are preserved; never modified) — except the retirements, which are the one sanctioned removal (5.2.7).
+Fields already present in the team profile are NOT listed (they are preserved; never modified) — except the retirements (5.2.7) and the gate counts and stock replacement of 5.2.8, the sanctioned exceptions.
 
 ### 2.3 Render preview
 
@@ -197,6 +206,7 @@ If destination exists with non-empty content:
 
 Otherwise:
 - Read source via Read tool, Write to destination.
+- Date the copy's prospective rules as 5.2.6 does (v0.18+): each `requirement_contract.wording_rules[]` entry carrying `since` gets today, and `sections[id=input_contract].since` the day after today. A config v2 repo already holds pitches and tickets, and the bundled dates are the plugin's, not this team's — copied verbatim they would judge work written before the team adopted the rule.
 
 ### 3.2 Edit config.yml — version bump
 
@@ -308,22 +318,21 @@ The algorithm enforces these invariants:
 - **Comments in the team profile are never touched** (Edit operations only insert new blocks; existing text untouched).
 - **Description / heading text edits in bundled defaults do not propagate.** Teams who explicitly customized those keep their text.
 
-#### 5.2.4 Worked example: v7 → v8 transition
+#### 5.2.4 Worked example: v8 → v9 transition
 
-A schema-7 team profile (plugin v0.16-era, values untouched) running through 5.2.1 and 5.2.7 against the schema-8 bundled default-ko:
+A schema-8 team profile (plugin v0.17-era, values untouched) running through 5.2.1 and 5.2.8 against the schema-9 bundled default-ko, migrated on 2026-11-20:
 
 ```
-ADD top-level: max_bytes: 50000
-ADD top-level: precedence_keywords[*]          (anonymous list, with header comments)
-REMOVE:        anti_monolith                   (5.2.7 — and its stock header comment)
-REMOVE:        sections[user_stories].max_items (5.2.7 — and its stock comment lines)
-REMOVE:        gate.criteria[concern_scope]    (5.2.7) → gate.total 8 → 7, pass_threshold 7 → 6
-REPLACE stock: personas[product_lead].question / .checks, personas[quality_auditor].checks,
-               sections[user_stories].description, gate.criteria[feature_scope].pass_condition
-SKIP modify:   adr.anti_monolith               (ADR block — not retired)
+ADD entry:     sections[input_contract]        (5.2.8 — inserted after sections[user_stories],
+               since: 2026-11-21                with its stock comment block; 5.2.6 day_after)
+ADD top-level: input_markers[*]                (anonymous list, with header comments)
+ADD entry:     gate.criteria[input_contract]   (appended) → gate.total 7 → 8, pass_threshold 6 → 7
+REPLACE stock: personas[quality_auditor].checks (5.2.8 — schema-8 stock → bundled list)
 ```
 
-This example is **descriptive, not prescriptive** — 5.2.1 and 5.2.7 are the source of truth. (Before v0.17 this section walked the v1 → v2 transition, which added `anti_monolith`, `max_items` and `concern_scope`; the bundled defaults no longer carry them, so a v1 profile migrated today never gains them.)
+A schema-7 profile gets the v7 → v8 steps first (5.2.7: ADD `max_bytes` and `precedence_keywords`; REMOVE `anti_monolith`, `sections[user_stories].max_items` and `gate.criteria[concern_scope]`, gate 8/7 → 7/6; REPLACE the stock persona and criterion text), then the lines above — gate 8/7 → 7/6 → 8/7.
+
+This example is **descriptive, not prescriptive** — 5.2.1, 5.2.7 and 5.2.8 are the source of truth. (Before v0.17 this section walked the v1 → v2 transition, which added `anti_monolith`, `max_items` and `concern_scope`; the bundled defaults no longer carry them, so a v1 profile migrated today never gains them.)
 
 #### 5.2.5 Schema bump
 
@@ -337,6 +346,7 @@ After the diff is collected, plan one final addition:
 A `requirement_contract.wording_rules[]` entry carrying `since` is **prospective**: it judges only tickets created on or after that date (read in `requirement_contract.since_utc_offset`). The bundled `since` is the date the rule shipped. Copied verbatim into a team that adopts it later, it would reach back over every ticket that team created between the release and the migration — retroactive for that team. So the universal diff treats `since` specially, and nowhere else departs from 5.2.1:
 
 - **ADD of an entry that carries `since`** (bundled `design_oracle`): write the entry with `since:` set to **today** — the migration date in the profile's `since_utc_offset` (the team's value if it has one, else the bundled one), e.g. `python3 -c 'import datetime as d; print(d.datetime.now(d.timezone(d.timedelta(hours=9))).date())'` for `+09:00` — not the bundled date. Show it in the plan preview as `+ requirement_contract.wording_rules[design_oracle] — since <today> (bundled: <bundled since>)`.
+- **ADD of `sections[id=input_contract]`** (v0.18+): write its `since:` as **the day after today** (`schema_v9.yml` `dated: day_after`), in the same offset. That rule judges a pitch by its filename date, the author's local day, and a pitch dated the migration day may already exist — the first day judged is the next one. Plan line: `+ sections[input_contract] — since <tomorrow> (the day after this migration; bundled: <bundled since>)`.
 - **The team already has that entry without `since`**: do NOT add `since` to it. A team that wrote the rule with no date chose to apply it to every ticket; narrowing it is a value change, which this skill never makes. List it as a skip.
 - **`since_utc_offset` missing**: an ordinary scalar ADD of the bundled value — always quoted (`"+09:00"`), because YAML 1.1 reads an unquoted `+10:00` as a base-60 integer, which the script refuses.
 
@@ -350,7 +360,18 @@ profile_schema 8 retired the pitch size caps: a pitch is one user-facing feature
 2. **Gate counts** — when step 1 removed `concern_scope`, lower `gate.total` and `gate.pass_threshold` by one each (8/7 → 7/6, a customised 9/8 → 8/7), so the team keeps its own tolerance. When the team's list held no `concern_scope`, leave both.
 3. **`replace_if_stock`** — for each path listed under the team's `team_language`, compare the team value with the entry: equal (lists element by element, in order) means untouched stock, so replace it with the bundled schema-8 value; different means the team's own wording, so keep it and list it in `{kept}` of `migrate.stage6.note_retired_fields`. Never edit inside a kept value.
 
-Every removal and replacement appears in the Stage 2 plan (`-` / `~` lines) and in the handoff note. This is the only place the skill removes or rewrites a team value; it never extends to fields a retirement file does not list.
+Every removal and replacement appears in the Stage 2 plan (`-` / `~` lines) and in the handoff note. This is the only place the skill removes a team value; outside it and 5.2.8 it never rewrites one.
+
+#### 5.2.8 The input contract (v0.18+, profile_schema 9)
+
+profile_schema 9 makes a pitch declare every value the user enters — how it is entered, what is accepted, what happens to an invalid value — in a `sections[id=input_contract]` table (SCHEMA.md "Input contract"). The universal diff adds the section entry, `input_markers` and `gate.criteria[id=input_contract]`; `${CLAUDE_PLUGIN_ROOT}/migrate/schema_v9.yml` says what it cannot. Only when `team_profile_schema < 9 <= bundled_profile_schema`:
+
+1. **`insert_after`** — insert the `sections[id=input_contract]` entry, with the bundled comment block above it, right after the team's `sections[id=user_stories]` entry (at the end of `sections` when the team has none). `sections` is the pitch's render order.
+2. **`dated`** — its `since` is the day after the migration (5.2.6).
+3. **`gate_criteria_added`** — when the diff ADDs `gate.criteria[id=input_contract]`, raise `gate.total` and `gate.pass_threshold` by one each (7/6 → 8/7; a customised 9/8 → 10/9), so the team keeps its own tolerance. When the team already lists the criterion, leave both.
+4. **`replace_if_stock`** — `personas[id=quality_auditor].checks` equal to the schema-8 stock (lists element by element, in order) is replaced with the bundled list; already equal to the bundled list (5.2.7 replaced it in this run) is left as it is; anything else is the team's own and kept — say so in the handoff.
+
+Add the plan lines of 2.2, and in the handoff include `migrate.stage6.note_input_contract` with `{heading}` (the section's heading), `{since}`, `{gate_old}` / `{gate_new}` (`total/pass_threshold` before and after) and `{quality_auditor_line}` = `migrate.stage6.note_input_contract_auditor_replaced` or `migrate.stage6.note_input_contract_auditor_kept` (empty when 5.2.7 already replaced it). No CI ordering hazard like 5.2.6's: an older validator ignores the section, so the rule simply is not enforced until every CI that reads the profile pins `immutable--v0.18.0` or later — the note says so.
 
 ### 5.3 Plan preview (when Stage 5 is the only stage running)
 
@@ -364,11 +385,11 @@ For each addition from 5.2's diff list:
 2. If missing: use Edit to insert the new content at the position dictated by the addition's yaml_path and type:
    - **Top-level mapping/sequence** (`max_bytes`, `precedence_keywords`, `vague_words`, etc.) — append at end of file, preceded by a blank line, including the bundled default's header comment block (lines prefixed with `#` immediately above the key in the bundled file).
    - **Nested scalar** (`sections[user_stories].structure`) — use Edit with enough surrounding context to make the match unique (typically the entry's `id:` line plus the preceding field acts as anchor). Include inline comments from bundled when present.
-   - **Id-keyed sequence entry append** (`personas[quality_auditor]`) — use Edit matching the last entry of the sequence as old_string, replace with `<last_entry> + blank_line + new_entry`. Preserve YAML indentation.
+   - **Id-keyed sequence entry append** (`personas[quality_auditor]`) — use Edit matching the last entry of the sequence as old_string, replace with `<last_entry> + blank_line + new_entry`. Preserve YAML indentation. An entry with an `insert_after` position (5.2.8: `sections[input_contract]`) is inserted after that entry instead.
    - **Nested mapping under id-keyed entry** (e.g., a new field inside `sections[user_stories]`) — Edit matching the entry's id declaration as anchor, insert the new field at the natural position.
 3. If present (race condition / already-merged): SKIP and note in handoff. Do NOT abort.
 
-Then apply the 5.2.7 retirements the plan listed, one Edit per removal or replacement, with the same defensive re-check (a path already gone is a SKIP, never an error).
+Then apply the 5.2.7 retirements the plan listed, then the 5.2.8 gate counts and stock replacement, one Edit per removal or replacement, with the same defensive re-check (a path already gone is a SKIP, never an error).
 
 If any Edit fails (old_string not found or not unique), abort the stage with `migrate.stage5.edit_failure` pointing at the specific addition and suggesting manual merge from `${CLAUDE_PLUGIN_ROOT}/examples/_profiles/default-<lang>.yml`. Do NOT continue with further additions — leave the profile in a consistent partial state and let the user inspect.
 
@@ -399,7 +420,7 @@ Render `migrate.stage6.handoff` with:
 - `{config_path}` — absolute path of config.yml.
 - `{profile_path}` — absolute path of profile.yml.
 - `{stages_run}` — list of stages that actually executed (e.g., "config v2→v3; profile_schema 1→2 with 6 additions").
-- `{post_migration_notes}` — when Stage 5 applied the 5.2.7 retirements, include `migrate.stage6.note_retired_fields` with `{removed}` = one `  - <path>` line per removal or replacement (the gate counts as `  - gate.total / gate.pass_threshold <old> → <new>`) and `{kept}` = one `  - <path>` line per stock-check that kept the team's text (or `  - (none)`). When Stage 5 added a dated wording rule (5.2.6), include `migrate.stage6.note_dated_rules` with `{rules}` = one `  - <id>: since <date written> (bundled <bundled since>)` line per rule and `{offset}` = the `since_utc_offset` in force.
+- `{post_migration_notes}` — when Stage 5 applied the 5.2.7 retirements, include `migrate.stage6.note_retired_fields` with `{removed}` = one `  - <path>` line per removal or replacement (the gate counts as `  - gate.total / gate.pass_threshold <old> → <new>`) and `{kept}` = one `  - <path>` line per stock-check that kept the team's text (or `  - (none)`). When Stage 5 added a dated wording rule (5.2.6), include `migrate.stage6.note_dated_rules` with `{rules}` = one `  - <id>: since <date written> (bundled <bundled since>)` line per rule and `{offset}` = the `since_utc_offset` in force. When Stage 5 added the input contract (5.2.8), include `migrate.stage6.note_input_contract` as 5.2.8 says.
 - `{commit_suggestion}` — `git add .immutable-prd/ && git commit -m "chore: migrate immutable plugin to <vN>"`.
 
 ---
@@ -407,13 +428,13 @@ Render `migrate.stage6.handoff` with:
 ## Hard Prohibitions
 
 1. **Never run git operations.** `git add`, `git commit`, `git restore` are user-only. Only suggest commands.
-2. **Never overwrite an existing profile.yml content.** Stage 3.1 skips file creation if it exists. Stage 5 only INSERTS missing fields — never modifies existing values, even when the bundled default differs. The one exception is a retirement file (5.2.7): it removes the paths it lists and replaces only values equal to its recorded stock text.
+2. **Never overwrite an existing profile.yml content.** Stage 3.1 skips file creation if it exists. Stage 5 only INSERTS missing fields — never modifies existing values, even when the bundled default differs. The exceptions are the schema files: a retirement (5.2.7) removes the paths it lists, and 5.2.7 and 5.2.8 adjust `gate.total` / `gate.pass_threshold` when they remove or add a criterion and replace only values equal to their recorded stock text.
 3. **Never edit files outside `.immutable-prd/`.** Pitches, ADRs, READMEs, templates are untouched.
 4. **Never proceed past Stage 1 when fully current.** The skill aborts cleanly when both config and profile schema are at the bundled defaults.
 5. **Never proceed past Stage 2 without explicit user confirmation.** No auto-execute.
 6. **Never leave the repo in a partially-migrated state.** Either the planned operations all land (with documented skips for 3.1 / 3.3 / 5.4-individual-addition idempotency) or the skill aborts before touching anything.
 7. **Never modify the bundled starter / profile files.** They live in the plugin (read-only).
-8. **Never change existing profile.yml values in Stage 5** beyond 5.2.7. The migration adds missing fields only. Default value changes (e.g., `min_items: 2 → 1` in v0.5.6 defaults) are NOT propagated — teams who set explicit values likely want them. A retirement replaces a value only when it is the recorded stock text, i.e. a value the team never chose.
+8. **Never change existing profile.yml values in Stage 5** beyond 5.2.7 and 5.2.8. The migration adds missing fields only. Default value changes (e.g., `min_items: 2 → 1` in v0.5.6 defaults) are NOT propagated — teams who set explicit values likely want them. A schema file replaces a value only when it is the recorded stock text, i.e. a value the team never chose, and moves the gate counts only with the criterion it adds or removes in that run — a re-run finds the criterion present and moves nothing.
 
 ---
 

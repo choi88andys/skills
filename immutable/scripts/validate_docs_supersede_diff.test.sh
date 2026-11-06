@@ -29,7 +29,8 @@
 # read as no change (D12); a successor with malformed frontmatter was skipped as
 # "supersedes nothing" and the run passed (D13). Also pinned: `--base` reads a
 # predecessor as it was at the base, so editing it in the same change cannot make
-# the diff agree (D14), and a missing pitch directory exits 2 (D15).
+# the diff agree (D14), and a missing pitch directory exits 2 (D15). v0.18: a
+# heading that itself holds " / " resolves by its bare name (D16).
 #
 # Usage:  bash immutable/scripts/validate_docs_supersede_diff.test.sh
 # Exit:   0 all cases passed · 1 a case failed · 2 the test could not run.
@@ -340,6 +341,26 @@ if [ "$RC" -eq 2 ] && grep -qF 'needs the repo' <<<"$OUT"; then
   pass "D15 a missing pitch directory exits 2"
 else
   fail "D15 missing pitch dir" "rc=$RC
+$OUT"
+fi
+
+# D16 (v0.18): a heading that itself holds " / " resolves by its bare name. v0.17
+# split it as <parent> / <child> and reported «no such section» plus UNDECLARED
+# (measured 2026-11-06, xyzcorpsoftware/lounge-x-spec#71). The <parent> / <child> form still wins
+# when such a pair exists, so the disambiguation D12 suggests keeps working.
+L="$RIG/slash"; mkrepo "$L"; LA="$L/pitches/alpha"
+lockbody() { printf '%s\n' '# Lock' '' '## User Stories' '' '### Lock (PIN / bio)' '' "- **[MUST]** The system offers $1 methods." '' '### Other' '' '- **[MUST]** Unchanged.'; }
+{ fm null true; lockbody 4; } >"$LA/2026-01-01-lock.md"
+{ fm 2026-01-01-lock.md false 'changes:' '  - section: Lock (PIN / bio)' '    kind: modify'; lockbody 3; } >"$LA/2026-02-01-lock.md"
+{ fm 2026-01-01-lock.md false 'changes:' '  - section: User Stories / Lock (PIN / bio)' '    kind: modify'; lockbody 3; } >"$LA/2026-02-02-lock.md"
+diffrun "$L" "$LA/2026-02-01-lock.md"; RC1="$RC"; OUT1="$OUT"
+diffrun "$L" "$LA/2026-02-02-lock.md"
+if [ "$RC1" -eq 0 ] && grep -qF 'modify  declared   Lock (PIN / bio)' <<<"$OUT1" \
+  && [ "$RC" -eq 0 ] && grep -qF 'every change declared' <<<"$OUT"; then
+  pass "D16 a heading holding \" / \" resolves bare and as <parent> / <child>"
+else
+  fail "D16 slash in heading" "rc=$RC1/$RC
+$OUT1
 $OUT"
 fi
 

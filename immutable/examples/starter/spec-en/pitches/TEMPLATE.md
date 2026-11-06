@@ -54,6 +54,22 @@ directly under the H2.
 
 - **[MUST]** The system …
 
+## Inputs
+
+<!--
+Only when this pitch introduces or changes a value the user enters — typed or
+picked (a phone number, a date, a quantity, a free-text reason …). One row per
+value, all four cells. Keep the heading exactly `## Inputs` (the validator finds the section by it). "On an invalid value" is what the user sees and what the
+system does when it refuses the value. No cell is left to the design or the
+implementation. A pitch that only mentions an input another pitch defines writes
+one line instead: "This pitch defines no input — the phone number is defined by
+`pitches/<domain>/<file>.md`." Omit the section when there is no input.
+-->
+
+| Field | How it is entered | Accepted values | On an invalid value |
+|---|---|---|---|
+| <value name> | <control — e.g. date picker, numeric keypad> | <range and format accepted> | <what the user sees and what the system does> |
+
 ## Edge Cases
 
 | Case | Expected handling |

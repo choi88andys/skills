@@ -401,7 +401,13 @@ Checked at generation time by the `/immutable:prd` and `/immutable:adr` skills, 
 11. **Size (v0.17+)** — same scope: an active pitch file is at most `profile.max_bytes` bytes (default 50000; a malformed value is a violation and the default applies). The only size limit — see "Pitch granularity".
 12. **Supersede diff (v0.17+, a separate mode)** — `validate_docs.py --supersede-diff <successor>... [--base REV]` diffs each successor against its predecessor(s), unit by unit (see `changes` above) after whitespace normalization, and fails on a difference `changes` does not declare, a declaration of the wrong kind, or a declaration nothing matches. Lines compare as sets, so a split may repeat a cross-cutting line and a fold may merge two tables in any order; the frontmatter and fenced headings are not units. Successors sharing a predecessor, directly or through another successor, are judged as one group whatever their order — pass all of a split's files together. `--base` judges every pitch added since that commit (the CI and pre-push form) and reads each predecessor as it was at that commit, so editing the predecessor in the same change cannot make the diff agree. A judged pitch with malformed frontmatter, `supersedes` or `changes` is a violation, not a skip. Exit 0 clean, 1 violation, 2 cannot run (no pitch directory, a path outside it, git failing).
 
-A team profile that predates `max_bytes` / `precedence_keywords` (profile_schema < 8) reads the bundled default's values, and the validator says so on stderr — never a check that is off because nobody migrated.
+13. **Input contract (v0.18+)** — `--strict-body`, within the `--strict-since` scope, for an **active** pitch. The vocabulary is `profile.sections[id=input_contract]` (`heading`, the four `columns` labels, `since`) and `profile.input_markers`; see "Input contract" below for why the check is per field.
+   - *the section, when present, at any date*: it holds a table whose header is the four `columns` labels in order (emphasis around a label is tolerated), followed by a GFM delimiter row of as many cells (`|-|`, `|:--:|` …) and at least one row; every row has four cells, none empty or a placeholder (`-`, `—`), none undecided (`gate.unresolved_tag`, `TBD`, `TBC`), and no field appears twice — compared without emphasis, code, quotes, link markup or a parenthetical, so `생년월일` and `**생년월일** (선택)` are one field. A section with no table must hold a statement (one line that the pitch defines no input and which pitch does), held to what a cell is held to: a sub-heading, a dash or an undecided marker is no statement. Any line holding an unescaped `|` — with or without the leading pipe, inside a blockquote too — is judged as a table, so a broken table never passes as that statement, and an HTML comment is neither. The section heading is found as CommonMark reads one (up to three spaces of indent, an optional closing `#` run). The section is new in schema 9, so no existing pitch carries one and nothing is judged retroactively;
+   - *a bracketed normative line matching an `input_markers` regex* (case-insensitive, outside fenced code) in a pitch **without** the section is a warning — and a violation when the pitch's filename date is on or after the section's `since`. A team section without `since` judges every pitch. A team profile without the section (profile_schema < 9) reads the bundled vocabulary and only warns, never blocks: the bundled `since` is the plugin's date, not one the team chose at migration (`/immutable:migrate` writes the day after the migration). A repo with no team profile runs on the bundled profile itself and is judged from the bundled `since` (2026-11-07), like the bundled `design_oracle` date;
+   - *with a table*, such a line that names none of its fields is a warning, never a violation — the per-field net, since a story may name a field differently than its row.
+   - *the profile*: a malformed `since`, `columns` or `input_markers` (a key with no value included) is a violation and the bundled value applies; an empty `input_markers: []` is the team's choice to detect nothing and is said on stderr.
+
+A team profile that predates `max_bytes` / `precedence_keywords` (profile_schema < 8) reads the bundled default's values, and the validator says so on stderr — never a check that is off because nobody migrated. The same holds for `sections[id=input_contract]` / `input_markers` (profile_schema < 9), with the warn-only rule above.
 
 **Profile awareness** (v0.5+): the CI validator loads the profile via the same resolution order as the skills — config.yml `profile:` → bundled `default-<team_language>.yml` → hardcoded last-resort defaults. v2 configs get the bundled default automatically; no config bump required.
 
@@ -420,7 +426,7 @@ v0.4 embedded Korean section headings, 7-criterion gate, 3-persona list, and ide
 | Tier | Meaning | What lives here |
 |---|---|---|
 | **Core-Closed** | Doctype identity. Fork is the only change path. | Append-only semantics, supersede chains, doc types (pitch + ADR), 3 core frontmatter fields |
-| **Guided-Default** | Strong defaults. Overridden only when explicitly set in a profile. | Section names, RFC 2119 keywords, 3 personas, 7-criterion gate, 6-stage skeleton, filename pattern |
+| **Guided-Default** | Strong defaults. Overridden only when explicitly set in a profile. | Section names, RFC 2119 keywords, 4 personas, 8-criterion gate (v0.18), 6-stage skeleton, filename pattern |
 | **Open** | Team freedom. Skill enforces format contract only. | Domain allowlist, i18n strings, identifier regex, feature-flag prefix, frontmatter team extensions |
 
 **Profile fields correspond to Guided-Default.** Core-Closed behavior cannot be overridden from a profile file — it's baked into the skills and the schema. Open tier is per-repo (allowlist in `pitches/README.md`, strings catalog in `strings/`, team frontmatter extensions).
@@ -447,6 +453,14 @@ sections:
     structure: per_story_grouped | consolidated  # optional, user_stories only (v0.5.3+)
     description: "<interview hint + gate pass condition>"
   # …
+  # v0.18+ (profile_schema 9): one row per value the user enters. See "Input contract".
+  - id: input_contract
+    heading: "<user-facing heading>"
+    required: false                 # required by condition: when a normative line speaks of an input
+    min_items: 0
+    since: YYYY-MM-DD               # pitches dated on/after it fail without the section; absent = every pitch
+    columns: { field: "<label>", entry: "<label>", accepted: "<label>", invalid: "<label>" }
+    description: "…"
   # v0.11+: rendered only when the pitch deviates from a binding ticket item.
   - id: requirement_disagreement
     heading: "<user-facing heading>"
@@ -471,7 +485,7 @@ normative_keywords:
 # 90% completeness gate.
 gate:
   total: <int>
-  pass_threshold: <int>           # e.g. 6 of 7
+  pass_threshold: <int>           # e.g. 7 of 8
   reject_on_unresolved: true      # any unresolved tag blocks regardless of pass count
   unresolved_tag: "[미확정]"      # locale-specific literal
   criteria:
@@ -514,6 +528,11 @@ feature_flag:
 # `validate_docs.py --strict-body` and the /immutable:prd Stage 6 guards.
 max_bytes: <int>                  # byte ceiling per pitch file (bundled 50000)
 precedence_keywords: ["<phrase>", …]  # marks a prose override of another pitch
+
+# Input markers (v0.18+, profile_schema 9). Regexes (case-insensitive) that find a
+# bracketed normative line speaking of a user-entered value. Read by
+# `validate_docs.py --strict-body` and the /immutable:prd Stage 6 input contract guard.
+input_markers: ['<regex>', …]
 
 # Requirement contract vocabulary (v0.11+, profile_schema 3). Inert unless
 # config.yml declares `requirement_contract:`. See "Requirement contract".
@@ -644,6 +663,27 @@ v0.5.6 added count caps — `sections[user_stories].max_items` (3), a three-tier
 ### ADR anti-monolith (v0.5.6, unchanged)
 
 ADRs keep their tier guard, `adr.anti_monolith`: an ADR that bundles several decisions is caught by its alternatives and consequences counts (OR semantics — exceeding either trips the tier). L1 `hint` warns at the Stage 1.2 scan; L2 `strong_recommend` puts split options first and asks a reason for `update`; L3 `block` removes `update` from the menu. `/immutable:adr` documents the consumption.
+
+## Input contract (v0.18, profile_schema 9)
+
+A pitch defines every value the user enters — typed or picked — in one table: the field, how it is entered, the accepted values, and what happens on an invalid value. Behavior a requirement does not define is a gap to fill in the pitch, not a default the implementer picks (owner, 2026-11-06).
+
+### Why per field
+
+In lounge-x-app 2.3.1 (2026-11-06) the signup pitch asked for an optional birthdate and said neither how it is entered nor what happens to a wrong value. The ticket was silent and the design drew a plain text field; the app took six typed digits and stored impossible dates, or the first six digits of `19900101`. The pitch's edge-case table looked complete — it held one-time-code error rows. Measured the same day on lounge-x-spec main `78b62e8` (53 active pitches): a pitch-level rule ("a `[MUST]` mentions user input, so the edge table must hold an invalid-input row") flags 1 of the 9 pitches whose `[MUST]` lines speak of input, and **passes** the pre-fix signup pitch. A check that would have caught the birthdate must know the birthdate is a field — so the pitch declares its fields, and the validator polices what is declared.
+
+### What it is made of
+
+| Part | Where | What it does |
+|---|---|---|
+| `sections[id=input_contract]` | profile; `heading`, `columns`, `since` | The section and its four column labels; `since` dates the rule |
+| `input_markers` | profile; regex list | The net: a normative line that speaks of an input. Bundled ko catches 12 of the 53 (the 9 above and 3 that only mention an input they do not define) |
+| `gate.criteria[id=input_contract]` | profile; gate 8/7 | Stage 5 — a failure refuses generation whatever the count |
+| `personas[id=quality_auditor]` check | profile | Stage 4 asks "what happens when this value is wrong?" per value |
+| Branch C2 + the input contract guard | `/immutable:prd` | Enumerate the values, four cells each, a recommended answer (first: the same value as another pitch defines it) |
+| Invariant 13 | `validate_docs.py --strict-body` | Polices a present table at any date; an undeclared input warns before `since`, fails on or after it |
+
+The rule is **prospective**: `/immutable:migrate` writes `since` as the day after the migration (a pitch dated the migration day may already exist), so a repo picks the release up without any existing pitch turning red. An existing pitch gains the table through a new version, like any other change. `migrate/schema_v9.yml` records what the universal diff cannot do on its own: where the section goes, the gate counts and the stock persona text.
 
 ## Requirement contract (v0.11.0, profile_schema 3)
 
@@ -1004,7 +1044,7 @@ v0.3 makes no promise of backward compatibility for the dropped doc types. They 
 
 ### Profile field migration (v0.5.7+, universal diff in v0.5.8+)
 
-Plugin updates may add new fields to `profile_schema`. v0.5.6 introduced `profile_schema: 2` (added `sections[].max_items`, `sections[].structure`, top-level `anti_monolith` block, `gate.criteria[concern_scope]`, `personas[quality_auditor]`, `vague_words` list, `adr.anti_monolith`). Teams who ran `/immutable:migrate` before this update have a frozen v1 team profile that does not benefit from the new defaults — until they re-run `/immutable:migrate` v0.5.7+. profile_schema 8 (v0.17.0) retired the pitch-side of that list (`max_items`, `anti_monolith`, `concern_scope`) and added `max_bytes` and `precedence_keywords`; migrate removes the retired fields (its Stage 5.2.7), the one place it removes anything.
+Plugin updates may add new fields to `profile_schema`. v0.5.6 introduced `profile_schema: 2` (added `sections[].max_items`, `sections[].structure`, top-level `anti_monolith` block, `gate.criteria[concern_scope]`, `personas[quality_auditor]`, `vague_words` list, `adr.anti_monolith`). Teams who ran `/immutable:migrate` before this update have a frozen v1 team profile that does not benefit from the new defaults — until they re-run `/immutable:migrate` v0.5.7+. profile_schema 8 (v0.17.0) retired the pitch-side of that list (`max_items`, `anti_monolith`, `concern_scope`) and added `max_bytes` and `precedence_keywords`; migrate removes the retired fields (its Stage 5.2.7), the one place it removes anything. profile_schema 9 (v0.18.0) added the input contract — `sections[input_contract]`, `input_markers`, `gate.criteria[input_contract]` and a `quality_auditor` check; migrate places the section, dates it and raises the gate counts (its Stage 5.2.8).
 
 `/immutable:migrate` v0.5.7+ has two responsibilities:
 

@@ -2,6 +2,60 @@
 
 All notable changes to the `immutable` plugin are documented in this file. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Version is canonically declared in `.claude-plugin/plugin.json`.
 
+## [0.18.0] — 2026-11-06
+
+In lounge-x-app 2.3.1 the signup pitch asked for an optional birthdate and said neither how it is entered nor what happens to a wrong value. The ticket said nothing either, and the design drew a plain text field. The app took six typed digits and stored impossible dates, or the first six digits of `19900101` (fixed downstream by xyzcorpsoftware/lounge-x-spec#71 and xyzcorpsoftware/lounge-x-app#842). The pitch looked complete: its edge-case table held one-time-code error rows. Owner decision (2026-11-06): the pitch is the single source of truth for a feature, and behavior a requirement does not define is a gap to fill in the pitch, not a default the implementer picks. Fix it in the plugin, so the spec repo picks it up by bumping its pin. A pitch-level check was measured and rejected (see Measured), so the check is per input field: the pitch declares its fields, and the validator polices what is declared.
+
+### Added
+
+- **Input contract section** — `sections[id=input_contract]`, heading 「입력 항목」 / "Inputs", placed after the user stories. It holds one table, one row per value the user enters (typed or picked): `항목 | 입력 방식 | 받는 값 | 잘못된 값일 때` (en `Field | How it is entered | Accepted values | On an invalid value`), from the entry's new `columns` key. A pitch that only mentions an input another pitch defines writes one line naming the owner instead. The entry's new `since` key dates the rule (bundled `2026-11-07`).
+- **`input_markers`** — a top-level list of regexes (case-insensitive) that find a bracketed normative line speaking of a user-entered value. ko: 「입력」「기입」「타이핑」「직접 써/쓰/적」「붙여넣」; en: type, input, fill in/out, enter (not "enters the screen"), paste — the English list is unmeasured.
+- **`validate_docs.py` invariant 13** (`--strict-body`, `--strict-since` scope, active pitches; fenced code is ignored):
+  - A present section, at any date: the header is the four labels in order (emphasis and spacing tolerated), a GFM delimiter row of as many cells follows, then ≥1 row of four cells. The check fails an empty or placeholder cell (`-`, `—`), an undecided cell (`gate.unresolved_tag`, TBD, TBC) and a field declared twice, compared without markup or a parenthetical. A section without a table must hold its one-line statement, held to what a cell is held to (no sub-heading, dash or undecided marker). Any line holding an unescaped `|`, with or without the leading pipe and inside a blockquote too, is judged as a table, so a broken table never passes as a statement, and an HTML comment counts as neither. The heading is found as CommonMark reads one (indent, closing `#`s).
+  - A marker line in a pitch without the section is a warning, and a violation once the pitch's filename date is on or after the section's `since`.
+  - With a table, a marker line naming none of its fields is a warning (the per-field net, never a violation).
+  - A team profile without the section reads the bundled vocabulary and only warns, with a note saying so. A malformed `since`, `columns` or marker list (a key with no value included) is a profile violation, and the bundled value applies; `input_markers: []` is said on stderr.
+- **Gate criterion `input_contract`** — appended last, gate 8/7. `/immutable:prd` refuses generation when it fails, whatever the count.
+- **`quality_auditor` check** — "what happens when this value is wrong?", asked for every value the user enters.
+- **`/immutable:prd`**:
+  - Branch C2 enumerates the values the stories have the user enter (`prd.stage2.input_enumeration`), then asks for the four cells one value at a time, with a recommended answer for each (`prd.stage2.input_cells_question`). The first recommendation is the same value as another active pitch already defines it; the second is the platform's native control.
+  - Branch D leaves per-input invalid values to C2.
+  - Stage 6 adds the Inputs shape and an input contract guard (`prd.stage6.input_contract_missing`) that casts the validator's net.
+  - Hard Prohibition 14: never leave a user-entered value undefined, or hand it to the design or the implementation.
+- **`/immutable:migrate`** §5.2.8 and `migrate/schema_v9.yml`, below profile_schema 9:
+  - Insert the section after `sections[user_stories]`, with `since` set to the day after the migration. A pitch dated the migration day may already exist; 5.2.6 now names this rule too.
+  - Raise `gate.total` / `gate.pass_threshold` by one when the criterion is added (7/6 → 8/7).
+  - Replace `personas[quality_auditor].checks` only while it equals the recorded schema-8 stock.
+  - Hand off with `migrate.stage6.note_input_contract`.
+- Strings: the five keys above plus `migrate.stage6.note_input_contract_auditor_replaced` / `_kept`, in ko and en (parity kept, 250 keys each).
+- Starters: `pitches/TEMPLATE.md` gains the `## 입력 항목` / `## Inputs` section, and `CONTRIBUTING.md` lists it.
+- Tests: new `validate_docs_input_contract.test.sh`, cases I1–I17. The fixtures use the pre-fix signup shape: one-time-code error rows and an undeclared birthdate input. That shape warns before `since` and fails on it; with a complete row it passes; an empty 「잘못된 값일 때」 cell fails. I15 pins the bundled profiles to `schema_v9.yml`'s stock text and gate counts. An independent review of the validator diff before release reproduced ten defects on fixtures, each now fixed and pinned. Four failed open (I16): a table without the leading pipe or inside a blockquote read as the statement; a statement of a dash, a sub-heading or `[미확정]` passed; one field in two marked-up rows was no duplicate; a bare `input_markers:` key switched the undeclared-input check off with no note. Six rejected or crashed on legitimate input (I17): a one-dash or aligned delimiter, a closing-hash or indented heading, a linked field name, an impossible `since` date (a traceback from the profile loader, which now catches it as `load_config` does), a team `gate` without `unresolved_tag`, and a misleading warn reason for a malformed `since`.
+
+### Fixed
+
+- `--supersede-diff`: a `changes[].section` holding " / " was always read as `<parent> / <child>`, so a heading that itself holds the separator, such as 「결제 시점 본인 잠금 (PIN / 생체)」, matched nothing and its change read as UNDECLARED. xyzcorpsoftware/lounge-x-spec#71 worked around it with a quoted `"### …"` prefix. The parent/child pair is still tried first, then the whole string as one heading. Pinned by D16, which fails on v0.17.0.
+
+### Changed
+
+- Gate: 8 criteria, pass at 7 (was 7/6). `profile_schema` 9 in both bundled profiles.
+- `/immutable:migrate` Stage 3.1: a profile copied fresh into a config-v2 repo now dates its prospective rules the way 5.2.6 does. `wording_rules[].since` (bundled `design_oracle`) becomes today, and the input contract's `since` becomes tomorrow. Before, the copy kept the bundled dates, which are the plugin's, not the team's.
+- `SCHEMA.md`: invariant 13, an "Input contract" section, the profile schema block, the Guided-Default tier (4 personas, 8 criteria). `README.md`: the prd row and a v0.18.0 summary.
+
+### Measured
+
+- 2026-11-06, lounge-x-spec `main` 78b62e8 (53 active pitches). A pitch-level rule ("a `[MUST]` speaks of user input, so the edge table holds an invalid-input row") flags 1 of the 9 input-bearing pitches (`order/2026-10-06-menu-detail-and-options.md`). It **passes** the pre-fix `auth/2026-11-06-signup-and-login.md`, whose OTP error rows satisfy it. The bundled ko `input_markers` hit 12 active pitches: all 9, plus 3 that only mention an input they do not define. Adding 「작성」 hit 2 more pitches, both false positives (「작성 시각」, 「작성 시점」), so it is not in the list.
+- Same tree, CI form `validate_docs.py --type pitch --strict-body --strict-since 2026-07-15`, team profile at schema 8: `all checks passed`, with 11 pitches warned. The 12th (`reward-coupon/2026-04-27-qr-coupon-scan.md`) predates `--strict-since`.
+- Dogfood: `/immutable:migrate` run with `claude -p --plugin-dir <checkout>/immutable` on a scratch copy of that repo.
+  - It produced profile_schema 9, with the section after the user stories and `since: 2026-11-07`, gate 8/7, `quality_auditor.checks` replaced as stock, and the repo's own `change_only` rule and comments untouched.
+  - The CI form then reports `all checks passed`, with the same 11 warned as "dated before its since 2026-11-07".
+  - A copy of `auth/2026-11-06-phone-signup-and-login.md` dated 2026-11-07 fails with 1 violation (15 normative lines).
+
+### Migration (consumers)
+
+- Bump the CI pin to `immutable--v0.18.0` and run `/immutable:migrate` (profile_schema 8 → 9), in either order. Until the pin moves, an older validator ignores the section. Until the profile migrates, the new validator warns and never blocks.
+- From the migrated `since` on, a new pitch whose normative lines speak of a user-entered value needs the section. An existing pitch gains its table through a new version (`changes: [{section: 입력 항목, kind: add}]`). In lounge-x-spec that is the 9 pitches above.
+- A repo without a team profile runs on the bundled one and is judged from the bundled `since` (2026-11-07).
+
 ## [0.17.0] — 2026-11-06
 
 The plugin was written so non-developers could produce SSoT pitches; pitches are now written by Claude for developers, and two traits had started to hurt. `/immutable:prd` steered a change toward a new sibling pitch rather than a new version of the pitch that owned the rule (`new` "most common", `update` "rare", `update` removed from the menu at anti-monolith L3), and count caps pushed long pitches apart. Together they spread one rule area over many files. In lounge-x-spec, sibling pitches overrode a baseline clause with prose naming its file (「그 조항에 한해 우선한다」); a later supersede of the baseline, re-authored "의미 변경 없이", could not see those sentences and copied the overridden clauses back, and two live pitches demanded 4 and 3 payment-auth methods (fixed there by xyzcorpsoftware/lounge-x-spec#67, which also added a repo-local stopgap check). Owner decisions (2026-11-06): no default lean — a pitch is versioned or created by which pitch owns the rule; length is no reason to split. The aim: a pitch is one user-facing feature area, each rule lives in exactly one active pitch, and a supersede is cheap and cannot drift silently.
