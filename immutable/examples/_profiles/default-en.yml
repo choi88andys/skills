@@ -24,7 +24,12 @@
 # v6 → v7 (v0.16.0): added `requirement_contract.since_utc_offset`, the
 # optional `wording_rules[].since` key and the `design_oracle` entry, which
 # `/immutable:migrate` adds with `since` set to the migration date.
-profile_schema: 7
+# v7 → v8 (v0.17.0): retired the pitch size caps — `sections[user_stories].max_items`,
+# the top-level `anti_monolith` block and the gate criterion `concern_scope`
+# (gate 8/7 → 7/6) — and added `max_bytes` and `precedence_keywords`.
+# `/immutable:migrate` removes the retired fields from a team profile. The ADR
+# block `adr.anti_monolith` is unchanged.
+profile_schema: 8
 
 locale: en
 
@@ -49,14 +54,8 @@ sections:
     heading: "User Stories and Acceptance Criteria"
     required: true
     min_items: 1
-    # v0.5.6: max_items added as anti-monolith hard cap (`### ` sub-section count
-    # under user_stories H2). 1 PRD = 1 feature/policy. 4-step linear flows
-    # (e.g., checkout) may legitimately need 4 — bump to 4 in your team profile
-    # if those are common. Above 5, the bundling is almost always 2 features
-    # disguised as 1.
-    max_items: 3
     structure: per_story_grouped
-    description: "Given/When/Then blocks — happy path + alternate/error each ≥1 (sum ≥2). Single-feature PRDs may legitimately have 1 sub-section + multiple MUSTs. Under the default per_story_grouped structure, each story gets its own `### ` sub-section carrying the GWT triple + bound normative keyword lines. sub-section count exceeding max_items triggers anti_monolith."
+    description: "Given/When/Then blocks — happy path + alternate/error each ≥1 (sum ≥2). Single-feature PRDs may legitimately have 1 sub-section + multiple MUSTs. Under the default per_story_grouped structure, each story gets its own `### ` sub-section carrying the GWT triple + bound normative keyword lines. The story count has no cap: one feature area can need many stories."
   - id: edge_cases
     heading: "Edge Cases"
     required: true
@@ -95,12 +94,11 @@ personas:
       - "Excessive hand-wave phrases (\"delegated to library defaults\")"
   - id: product_lead
     name: "Product Lead"
-    question: "Is this pitch at Feature scale?"
+    question: "Does this pitch cover exactly one user-facing feature area?"
     checks:
       - "Single-flag toggleability"
-      - "Completion within 2–6 weeks"
-      - "Epic-level content that should be split — sub-section ≥4 auto-fires anti_monolith.L1 hint, ≥5 strong recommend, ≥8 (or anti_monolith.L3.sub_sections) blocks update intent"
-      - "Overlap or conflict with existing active pitches (multiple actives per domain are normal, but ensure no duplicate scope coverage)"
+      - "More than one user-facing feature area — would different users, screens or entry points each need only part of this pitch? Each area is its own pitch (refactor-split). Length and story count are not the test: one area can need many stories"
+      - "Each rule in exactly one active pitch — a rule another active pitch already states is changed by a new version of that pitch, never restated or overridden here (multiple actives per domain are normal; duplicate scope is not)"
   - id: quality_auditor
     name: "Quality Auditor"
     question: "Can this pitch be implemented and verified against measurable criteria, with no clauses requiring subjective judgment?"
@@ -110,7 +108,23 @@ personas:
       - "Every Then is pass/fail decidable rather than demanding subjective judgment"
       - "Passive voice / missing subject that hides the responsible actor (e.g., \"is processed\", \"is shown\")"
       - "If this PRD covers only part of the Stage 1.5 intake, confirm the rest is split into separate PRDs or planned to be (intake 1:1 mapping assumption dropped — one domain's intake naturally decomposes into N PRDs)"
-      - "Sub-section normative imbalance — if one sub-section has ≥7 normative lines while others have 1-2, that sub-section is likely its own feature (split recommended)"
+
+# Pitch size and cross-pitch references (v0.17.0 / profile_schema 8). Read by
+# `validate_docs.py --strict-body` on every active pitch.
+#   max_bytes           — byte ceiling per pitch file. Claude Code's Read returns
+#                         a partial page past 25,000 tokens (about 55 KB of Korean
+#                         pitch text, more of English); 50000 stays under it. This
+#                         is the only size limit — length alone is no reason to split.
+#   precedence_keywords — phrases that make a sentence override another pitch.
+#                         A body line naming another pitch's path may not carry
+#                         one (literal, case-insensitive): `supersedes` is the
+#                         only relation that changes another pitch's meaning.
+max_bytes: 50000
+precedence_keywords:
+  - "takes precedence"
+  - "overrides"
+  - "supersedes"
+  - "replaces"
 
 normative_keywords:
   - key: MUST
@@ -130,8 +144,8 @@ normative_keywords:
     meaning: "Optional."
 
 gate:
-  total: 8
-  pass_threshold: 7
+  total: 7
+  pass_threshold: 6
   reject_on_unresolved: true
   unresolved_tag: "[TBD]"
   criteria:
@@ -155,10 +169,7 @@ gate:
       pass_condition: "Stage 3 identifier scan passes cleanly."
     - id: feature_scope
       label: "Feature-scale scope"
-      pass_condition: "Single-flag toggle test passes; 2–6 week completability."
-    - id: concern_scope
-      label: "Single-concern scope (anti-monolith)"
-      pass_condition: "user_stories sub-section count ≤ sections[user_stories].max_items AND total normative ≤ anti_monolith.L3.normative_lines. anti_monolith.L1/L2 thresholds exceed: criterion still passes but hint/strong-recommend is shown; L3 exceed: fail (block)."
+      pass_condition: "Single-flag toggle test passes, and the pitch covers one user-facing feature area (the product_lead review found no second one). Length and story count are not part of this criterion."
 
 identifier_patterns:
   - id: camelCase
@@ -231,31 +242,6 @@ feature_flag:
     - states
     - initial_state
     - fallback_ux
-
-# Anti-monolith escalation (v0.5.6 / profile_schema 2). See default-ko.yml
-# header comments for full rationale and skill integration points.
-#
-# Each tier checks 2 metrics (OR semantics):
-#   sub_sections     — `### ` headers under user_stories H2
-#   normative_lines  — bracketed-keyword lines in body
-#
-# Fallback when block is omitted: derived from sections[user_stories].max_items
-# (L1 = max+1, L2 = max+2, L3 = max×3; normative_lines = sub_sections × 5).
-anti_monolith:
-  enabled: true
-  tiers:
-    L1:
-      action: hint
-      sub_sections: 4
-      normative_lines: 20
-    L2:
-      action: strong_recommend
-      sub_sections: 5
-      normative_lines: 25
-    L3:
-      action: block
-      sub_sections: 8
-      normative_lines: 40
 
 # Requirement contract (v0.11.0 / profile_schema 3). See default-ko.yml for
 # per-field notes. Inert unless config.yml declares `requirement_contract:`.

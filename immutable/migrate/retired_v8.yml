@@ -1,0 +1,47 @@
+# retired_v8.yml — what profile_schema 8 (plugin v0.17.0) retired, for /immutable:migrate Stage 5.2.7.
+#
+# `remove` — paths deleted from a team profile below schema 8. The bundled defaults no
+#   longer carry them, so the universal diff (5.2.1) would never re-add them, but a stale
+#   copy left in a team profile reads as a live knob while nothing reads it.
+# `replace_if_stock` — the bundled schema-7 values, verbatim, per locale. A team value
+#   EQUAL to the entry is untouched stock and is replaced with the bundled schema-8 value;
+#   any other value is the team's own wording and is kept (and named in the handoff).
+#   Lists compare element by element, in order. Strings are JSON-quoted to stay verbatim.
+schema: 8
+remove:
+  - anti_monolith
+  - sections[id=user_stories].max_items
+  - gate.criteria[id=concern_scope]
+replace_if_stock:
+  ko:
+    "sections[id=user_stories].description": "Given/When/Then 블록 — happy path + alternate/error 최소 1개씩 (각 종류 ≥1, 총 합으로 ≥2개). 단일-feature PRD는 1 sub-section + 다중 MUST로도 정상. 기본 구조(per_story_grouped)에선 각 스토리를 `### ` 서브섹션으로 묶고 서브섹션 내부에 GWT + 결합 normative 줄을 함께 둔다. sub-section 개수가 max_items를 초과하면 anti_monolith 트리거."
+    "personas[id=product_lead].question": "이 pitch가 Feature 규모에 맞는가?"
+    "personas[id=product_lead].checks":
+      - "단일 플래그로 on/off 가능한가"
+      - "2~6주 내 완결 가능한가"
+      - "Epic 규모 콘텐츠가 섞여있지 않은가 — sub-section ≥4면 anti_monolith.L1 hint 자동 발생, ≥5면 strong recommend, ≥8(또는 anti_monolith.L3.sub_sections)이면 update intent 차단"
+      - "기존 active pitch와 겹침/충돌 여부 (도메인당 multiple actives는 정상이나, 같은 scope를 중복 명세하지는 않는지)"
+    "personas[id=quality_auditor].checks":
+      - "각 normative 줄에 정량 기준(숫자·타임아웃·threshold·UI spec) 포함 여부"
+      - "'적절히', '자연스럽게', '충분히', '합리적' 같은 모호어 잔존 여부 (Stage 3 regex를 통과했더라도 맥락상 모호한 경우 포함)"
+      - "각 GWT의 Then이 pass/fail 판정 가능한가, 아니면 주관적 판단 요구"
+      - "주어 생략·passive voice로 책임 주체가 불분명한 문장 유무 (예: '처리된다', '보여진다')"
+      - "Stage 1.5 intake의 일부만 다루는 PRD라면 나머지 부분은 별도 PRD로 분할되었거나 분할 예정인지 확인 (intake 1:1 매핑 가정 폐기 — 1 도메인의 intake가 N개 PRD로 자연 분해됨)"
+      - "sub-section 간 normative 분포 imbalance — 한 sub-section에 normative가 7개 이상 몰려있고 다른 sub-section은 1-2개라면, 그 sub-section 자체가 별도 feature일 가능성 (split 권장)"
+    "gate.criteria[id=feature_scope].pass_condition": "단일 플래그 토글 테스트 통과 + 2~6주 완결 가능"
+  en:
+    "sections[id=user_stories].description": "Given/When/Then blocks — happy path + alternate/error each ≥1 (sum ≥2). Single-feature PRDs may legitimately have 1 sub-section + multiple MUSTs. Under the default per_story_grouped structure, each story gets its own `### ` sub-section carrying the GWT triple + bound normative keyword lines. sub-section count exceeding max_items triggers anti_monolith."
+    "personas[id=product_lead].question": "Is this pitch at Feature scale?"
+    "personas[id=product_lead].checks":
+      - "Single-flag toggleability"
+      - "Completion within 2–6 weeks"
+      - "Epic-level content that should be split — sub-section ≥4 auto-fires anti_monolith.L1 hint, ≥5 strong recommend, ≥8 (or anti_monolith.L3.sub_sections) blocks update intent"
+      - "Overlap or conflict with existing active pitches (multiple actives per domain are normal, but ensure no duplicate scope coverage)"
+    "personas[id=quality_auditor].checks":
+      - "Each normative line carries a concrete criterion (numbers, timeouts, thresholds, UI specs)"
+      - "Vague hedge words (\"appropriate\", \"reasonable\", \"naturally\", \"sufficient\") — catches context-vague cases even if the Stage 3 regex was satisfied"
+      - "Every Then is pass/fail decidable rather than demanding subjective judgment"
+      - "Passive voice / missing subject that hides the responsible actor (e.g., \"is processed\", \"is shown\")"
+      - "If this PRD covers only part of the Stage 1.5 intake, confirm the rest is split into separate PRDs or planned to be (intake 1:1 mapping assumption dropped — one domain's intake naturally decomposes into N PRDs)"
+      - "Sub-section normative imbalance — if one sub-section has ≥7 normative lines while others have 1-2, that sub-section is likely its own feature (split recommended)"
+    "gate.criteria[id=feature_scope].pass_condition": "Single-flag toggle test passes; 2–6 week completability."

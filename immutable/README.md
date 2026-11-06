@@ -10,7 +10,7 @@ Single plugin hosting the Spec-Driven Development toolkit with append-only guara
 |---|---|---|---|
 | [`init/`](init/) | `/immutable:init` | Bootstrap a starter (six modes: spec / app / single × ko / en) | Writes only into the user's CWD; never overwrites |
 | [`office-hours/`](office-hours/) | `/immutable:office-hours` | Premise challenge + ≥3 alternatives + transient design-doc note | Writes one transient note under `.claude/immutable/office-hours/` (gitignored) |
-| [`prd/`](prd/) | `/immutable:prd` | WHAT — product pitches (6-stage interview, 4 personas, 8-criterion gate; opt-in requirement contract against a tracker ticket) | Append-only + supersede |
+| [`prd/`](prd/) | `/immutable:prd` | WHAT — product pitches (6-stage interview, 4 personas, 7-criterion gate; one pitch per user-facing feature area, new versions copied and diff-checked; opt-in requirement contract against a tracker ticket) | Append-only + supersede |
 | [`design/`](design/) | `/immutable:design` | App-side context handoff (lightweight; pitch is the design artifact) | Writes one transient handoff note (gitignored) |
 | [`plan-review-ceo/`](plan-review-ceo/) | `/immutable:plan-review-ceo` | Scope challenge + 11-section adversarial review of pitch + linked ADRs | Writes one transient review note (gitignored) |
 | [`plan-review-eng/`](plan-review-eng/) | `/immutable:plan-review-eng` | 4-section engineering review (architecture / code / test / perf) + worktree analysis | Writes one transient review note (gitignored) |
@@ -235,6 +235,17 @@ Before v0.6.0, the plugin shipped only the artifact-authoring skills (`prd`, `ad
 ## Ship positioning
 
 `/immutable:ship` is intentionally **minimum-viable**. It guarantees chain integrity at PR time — verifies the eng review APPROVED, auto-includes the pitch and linked ADR paths in the PR body, and guards against common ship-time mistakes (dirty tree, failing tests, protected branch). It does NOT carry cross-session learnings capture, worktree-policy enforcement, or team-specific telemetry. Teams that want those layers should add them as hooks or wrapper skills around the `/immutable:ship` invocation rather than maintaining a parallel ship path.
+
+## What v0.17.0 changed (vs. v0.16.0)
+
+- Pitch granularity: a pitch is one user-facing feature area, each rule lives
+  in one active pitch, length is no reason to split. `/immutable:prd` routes a
+  change to the pitch that owns the rule (no `new` lean); the count caps
+  (`max_items`, `anti_monolith`, `concern_scope`) are retired (profile_schema 8)
+  for one byte ceiling, `max_bytes`. New versions are a copy plus the declared
+  `changes`, checked by `validate_docs.py --supersede-diff`; `supersedes` takes
+  a list (a fold); a prose override of another pitch fails `--strict-body`.
+  **Run `/immutable:migrate`.** Details: [`CHANGELOG.md`](CHANGELOG.md).
 
 ## What v0.16.0 changed (vs. v0.15.2)
 

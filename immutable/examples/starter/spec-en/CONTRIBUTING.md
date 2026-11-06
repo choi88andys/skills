@@ -38,8 +38,9 @@ No branch protection — mistakes are caught downstream by the owner during impl
 1. **Copy the latest pitch file in full**
 2. Save with new filename `YYYY-MM-DD-<slug>.md`
 3. Set `supersedes` to the previous filename
-4. Revise the body (the new file is a **full snapshot** — additions, edits, removals all reflected)
-5. Flip the previous file's `deprecated: false` → `deprecated: true` (do not touch body or other fields)
+4. Edit only the sections that change — leave every other line as copied (retyping rewords). List the edited sections in frontmatter `changes: [{section: <heading>, kind: add|modify|remove}]`
+5. Run `validate_docs.py --supersede-diff <new file>` — it fails on any difference `changes` does not declare
+6. Flip the previous file's `deprecated: false` → `deprecated: true` (do not touch body or other fields)
 6. PR → review → merge
 
 ### Deprecate without successor
@@ -108,7 +109,9 @@ deprecated: false                   # default false
 
 ## Pitch size (Goldilocks)
 
-**Feature scale**: independent user value + completable in one release cycle (2–6 weeks).
+**Feature scale**: one user-facing feature area. Length is not a reason to split — an area that needs many stories keeps them in one pitch. The one size limit is `max_bytes` per file (default 50000 bytes).
+
+**One pitch per rule**: to change a rule another pitch states, write that pitch's new version. Never put "takes precedence" / "overrides" on a line that names another pitch — `supersedes` is the only relation that changes another pitch's meaning (the validator refuses it).
 
 | Scale | Example | Verdict |
 |---|---|---|

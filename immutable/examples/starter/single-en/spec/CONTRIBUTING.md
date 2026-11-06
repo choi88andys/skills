@@ -65,7 +65,8 @@ This starter carries the core workflow only. For full rules, see the spec-en sta
 - **Body language**: English
 - **Normative keywords**: `[MUST]`, `[MUST NOT]`, `[SHOULD]`, `[SHOULD NOT]`, `[MAY]` (RFC 2119)
 - **Forbidden in body**: code identifiers, file paths, class names, package names, API endpoints, design token values (domain language only)
-- **Pitch size**: Feature scale (single-flag toggleable + completable in 2–6 weeks)
+- **Pitch size**: one user-facing feature area (single-flag toggleable). Length is no reason to split — the one size limit is `max_bytes`
+- **New version**: copy the previous file, edit only the changed sections and list them in `changes` (`validate_docs.py --supersede-diff` checks it). Change another pitch's rule only through that pitch's new version
 
 ---
 

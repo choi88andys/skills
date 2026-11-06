@@ -70,6 +70,7 @@ done
 # unset `first` under set -u would kill the script instead of passing through.)
 first=""
 IFS= read -r first < "$fp" || true
+first="${first%$'\r'}"  # a CRLF file's first line is `---\r`; python reads it as `---`
 [ "$first" = "---" ] || exit 0
 
 # ------------------------------------------------- L2: real YAML parse + emission (python3)
@@ -149,12 +150,24 @@ if fm is None or fm.get("deprecated") is not True:
 # legal (one predecessor, N successors), so collect them all. A successor that is itself
 # deprecated is listed with its state: Reading it fires this gate again, which names ITS
 # successor — the chain walks itself.
+
+
+def names_superseded(value) -> list:
+    """validate_docs.supersede_targets, minus its shape report: a filename, or (a pitch fold,
+    v0.17+) a list of filenames. Comparing the raw value to a name missed every fold."""
+    if isinstance(value, str):
+        return [value.strip()]
+    if isinstance(value, list):
+        return [v.strip() for v in value if isinstance(v, str)]
+    return []
+
+
 successors = []
 for sib in sorted(path.parent.glob("*.md")):
     if sib.name == path.name or sib.name in ("README.md", "TEMPLATE.md"):
         continue
     sfm, _ = load_fm(sib)
-    if sfm is not None and sfm.get("supersedes") == path.name:
+    if sfm is not None and path.name in names_superseded(sfm.get("supersedes")):
         successors.append((sib, sfm.get("deprecated") is True))
 
 try:
