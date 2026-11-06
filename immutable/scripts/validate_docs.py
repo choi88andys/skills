@@ -30,7 +30,10 @@ Coverage (matches SCHEMA.md "Validation invariants"):
      Multiple active files MAY coexist in the same domain (each on its own
      supersede chain). Fan-out (one predecessor superseded by N successors,
      e.g., a refactor-split) is permitted as long as the shared predecessor
-     is deprecated.
+     is deprecated. Fan-in (v0.17+, pitches only — a fold): `supersedes` may
+     list several files of the pitch's own domain, each of which must be
+     deprecated. `changes` (v0.17+), when present, is a list of
+     `{section, kind: add|modify|remove}` on a pitch that supersedes something.
   8. pitch / ADR body-level check — **optional, enabled via `--strict-body`.**
      Every `profile.sections[i].required == true` entry (pitch) and
      `profile.adr.sections[i].required == true` entry (ADR) must appear as an
@@ -76,6 +79,16 @@ Coverage (matches SCHEMA.md "Validation invariants"):
      shape `requirement_contract.py`'s `ledger_entries` reads — the gate's
      own reader; always on once the repo opts into the contract.
 
+ 10. Cross-pitch references (v0.17+) — under `--strict-body` within the
+     `--strict-since` scope, for an ACTIVE pitch: no body line names another
+     pitch's path together with one of the profile's `precedence_keywords`
+     (only `supersedes` changes another pitch's meaning), and every cited
+     pitch path is a pitch whose supersede chain reaches an active one. The
+     pitch's own `supersedes` targets are exempt from both.
+ 11. Size (v0.17+) — under the same scope, an ACTIVE pitch file is at most the
+     profile's `max_bytes` (default 50000): Claude Code's Read returns a
+     partial page past about 55 KB of Korean pitch text.
+
 Not covered (deferred): cycle detection on supersede chains.
 
 Besides validating, `--list-active` prints the repo's active (non-deprecated)
@@ -83,6 +96,12 @@ docs — one `<absolute path>\\t<domain>` line per doc — and is the canonical
 resolver behind the flow skills' active-pitch pickers (`/immutable:design`,
 `/immutable:prd`, `/immutable:plan-review-ceo`). See the flag's help text for
 its fail-open contract.
+
+`--supersede-diff` (v0.17+) compares a successor pitch with its predecessor(s),
+`### ` sub-section by sub-section after whitespace normalization, and fails on
+any difference its `changes` frontmatter does not declare. It judges the paths
+given, or with `--base REV` every pitch added since REV — the CI and pre-push
+form. See `run_supersede_diff`.
 
 --- Profile awareness (v0.5 / S4) ---
 This validator is profile-aware. Resolution order per run:
@@ -165,6 +184,20 @@ TICKET_REQUIRED_KEYS = ("tracker", "id", "version")
 TICKET_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 DISAGREEMENT_FIELDS = ("original", "correction", "reason", "outcome")
 REPO_MODES = ("two-repo-spec", "two-repo-app", "single-repo")
+# What a successor pitch may do to one section of its predecessor (`changes[].kind`).
+CHANGE_KINDS = ("add", "modify", "remove")
+# Byte ceiling per pitch file when the profile sets none. Claude Code's Read stops
+# at 25,000 tokens a call and shows a partial page; Korean pitch text runs about
+# 0.45 tokens a byte, so the page ends near 55 KB (measured 2026-11-06 on merged
+# lounge-x-spec domains). 50,000 leaves headroom under it. A byte count, not a
+# line or story count: the read limit is a token limit.
+DEFAULT_MAX_BYTES = 50_000
+# Files under the pitches directory that are not pitches and are never cited as one.
+NON_PITCH_FILES = ("README.md", "TEMPLATE.md")
+# How many changed lines one undeclared change prints per side.
+DIFF_SAMPLE_LINES = 6
+# Internal key for the content before a pitch's first `## ` — its title unit.
+TITLE_KEY = "\x00title"
 
 
 def die(msg: str) -> None:
@@ -318,6 +351,74 @@ def load_profile(config: dict[str, Any], repo_root: Path) -> dict[str, Any]:
             )
 
     return {}
+
+
+def load_bundled_profile(config: dict[str, Any]) -> dict[str, Any]:
+    """The bundled `default-<team_language>.yml`, or {} when absent or broken.
+
+    The fallback for a field a team profile predates (v0.17+): the validator
+    reads ONE profile, so without it a team profile below the schema that
+    introduced a field would run the check with nothing — a gate that is off
+    because nobody migrated, indistinguishable from a clean run."""
+    team_lang = config.get("team_language", "en")
+    bundled = Path(__file__).resolve().parent.parent / "examples" / "_profiles" / f"default-{team_lang}.yml"
+    try:
+        with bundled.open("r", encoding="utf-8") as fh:
+            data = yaml.safe_load(fh) or {}
+    except (OSError, yaml.YAMLError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def profile_field(
+    profile: dict[str, Any], bundled: dict[str, Any], key: str
+) -> tuple[Any, bool]:
+    """`(value, from_bundled)` — the team profile's top-level `key`, else the
+    bundled default's. `from_bundled` lets the caller say so on stderr."""
+    if profile and key in profile:
+        return profile[key], False
+    return bundled.get(key), True
+
+
+def profile_max_bytes(
+    profile: dict[str, Any], bundled: dict[str, Any], problems: list[str]
+) -> tuple[int, bool]:
+    """The pitch byte ceiling (v0.17+): the profile's `max_bytes`, else the
+    bundled default's, else `DEFAULT_MAX_BYTES`. A value that is not a
+    positive integer is reported in `problems` and the default applies — a
+    typo never switches the ceiling off."""
+    value, from_bundled = profile_field(profile, bundled, "max_bytes")
+    if value is None:
+        return DEFAULT_MAX_BYTES, True
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        problems.append(
+            f"max_bytes must be a positive integer, got {value!r} — "
+            f"the default {DEFAULT_MAX_BYTES} applies until the profile is fixed"
+        )
+        return DEFAULT_MAX_BYTES, from_bundled
+    return value, from_bundled
+
+
+def profile_precedence_keywords(
+    profile: dict[str, Any], bundled: dict[str, Any], problems: list[str]
+) -> tuple[list[str], bool]:
+    """The phrases that mark a sentence as overriding another pitch (v0.17+),
+    matched as literal, case-insensitive substrings. The profile's list, else
+    the bundled default's. A malformed list is reported in `problems` and the
+    bundled list applies."""
+    value, from_bundled = profile_field(profile, bundled, "precedence_keywords")
+    if value is None:
+        return [], True
+    if not isinstance(value, list) or not all(isinstance(k, str) and k.strip() for k in value):
+        problems.append(
+            "precedence_keywords must be a list of non-empty strings — "
+            "the bundled list applies until the profile is fixed"
+        )
+        fallback = bundled.get("precedence_keywords")
+        if isinstance(fallback, list):
+            return [str(k).strip() for k in fallback if isinstance(k, str) and k.strip()], True
+        return [], True
+    return [k.strip() for k in value], from_bundled
 
 
 def profile_filename_pattern(profile: dict[str, Any]) -> re.Pattern[str]:
@@ -732,7 +833,89 @@ def check_frontmatter(
             violations,
             f"{path}: frontmatter type={fm['type']!r} conflicts with directory-inferred type={doc_type!r}",
         )
+    if "supersedes" in fm:
+        problem = supersedes_shape_problem(fm["supersedes"], doc_type)
+        if problem:
+            warn(violations, f"{path}: {problem}")
+    if "changes" in fm:
+        for problem in changes_shape_problems(fm, doc_type):
+            warn(violations, f"{path}: {problem}")
     return fm
+
+
+def supersedes_shape_problem(value: Any, doc_type: str) -> str | None:
+    """Why a `supersedes` value is malformed, or None.
+
+    A filename or null; for a pitch also a non-empty list of distinct
+    filenames (fan-in, v0.17+), which the chain check resolves one by one in
+    the pitch's own domain. An ADR supersedes one file. Before v0.17 a list
+    reached the chain check as a dict key and crashed it with a TypeError."""
+    if value is None or (isinstance(value, str) and value.strip()):
+        return None
+    if isinstance(value, list):
+        if doc_type != "pitch":
+            return f"`supersedes` lists {len(value)} files; an ADR supersedes one file (fan-in is pitch-only)"
+        if not value:
+            return "`supersedes: []` — write `null` when nothing is superseded"
+        if not all(isinstance(v, str) and v.strip() for v in value):
+            return "every `supersedes` entry must be a filename"
+        names = [v.strip() for v in value]
+        twice = sorted({n for n in names if names.count(n) > 1})
+        if twice:
+            return f"`supersedes` names {', '.join(twice)} more than once"
+        return None
+    kinds = "a filename, a list of filenames, or null" if doc_type == "pitch" else "a filename or null"
+    return f"`supersedes` must be {kinds}, got {value!r}"
+
+
+def supersede_targets(fm: dict[str, Any] | None, doc_type: str) -> list[str]:
+    """The filenames a doc supersedes — [] for null or for a malformed value
+    (which `check_frontmatter` reports), so no reader crashes on one."""
+    value = (fm or {}).get("supersedes")
+    if supersedes_shape_problem(value, doc_type) is not None or value is None:
+        return []
+    return [value.strip()] if isinstance(value, str) else [v.strip() for v in value]
+
+
+def changes_shape_problems(fm: dict[str, Any], doc_type: str) -> list[str]:
+    """Shape of `changes` (v0.17+): the successor's declared difference from
+    its predecessor(s) — a list of `{section, kind}`, `kind` one of
+    `CHANGE_KINDS`, each section once. `--supersede-diff` checks the body
+    against it; this is the static half, always on."""
+    changes = fm.get("changes")
+    if doc_type != "pitch":
+        return ["`changes` is a pitch field (the supersede diff runs on pitches only)"]
+    if not isinstance(changes, list):
+        return ["`changes` must be a list of {section, kind}"]
+    problems: list[str] = []
+    if not supersede_targets(fm, doc_type):
+        problems.append("`changes` declares a difference from a predecessor, but `supersedes` names none")
+    seen: set[str] = set()
+    for i, entry in enumerate(changes):
+        if not isinstance(entry, dict) or set(entry) - {"section", "kind"}:
+            problems.append(f"changes[{i}] must be a mapping with exactly `section` and `kind`")
+            continue
+        section = entry.get("section")
+        if not isinstance(section, str) or not section_key(section):
+            problems.append(f"changes[{i}].section must name a heading of the pitch")
+            continue
+        if entry.get("kind") not in CHANGE_KINDS:
+            problems.append(f"changes[{i}].kind must be one of {list(CHANGE_KINDS)}, got {entry.get('kind')!r}")
+        key = section_key(section)
+        if key in seen:
+            problems.append(f"changes names section {section!r} more than once")
+        seen.add(key)
+    return problems
+
+
+def norm_line(line: str) -> str:
+    """A line with every whitespace run collapsed — what the supersede diff compares."""
+    return " ".join(line.split())
+
+
+def section_key(heading: str) -> str:
+    """A heading as `changes[].section` names it: leading `#`s dropped, whitespace normalized."""
+    return norm_line(re.sub(r"^\s*#+\s*", "", heading))
 
 
 def check_domain(
@@ -1344,6 +1527,159 @@ def validate_body_headings(
             )
 
 
+def iter_body(text: str) -> list[tuple[int, str, bool]]:
+    """`(line number in the file, line, fenced)` for each body line.
+
+    The frontmatter is skipped; a fence delimiter and everything between two
+    of them is `fenced`, so a `## ` or a pitch path inside example code is
+    neither a heading nor a citation."""
+    m = FRONTMATTER_RE.match(text)
+    offset = text[: m.end()].count("\n") if m else 0
+    out: list[tuple[int, str, bool]] = []
+    fenced = False
+    for n, line in enumerate((text[m.end():] if m else text).splitlines(), start=offset + 1):
+        if line.lstrip().startswith(("```", "~~~")):
+            fenced = not fenced
+            out.append((n, line, True))
+            continue
+        out.append((n, line, fenced))
+    return out
+
+
+def pitch_path_re(config: dict[str, Any]) -> re.Pattern[str]:
+    """A pitch path as a body cites it: `<pitches dir>/<domain>/<file>.md`,
+    with or without a leading repo-relative prefix (`spec/pitches/…`)."""
+    dirname = Path(str(config.get("pitches_path") or "pitches/").rstrip("/")).name or "pitches"
+    return re.compile(
+        rf"(?<![\w-]){re.escape(dirname)}/([A-Za-z0-9_][A-Za-z0-9_-]*)/([A-Za-z0-9][A-Za-z0-9._-]*\.md)"
+    )
+
+
+def live_ends(
+    target: Path,
+    index: dict[Path, dict[str, Any] | None],
+    successors: dict[Path, list[Path]],
+) -> list[Path]:
+    """The active pitches `target`'s supersede chain leads to: `target` itself
+    when active, else the live ends of its successors, transitively (a split
+    forks the chain, a fold joins it). Empty when the chain ends in a
+    deprecated pitch that nothing supersedes — the rule it held is gone."""
+    ends: list[Path] = []
+    seen: set[Path] = set()
+    stack = [target]
+    while stack:
+        p = stack.pop()
+        if p in seen:
+            continue
+        seen.add(p)
+        fm = index.get(p)
+        if fm is None or fm.get("deprecated") is not True:
+            if p not in ends:
+                ends.append(p)
+            continue
+        stack.extend(successors.get(p, []))
+    return sorted(ends)
+
+
+def check_pitch_references(
+    path: Path,
+    fm: dict[str, Any],
+    pitches_root: Path,
+    path_re: re.Pattern[str],
+    index: dict[Path, dict[str, Any] | None],
+    successors: dict[Path, list[Path]],
+    keywords: list[str],
+    violations: list[str],
+    stale: list[tuple[Path, Path, list[Path]]],
+) -> None:
+    """No prose override and no dead citation in an active pitch (v0.17+).
+
+    The incident (lounge-x-spec, 2026-11-06): a sibling pitch outranked one
+    clause of a baseline with a sentence naming the baseline's file
+    (「그 조항에 한해 … 우선한다」). A later supersede of the baseline could not
+    see that sentence and copied the clause back, and two live pitches
+    demanded 4 and 3 payment-auth methods. A body line that names another
+    pitch's path must therefore not carry a `precedence_keywords` phrase:
+    `supersedes` is the only relation that changes another pitch's meaning,
+    so the rule moves into the pitch that owns it.
+
+    A cited path names a supersede CHAIN, not a version: "this is owned by X"
+    stays true when X gets a new version, and the deprecated-doc read guard
+    hands a reader the successor. So a citation fails only when the chain
+    reaches no active pitch (the cited rule is gone) or the path is no pitch
+    at all. A citation of an older version is collected in `stale` — the
+    caller reports the count, and the ones whose chain forks into several
+    active pitches by name. Failing every older-version citation instead
+    would make each supersede re-version every citer, transitively (measured
+    2026-11-06: 29 of 71 active lounge-x-spec pitches cite an older version,
+    almost all as ownership pointers).
+
+    The pitch's own `supersedes` targets are exempt: a successor naming the
+    version it replaces is the supersede itself, said in prose. Lines are
+    judged one by one, so a line naming any other pitch is enough.
+    """
+    text = path.read_text(encoding="utf-8")
+    me = path.resolve()
+    own = {(path.parent / t).resolve() for t in supersede_targets(fm, "pitch")}
+    folded_keywords = [(k, k.casefold()) for k in keywords]
+    issues: list[str] = []
+    for lineno, line, fenced in iter_body(text):
+        if fenced:
+            continue
+        cited: dict[Path, str] = {}
+        for m in path_re.finditer(line):
+            if m.group(2) in NON_PITCH_FILES:
+                continue
+            target = (pitches_root / m.group(1) / m.group(2)).resolve()
+            if target != me and target not in own:
+                cited.setdefault(target, m.group(0))
+        if not cited:
+            continue
+        folded = line.casefold()
+        hit = next((k for k, kf in folded_keywords if kf in folded), None)
+        if hit is not None:
+            issues.append(
+                f"line {lineno}: names `{next(iter(cited.values()))}` and says \"{hit}\" — a pitch "
+                f"changes another pitch's meaning only through `supersedes`. Move the rule into the "
+                f"pitch that owns it (a new version of that pitch), or fold the two into one"
+            )
+        for target, shown in cited.items():
+            if target not in index:
+                issues.append(f"line {lineno}: cites `{shown}`, which is not a pitch in this repo")
+                continue
+            target_fm = index[target]
+            if target_fm is None or target_fm.get("deprecated") is not True:
+                continue
+            reached = live_ends(target, index, successors)
+            ends = [e for e in reached if e != me]
+            if reached and not ends:
+                continue  # the chain leads back to this pitch — a mention of its own history
+            if not ends:
+                issues.append(
+                    f"line {lineno}: cites `{shown}`, which is deprecated, and its supersede chain "
+                    f"reaches no active pitch — the rule it pointed to is gone. Drop or replace the "
+                    f"citation in a new version of this pitch"
+                )
+                continue
+            stale.append((path, target, ends))
+    if issues:
+        bullet = "\n  - " + "\n  - ".join(issues)
+        warn(violations, f"{path}: cross-pitch reference violation:{bullet}")
+
+
+def check_pitch_size(path: Path, max_bytes: int, violations: list[str]) -> None:
+    """An active pitch stays under the byte ceiling a reader takes in one call (v0.17+)."""
+    size = path.stat().st_size
+    if size > max_bytes:
+        warn(
+            violations,
+            f"{path}: {size} bytes, over max_bytes {max_bytes} — past about 55 KB of Korean "
+            f"pitch text Claude Code's Read returns a partial page (25,000 tokens), and a "
+            f"reader can act on part of the pitch as if it were the whole. Split it along its "
+            f"user-facing feature areas (/immutable:prd refactor-split)",
+        )
+
+
 def check_supersede_chain_integrity(
     doc_type: str,
     docs: list[tuple[Path, dict[str, Any]]],
@@ -1359,7 +1695,9 @@ def check_supersede_chain_integrity(
     No global per-(domain, type) cap. Multiple active files may coexist in the
     same domain — each on its own supersede chain. Fan-out (one predecessor
     superseded by N successors, e.g., a refactor-split) is permitted as long
-    as the shared predecessor is deprecated.
+    as the shared predecessor is deprecated. Fan-in (v0.17+, pitches only —
+    a fold of N pitches into one) lists several targets; each edge is judged
+    on its own, so every listed target must resolve and be deprecated.
 
     The lookup key differs by doc type because the two layouts differ:
 
@@ -1386,28 +1724,26 @@ def check_supersede_chain_integrity(
         by_key[lookup_key(fm, path.name)] = fm
 
     for path, fm in docs:
-        target = fm.get("supersedes")
-        if target is None:
-            continue
-        key = lookup_key(fm, target)
-        if key not in by_key:
-            scope = f"{doc_type} set"
-            if doc_type == "pitch":
-                scope += f" under domain `{fm.get('domain') or '_global'}`"
-            warn(
-                violations,
-                f"{path}: supersedes `{target}` but target file not found in "
-                f"{scope}",
-            )
-            continue
-        target_fm = by_key[key]
-        if target_fm.get("deprecated") is not True:
-            warn(
-                violations,
-                f"{path}: supersedes `{target}` but target is still active "
-                f"(deprecated: false). Predecessor must be deprecated when a "
-                f"successor exists.",
-            )
+        for target in supersede_targets(fm, doc_type):
+            key = lookup_key(fm, target)
+            if key not in by_key:
+                scope = f"{doc_type} set"
+                if doc_type == "pitch":
+                    scope += f" under domain `{fm.get('domain') or '_global'}`"
+                warn(
+                    violations,
+                    f"{path}: supersedes `{target}` but target file not found in "
+                    f"{scope}",
+                )
+                continue
+            target_fm = by_key[key]
+            if target_fm.get("deprecated") is not True:
+                warn(
+                    violations,
+                    f"{path}: supersedes `{target}` but target is still active "
+                    f"(deprecated: false). Predecessor must be deprecated when a "
+                    f"successor exists.",
+                )
 
 
 def list_active_docs(
@@ -1480,6 +1816,256 @@ def list_active_docs(
     return 0
 
 
+def diff_units(text: str) -> tuple[str, dict[str, list[str]]]:
+    """`(title, units)` — a pitch body cut into the pieces `changes` names.
+
+    A unit is the text under one `## ` up to its first `### ` (keyed by the
+    `## ` heading), or under one `### ` (keyed by its heading); deeper
+    headings are content. The `# ` title and anything before the first `## `
+    form the title unit, keyed `TITLE_KEY`, so a retitled successor still
+    pairs with its predecessor. Lines are whitespace-normalized, blank lines
+    dropped, order kept, duplicates once."""
+    title = ""
+    units: dict[str, list[str]] = {TITLE_KEY: []}
+    key = TITLE_KEY
+    for _, line, fenced in iter_body(text):
+        m = None if fenced else HEADING_RE.match(line)
+        if m and len(m.group(1)) == 1 and key == TITLE_KEY and not title:
+            title = norm_line(m.group(2))
+            continue
+        if m and len(m.group(1)) in (2, 3):
+            key = section_key(m.group(2))
+            units.setdefault(key, [])
+            continue
+        n = norm_line(line)
+        if n and n not in units[key]:
+            units[key].append(n)
+    return title, units
+
+
+def added_pitches_since(repo_root: Path, base: str, pitches_root: Path) -> list[Path]:
+    """Pitches added between `base` and HEAD — the successors a PR or a push introduces."""
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(repo_root), "diff", "--no-renames", "--diff-filter=A",
+             "--name-only", base, "HEAD", "--", str(pitches_root)],
+            capture_output=True, text=True, timeout=30, check=True,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        detail = getattr(exc, "stderr", "") or str(exc)
+        sys.stderr.write(f"error: cannot diff against --base {base}: {detail.strip()}\n")
+        sys.exit(2)
+    top = subprocess.run(
+        ["git", "-C", str(repo_root), "rev-parse", "--show-toplevel"],
+        capture_output=True, text=True, timeout=10, check=False,
+    ).stdout.strip()
+    root = Path(top) if top else repo_root
+    return [
+        (root / line).resolve()
+        for line in proc.stdout.splitlines()
+        if line.endswith(".md") and Path(line).name not in NON_PITCH_FILES
+    ]
+
+
+def supersede_diff_group(
+    successors: list[Path],
+    docs: dict[Path, tuple[dict[str, Any] | None, str]],
+    tokens: list[str],
+    repo_root: Path,
+) -> tuple[dict[str, Any], list[str]]:
+    """Diff one supersede group — successors judged together (a refactor-split's
+    N files) against the union of their predecessors (a fold's N files).
+
+    A unit present on both sides with different lines is a `modify`, one
+    only in the successors an `add`, one only in the predecessors a
+    `remove`. Each must be declared in some successor's `changes` with that
+    kind; a declaration that matches no change is stale and also fails, so
+    `changes` is a true account of the diff in both directions. Lines are
+    compared as sets — a split may repeat a cross-cutting line in every file,
+    and a fold merges two edge-case tables in any order."""
+    def rel(p: Path) -> str:
+        return str(p.relative_to(repo_root)) if p.is_relative_to(repo_root) else str(p)
+
+    normative = _bracketed_normative_re(tokens)
+    violations: list[str] = []
+    preds: list[Path] = []
+    for s in successors:
+        for t in supersede_targets(docs[s][0], "pitch"):
+            p = (s.parent / t).resolve()
+            if p not in preds:
+                preds.append(p)
+    label = " + ".join(rel(s) for s in successors)
+    missing = [p for p in preds if p not in docs]
+    if missing:
+        violations.append(
+            f"{label}: cannot diff — predecessor not found: {', '.join(rel(p) for p in missing)}"
+        )
+        return {"successors": [rel(s) for s in successors], "predecessors": [rel(p) for p in preds], "changes": []}, violations
+
+    def union(paths: list[Path]) -> tuple[list[str], dict[str, list[str]]]:
+        titles: list[str] = []
+        merged: dict[str, list[str]] = {}
+        for p in paths:
+            title, units = diff_units(docs[p][1])
+            titles.append(title)
+            for k, lines in units.items():
+                bucket = merged.setdefault(k, [])
+                bucket.extend(x for x in lines if x not in bucket)
+        return titles, merged
+
+    succ_titles, after = union(successors)
+    _, before = union(preds)
+
+    # A declaration names a `## ` / `### ` heading; it names the title unit only
+    # when written `# <title>` or when no heading carries that text, so a story
+    # titled like the pitch is still that story.
+    declared: dict[str, str] = {}
+    for s in successors:
+        changes = (docs[s][0] or {}).get("changes")
+        if not isinstance(changes, list):
+            continue
+        for entry in changes:
+            if isinstance(entry, dict) and isinstance(entry.get("section"), str) and section_key(entry["section"]):
+                raw = entry["section"].strip()
+                key = section_key(raw)
+                is_title = re.match(r"^#(?!#)\s", raw) is not None or (
+                    key in succ_titles and key not in after and key not in before
+                )
+                declared[TITLE_KEY if is_title else key] = str(entry.get("kind"))
+
+    def shown(key: str) -> str:
+        return f"# {succ_titles[0]}" if key == TITLE_KEY else key
+
+    rows: list[dict[str, Any]] = []
+    for key in list(dict.fromkeys([*after, *before])):
+        a, b = after.get(key), before.get(key)
+        if a is not None and b is not None and set(a) == set(b):
+            continue
+        if key == TITLE_KEY and not (a or b):
+            continue  # a retitle alone is not a change in content
+        kind = "add" if b is None else "remove" if a is None else "modify"
+        removed = [x for x in (b or []) if x not in set(a or [])]
+        added = [x for x in (a or []) if x not in set(b or [])]
+        rows.append({"section": shown(key), "kind": kind, "declared": declared.get(key),
+                     "removed": removed, "added": added})
+        want = declared.get(key)
+        if want == kind:
+            continue
+        head = (
+            f"{label}: «{shown(key)}» — {kind} not declared in `changes`"
+            if want is None
+            else f"{label}: «{shown(key)}» is declared `{want}` but the change is `{kind}`"
+        )
+        sample: list[str] = []
+        for sign, lines in (("-", removed), ("+", added)):
+            ordered = [x for x in lines if normative.search(x)] + [x for x in lines if not normative.search(x)]
+            for x in ordered[:DIFF_SAMPLE_LINES]:
+                sample.append(f"{sign} {x if len(x) <= 160 else x[:157] + '...'}")
+            if len(ordered) > DIFF_SAMPLE_LINES:
+                sample.append(f"{sign} (+{len(ordered) - DIFF_SAMPLE_LINES} more line(s))")
+        violations.append(head + ("\n  " + "\n  ".join(sample) if sample else ""))
+    changed = {r["section"] for r in rows}
+    for key, kind in declared.items():
+        if shown(key) in changed:
+            continue
+        where = "nothing in it changed" if key in after or key in before else "the pitch has no such section"
+        violations.append(f"{label}: «{shown(key)}» is declared `{kind}` in `changes`, but {where}")
+    report = {
+        "successors": [rel(s) for s in successors],
+        "predecessors": [rel(p) for p in preds],
+        "changes": rows,
+    }
+    return report, violations
+
+
+def run_supersede_diff(
+    paths: list[Path],
+    base: str | None,
+    pitches_root: Path | None,
+    repo_root: Path,
+    tokens: list[str],
+    as_json: bool,
+) -> int:
+    """`--supersede-diff`: does each judged successor differ from its
+    predecessor(s) only where its `changes` says it does? (v0.17+)
+
+    Why it exists: supersedes that claimed to inherit text unchanged drifted
+    when the body was re-authored — measured 2026-11-06 in lounge-x-spec, one
+    kept 5 of 15 inherited normative lines identical and added a duty, another
+    resurrected three items its parent had removed — while single-purpose
+    supersede PRs stayed byte-identical outside their change. The authoring
+    skill now copies the predecessor and edits declared hunks; this proves it.
+
+    Judged: the given paths, plus with `base` every pitch added in base..HEAD.
+    A judged pitch that supersedes nothing is skipped with a note. Successors
+    sharing a predecessor are judged as one group, so pass every file of a
+    split together (`--base` does). Exit 0 clean, 1 on any violation, 2 when
+    it cannot run (no pitch directory, a path outside it, git failing)."""
+    if pitches_root is None:
+        sys.stderr.write("error: --supersede-diff needs a repo that hosts pitches (spec or single-repo mode)\n")
+        return 2
+    root = pitches_root.resolve()
+    repo_root = repo_root.resolve()
+    judged: list[Path] = []
+    for p in paths:
+        q = p.resolve()
+        if not q.is_file() or not q.is_relative_to(root):
+            sys.stderr.write(f"error: --supersede-diff {p}: not a pitch file under {root}\n")
+            return 2
+        judged.append(q)
+    if base is not None:
+        judged.extend(added_pitches_since(repo_root, base, root))
+    judged = list(dict.fromkeys(judged))
+
+    docs: dict[Path, tuple[dict[str, Any] | None, str]] = {}
+    for p in iter_docs(root, "pitch"):
+        text = p.read_text(encoding="utf-8")
+        docs[p.resolve()] = (load_frontmatter(p), text)
+
+    successors = [p for p in judged if p in docs and supersede_targets(docs[p][0], "pitch")]
+    for p in judged:
+        if p not in successors:
+            sys.stderr.write(f"note: {p}: supersedes nothing — no predecessor to diff against.\n")
+
+    # Group successors that share a predecessor (a split's files are judged together).
+    groups: list[list[Path]] = []
+    for s in successors:
+        mine = {(s.parent / t).resolve() for t in supersede_targets(docs[s][0], "pitch")}
+        for g in groups:
+            theirs = {(x.parent / t).resolve() for x in g for t in supersede_targets(docs[x][0], "pitch")}
+            if mine & theirs:
+                g.append(s)
+                break
+        else:
+            groups.append([s])
+
+    reports: list[dict[str, Any]] = []
+    violations: list[str] = []
+    for g in groups:
+        report, found = supersede_diff_group(g, docs, tokens, repo_root)
+        reports.append(report)
+        violations.extend(found)
+
+    if as_json:
+        print(json.dumps({"groups": reports, "violations": violations, "clean": not violations}, ensure_ascii=False))
+    else:
+        for report in reports:
+            print(f"{' + '.join(report['successors'])}  <-  {' + '.join(report['predecessors'])}")
+            if not report["changes"]:
+                print("  (no difference outside the frontmatter)")
+            for row in report["changes"]:
+                mark = "declared" if row["declared"] == row["kind"] else "UNDECLARED"
+                print(f"  {row['kind']:<7} {mark:<10} {row['section']}")
+        sys.stdout.flush()  # the summary reads first; the violations below explain it
+        if violations:
+            for v in violations:
+                sys.stderr.write(v + "\n")
+            sys.stderr.write(f"\n{len(violations)} violation(s) found.\n")
+        else:
+            print(f"supersede diff: {len(successors)} successor(s), every change declared.")
+    return 1 if violations else 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
@@ -1541,7 +2127,34 @@ def main() -> int:
             "frontmatter) are still listed — see --list-active."
         ),
     )
+    parser.add_argument(
+        "--supersede-diff",
+        nargs="*",
+        type=Path,
+        metavar="PITCH",
+        help=(
+            "Instead of validating, diff each given successor pitch against its "
+            "`supersedes` target(s), `### ` sub-section by sub-section after "
+            "whitespace normalization, and fail on any difference its `changes` "
+            "frontmatter does not declare (or a declaration nothing matches). "
+            "Pass every file of a split together. With --base, also judge every "
+            "pitch added since that commit. Exit 0 clean, 1 on a violation, 2 "
+            "when it cannot run."
+        ),
+    )
+    parser.add_argument(
+        "--base",
+        metavar="REV",
+        help=(
+            "With --supersede-diff, judge every pitch added in REV..HEAD — the "
+            "PR base or the pre-push tip."
+        ),
+    )
     args = parser.parse_args()
+    if args.base is not None and args.supersede_diff is None:
+        parser.error("--base needs --supersede-diff")
+    if args.supersede_diff is not None and not args.supersede_diff and args.base is None:
+        parser.error("--supersede-diff needs PITCH paths, --base REV, or both")
 
     config_path = args.config or find_config()
     if config_path is None:
@@ -1632,6 +2245,26 @@ def main() -> int:
         types = DOC_TYPES if args.type == "all" else (args.type,)
         return list_active_docs(dirs, types, args.domain, args.json)
 
+    if args.supersede_diff is not None:
+        return run_supersede_diff(
+            args.supersede_diff, args.base, dirs.get("pitch"), repo_root, normative_tokens, args.json
+        )
+
+    # v0.17+: the size ceiling and the cross-pitch reference rules. A team
+    # profile that predates them reads the bundled default's values, and says so.
+    bundled_profile = load_bundled_profile(config)
+    profile_problems: list[str] = []
+    max_bytes, max_bytes_bundled = profile_max_bytes(profile, bundled_profile, profile_problems)
+    precedence_keywords, keywords_bundled = profile_precedence_keywords(
+        profile, bundled_profile, profile_problems
+    )
+    if args.strict_body and (max_bytes_bundled or keywords_bundled) and config.get("profile"):
+        fields = [n for n, b in (("max_bytes", max_bytes_bundled), ("precedence_keywords", keywords_bundled)) if b]
+        sys.stderr.write(
+            f"note: the active profile has no {' / '.join(fields)} (profile_schema 8) — using the "
+            f"bundled default-{config.get('team_language', 'en')} value. Run /immutable:migrate.\n"
+        )
+
     pitches_ref_root, pitches_ref_error = resolve_pitches_for_reference(config, repo_root)
 
     # Allowlist comes from local pitches README when available,
@@ -1640,6 +2273,7 @@ def main() -> int:
 
     violations: list[str] = []
     strict_exempt_count = 0
+    stale_citations: list[tuple[Path, Path, list[Path]]] = []
 
     # An unresolvable spec repo is ONE configuration violation, reported once —
     # not one bogus "file not found" per ADR against a directory that isn't there.
@@ -1651,6 +2285,17 @@ def main() -> int:
         doc_root = dirs.get(doc_type)
         if doc_root is None:
             continue
+        # Every pitch's frontmatter by resolved path, and who supersedes whom —
+        # the cross-pitch reference rules resolve a cited path against them.
+        pitch_index: dict[Path, dict[str, Any] | None] = {}
+        pitch_successors: dict[Path, list[Path]] = {}
+        if doc_type == "pitch" and args.strict_body:
+            for p in iter_docs(doc_root, doc_type):
+                pfm = load_frontmatter(p)
+                pitch_index[p.resolve()] = pfm
+                for t in supersede_targets(pfm, doc_type):
+                    pitch_successors.setdefault((p.parent / t).resolve(), []).append(p.resolve())
+        path_re = pitch_path_re(config)
         collected: list[tuple[Path, dict[str, Any]]] = []
         for md_path in iter_docs(doc_root, doc_type):
             check_filename(md_path, filename_pattern, violations)
@@ -1694,6 +2339,15 @@ def main() -> int:
                                 normative_tokens,
                                 violations,
                             )
+                        # v0.17+: frozen like invariant 9 — a deprecated pitch has
+                        # no remedy, and nobody implements from it.
+                        if doc_type == "pitch" and not doc_frozen:
+                            check_pitch_size(md_path, max_bytes, violations)
+                            check_pitch_references(
+                                md_path, fm_checked, doc_root, path_re, pitch_index,
+                                pitch_successors, precedence_keywords, violations,
+                                stale_citations,
+                            )
                         if doc_type == "pitch" and contract_required and not doc_frozen:
                             if strict_body_in_scope(md_path, since_contract):
                                 check_ticket_presence(md_path, fm_checked, violations)
@@ -1714,6 +2368,10 @@ def main() -> int:
                         strict_exempt_count += 1
                 collected.append((md_path, fm_checked))
         check_supersede_chain_integrity(doc_type, collected, violations)
+
+    if args.strict_body:
+        for problem in profile_problems:
+            warn(violations, f"active profile: {problem}")
 
     for problem in (contract_wording or {}).get("problems", []):
         warn(
@@ -1746,6 +2404,17 @@ def main() -> int:
         sys.stderr.write(
             "warning: --strict-since has no effect without --strict-body.\n"
         )
+    if stale_citations:
+        forked = [(c, t, e) for c, t, e in stale_citations if len(e) > 1]
+        sys.stderr.write(
+            f"note: {len(stale_citations)} citation(s) name an older version of a pitch; each "
+            f"resolves along its supersede chain (the read guard names the successor). "
+            f"{len(forked)} of them fork into several active pitches, so the reader picks the owner:\n"
+        )
+        for citer, target, ends in forked:
+            sys.stderr.write(
+                f"  {citer} -> {target.parent.name}/{target.name} -> {', '.join(e.name for e in ends)}\n"
+            )
     if contract_frozen_count:
         sys.stderr.write(
             f"note: {contract_frozen_count} deprecated doc(s) frozen: the requirement-contract "

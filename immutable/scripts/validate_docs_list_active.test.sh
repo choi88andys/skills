@@ -191,9 +191,26 @@ else
   fail "C10 no-effect warning" "stderr: $LIST_ERR"
 fi
 
+# C11 — a fold (v0.17+): `supersedes` lists two predecessors. The lister judges
+# only `deprecated`, so the folded pair drops out and the fold lists — with no
+# crash on the list value the chain check used to choke on.
+FOLD="$RIG/fold"
+mkdir -p "$FOLD/.immutable-prd" "$FOLD/pitches/checkout"
+cp "$CFG" "$FOLD/.immutable-prd/config.yml"
+mkdoc "$FOLD/pitches/checkout/2026-01-01-a.md" '---' 'domain: checkout' 'supersedes: null' 'deprecated: true' '---' '' 'A.'
+mkdoc "$FOLD/pitches/checkout/2026-01-01-b.md" '---' 'domain: checkout' 'supersedes: null' 'deprecated: true' '---' '' 'B.'
+mkdoc "$FOLD/pitches/checkout/2026-01-02-ab.md" '---' 'domain: checkout' 'supersedes: [2026-01-01-a.md, 2026-01-01-b.md]' \
+  'deprecated: false' '---' '' 'A and B.'
+LIST_OUT=$(python3 "$VALIDATOR" --config "$FOLD/.immutable-prd/config.yml" --list-active --type pitch 2>&1) && LIST_RC=0 || LIST_RC=$?
+if [ "$LIST_RC" -eq 0 ] && [ "$LIST_OUT" = "$(printf '%s\t%s' "$FOLD/pitches/checkout/2026-01-02-ab.md" checkout)" ]; then
+  pass "C11 a fold lists; its folded predecessors do not"
+else
+  fail "C11 fold listing" "rc=$LIST_RC out: $LIST_OUT"
+fi
+
 echo
 if [ "$FAILURES" -eq 0 ]; then
-  echo "all 10 cases passed."
+  echo "all 11 cases passed."
   exit 0
 fi
 echo "$FAILURES case(s) failed."
