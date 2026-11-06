@@ -22,6 +22,15 @@
 # nothing is skipped with a note (D8); the static shape of `changes` is checked by
 # plain validation (D9).
 #
+# Review catches before v0.17.0 shipped, each reproduced on a fixture first:
+# grouping depended on argument order (D10); `--base` silently skipped a pitch
+# under a non-ASCII directory, which git prints quoted (D11); two `### Limits`
+# under different `## ` headings merged into one unit, so swapping their values
+# read as no change (D12); a successor with malformed frontmatter was skipped as
+# "supersedes nothing" and the run passed (D13). Also pinned: `--base` reads a
+# predecessor as it was at the base, so editing it in the same change cannot make
+# the diff agree (D14), and a missing pitch directory exits 2 (D15).
+#
 # Usage:  bash immutable/scripts/validate_docs_supersede_diff.test.sh
 # Exit:   0 all cases passed · 1 a case failed · 2 the test could not run.
 # Needs:  python3 + PyYAML, git (D7 only).
@@ -245,6 +254,92 @@ if [ "$RC" -eq 1 ] && grep -qF '2026-01-01-orphan.md: `changes` declares a diffe
   pass "D9 plain validation checks the shape of \`changes\`"
 else
   fail "D9 changes shape" "rc=$RC
+$OUT"
+fi
+
+# D10: a successor bridging two groups merges them — whatever the argument order.
+O="$RIG/order"; mkrepo "$O"; OA="$O/pitches/alpha"
+story() { printf '%s\n' "# $1" '' '## User Stories' '' "### $2" '' "- **[MUST]** $2 works."; }
+{ fm null true; story A Sa; } >"$OA/2026-01-01-a.md"
+{ fm null true; story B Sb; } >"$OA/2026-01-01-b.md"
+{ fm 2026-01-01-a.md false; story A Sa; } >"$OA/2026-02-01-s1.md"
+{ fm 2026-01-01-b.md false; story B Sb; } >"$OA/2026-02-01-s2.md"
+{ fm '[2026-01-01-a.md, 2026-01-01-b.md]' false; story AB Sa; printf '%s\n' '' '### Sb' '' '- **[MUST]** Sb works.'; } >"$OA/2026-02-01-s3.md"
+diffrun "$O" "$OA/2026-02-01-s1.md" "$OA/2026-02-01-s2.md" "$OA/2026-02-01-s3.md"; RC1="$RC"; OUT1="$OUT"
+diffrun "$O" "$OA/2026-02-01-s3.md" "$OA/2026-02-01-s2.md" "$OA/2026-02-01-s1.md"
+if [ "$RC1" -eq 0 ] && [ "$RC" -eq 0 ] && [ "$(grep -c '  <-  ' <<<"$OUT1")" = "1" ] && [ "$(grep -c '  <-  ' <<<"$OUT")" = "1" ]; then
+  pass "D10 a bridging successor merges groups in any argument order"
+else
+  fail "D10 grouping order" "rc=$RC1/$RC
+$OUT1
+$OUT"
+fi
+
+# D11: --base finds a pitch whose path holds a non-ASCII directory.
+K="$RIG/g"; mkdir -p "$K"; git -C "$K" init -q; mkrepo "$K/스펙"; KA="$K/스펙/pitches/alpha"
+{ fm null false; base_body; } >"$KA/2026-01-01-lock.md"
+git -C "$K" -c user.name=t -c user.email=t@t add -A; git -C "$K" -c user.name=t -c user.email=t@t commit -qm base
+KB="$(git -C "$K" rev-parse HEAD)"
+sed -i.bak 's/^deprecated: false$/deprecated: true/' "$KA/2026-01-01-lock.md"; rm "$KA/2026-01-01-lock.md.bak"
+{ fm 2026-01-01-lock.md false; base_body | sed 's/supports 4/supports 3/'; } >"$KA/2026-02-01-lock.md"
+git -C "$K" -c user.name=t -c user.email=t@t add -A; git -C "$K" -c user.name=t -c user.email=t@t commit -qm next
+diffrun "$K/스펙" --base "$KB"
+if [ "$RC" -eq 1 ] && grep -qF '«Payment lock» — modify not declared' <<<"$OUT"; then
+  pass "D11 --base judges a pitch under a non-ASCII directory"
+else
+  fail "D11 non-ASCII path" "rc=$RC
+$OUT"
+fi
+
+# D12: same-named sub-sections under different `## ` stay distinct units.
+H="$RIG/dup"; mkrepo "$H"; HA="$H/pitches/alpha"
+limits() { printf '%s\n' '# Limits' '' '## Admin' '' '### Limits' '' "- **[MUST]** The cap is $1." '' '## Customer' '' '### Limits' '' "- **[MUST]** The cap is $2."; }
+{ fm null true; limits 100 10; } >"$HA/2026-01-01-limits.md"
+{ fm 2026-01-01-limits.md false; limits 10 100; } >"$HA/2026-02-01-limits.md"
+{ fm 2026-01-01-limits.md false 'changes:' '  - section: Limits' '    kind: modify'; limits 10 100; } >"$HA/2026-02-02-limits.md"
+diffrun "$H" "$HA/2026-02-01-limits.md"
+diffrun "$H" "$HA/2026-02-02-limits.md"; RC2="$RC"; OUT2="$OUT"
+diffrun "$H" "$HA/2026-02-01-limits.md"
+if [ "$RC" -eq 1 ] && grep -qF '«Admin / Limits» — modify not declared' <<<"$OUT" \
+  && grep -qF '«Customer / Limits» — modify not declared' <<<"$OUT" \
+  && [ "$RC2" -eq 1 ] && grep -qF 'it names more than one section — write `Admin / Limits` or `Customer / Limits`' <<<"$OUT2"; then
+  pass "D12 same-named sub-sections stay apart; an ambiguous declaration says how to name one"
+else
+  fail "D12 duplicate headings" "rc=$RC/$RC2
+$OUT
+$OUT2"
+fi
+
+# D13: malformed successor frontmatter is a violation in this mode, never a skip.
+{ fm '[2026-01-01-lock.md, 2026-01-01-lock.md]' false; base_body | sed 's/supports 4/supports 5/'; } >"$UA/2026-03-01-twice.md"
+{ printf '%s\n' '---' 'domain: alpha' 'supersedes: [unclosed' '---' ''; base_body; } >"$UA/2026-03-02-broken.md"
+diffrun "$U" "$UA/2026-03-01-twice.md" "$UA/2026-03-02-broken.md"
+if [ "$RC" -eq 1 ] && grep -qF '2026-03-01-twice.md: `supersedes` names 2026-01-01-lock.md more than once' <<<"$OUT" \
+  && grep -qF '2026-03-02-broken.md: frontmatter missing or malformed' <<<"$OUT"; then
+  pass "D13 a malformed successor fails the diff run"
+else
+  fail "D13 malformed successor" "rc=$RC
+$OUT"
+fi
+
+# D14: --base reads the predecessor at the base — editing it to match does not help.
+sed -i.bak 's/supports 4/supports 3/' "$KA/2026-01-01-lock.md"; rm "$KA/2026-01-01-lock.md.bak"
+git -C "$K" -c user.name=t -c user.email=t@t commit -qam "edit the predecessor too"
+diffrun "$K/스펙" --base "$KB"
+if [ "$RC" -eq 1 ] && grep -qF "2026-01-01-lock.md@$KB" <<<"$OUT" && grep -qF '«Payment lock» — modify not declared' <<<"$OUT"; then
+  pass "D14 --base diffs against the predecessor as it was at the base"
+else
+  fail "D14 predecessor at base" "rc=$RC
+$OUT"
+fi
+
+# D15: a config whose pitch directory does not exist cannot run.
+M="$RIG/nodir"; mkrepo "$M"; sed -i.bak 's#^pitches_path: pitches/$#pitches_path: pitchez/#' "$M/.immutable-prd/config.yml"; rm "$M/.immutable-prd/config.yml.bak"
+OUT=$(python3 "$VALIDATOR" --config "$M/.immutable-prd/config.yml" --supersede-diff --base HEAD 2>&1) && RC=0 || RC=$?
+if [ "$RC" -eq 2 ] && grep -qF 'needs the repo' <<<"$OUT"; then
+  pass "D15 a missing pitch directory exits 2"
+else
+  fail "D15 missing pitch dir" "rc=$RC
 $OUT"
 fi
 

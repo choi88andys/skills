@@ -88,6 +88,7 @@ mkpitch "$A/2026-01-01-split.md"       null true  'Split in two.'
 mkpitch "$A/2026-02-03-split-one.md"   2026-01-01-split.md false 'Half one.'
 mkpitch "$A/2026-02-03-split-two.md"   2026-01-01-split.md false 'Half two.'
 mkpitch "$A/2026-01-01-prev.md"        null true  'The version the successor replaces.'
+mkpitch "$A/2026-02-04-price-overrides.md" null false 'A pitch whose slug holds a keyword.'
 # A chain whose successor is itself deprecated with nothing after it: dead, two hops out.
 mkpitch "$A/2026-01-01-hop.md"         null true  'First version.'
 mkpitch "$A/2026-01-15-hop.md"         2026-01-01-hop.md true 'Second version, later retired.'
@@ -104,6 +105,8 @@ mkpitch "$A/2026-03-03-successor.md"   2026-01-01-prev.md false \
   'The new token overrides the old one.' \
   'The base rule is owned by `pitches/alpha/2026-02-01-base.md`.' \
   '```' 'pitches/alpha/2026-02-01-base.md takes precedence (example only)' '```'
+# R4: a keyword inside a cited slug is a name, not an override (review catch).
+mkpitch "$B/2026-03-08-cites-slug.md" null false 'Price rules are owned by `pitches/alpha/2026-02-04-price-overrides.md`.'
 # R5 / R6 / R7 / R8: citation targets.
 mkpitch "$B/2026-03-04-cites-old.md"   null false 'Owned by `pitches/alpha/2026-01-01-old.md`.'
 mkpitch "$B/2026-03-05-cites-split.md" null false 'Owned by `pitches/alpha/2026-01-01-split.md`.'
@@ -130,6 +133,11 @@ if ! grep -qF '2026-03-03-successor.md' <<<"$OUT"; then
   pass "R3 own supersedes target, keyword without a path, path without a keyword, fenced: clean"
 else
   fail "R3 exemptions" "$OUT"
+fi
+if ! grep -qF '2026-03-08-cites-slug.md' <<<"$OUT"; then
+  pass "R4 a keyword inside a cited pitch's slug is not an override"
+else
+  fail "R4 keyword in slug" "$OUT"
 fi
 if ! grep -qF '2026-03-04-cites-old.md: cross' <<<"$OUT" \
   && grep -qF 'note: 2 citation(s) name an older version of a pitch' <<<"$OUT"; then

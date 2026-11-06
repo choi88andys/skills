@@ -70,6 +70,7 @@ done
 # unset `first` under set -u would kill the script instead of passing through.)
 first=""
 IFS= read -r first < "$fp" || true
+first="${first%$'\r'}"  # a CRLF file's first line is `---\r`; python reads it as `---`
 [ "$first" = "---" ] || exit 0
 
 # ------------------------------------------------- L2: real YAML parse + emission (python3)

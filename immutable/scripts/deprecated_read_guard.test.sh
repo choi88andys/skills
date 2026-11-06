@@ -100,6 +100,7 @@ mkdoc "$SPEC/adr/2026-01-01-old-decision.md"   '---' 'type: adr' 'domain: order'
 mkdoc "$SPEC/adr/2026-01-02-moved-decision.md" '---' 'type: adr' 'domain: billing' \
                       'supersedes: 2026-01-01-old-decision.md' 'deprecated: false' '---' '' \
                       'The same decision, now filed under billing.'
+printf -- '---\r\ndomain: order\r\nsupersedes: null\r\ndeprecated: true\r\n---\r\n\r\nCANARY-CRLF body.\r\n' > "$D/crlf.md"
 mkdoc "$D/notes.txt"  '---' 'deprecated: true' '---' '' 'Not markdown, must pass.'
 mkdoc "$ROOT/outside/dead.md" '---' 'deprecated: true' '---' '' 'CANARY-OUTSIDE no .immutable-prd ancestor.'
 
@@ -153,6 +154,7 @@ echo "===== YAML directions a line grep gets wrong ====="
 expect_withheld Y1-capital-True "$D/cap.md" 'CANARY-CAP'
 expect_withheld Y2-double-space "$D/spaced.md" 'CANARY-SPACED'
 expect_pass     Y3-fenced-body-line "$D/fenced.md"
+expect_withheld Y4-crlf-line-endings "$D/crlf.md" 'CANARY-CRLF'
 
 echo "===== supersede topology ====="
 expect_withheld S1-no-successor "$D/solo.md" 'CANARY-SOLO'

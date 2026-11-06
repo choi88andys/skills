@@ -1635,7 +1635,10 @@ def check_pitch_references(
                 cited.setdefault(target, m.group(0))
         if not cited:
             continue
-        folded = line.casefold()
+        # Keywords are sought in the line WITHOUT its pitch paths: a cited slug
+        # like `…-price-overrides.md` is a name, not an override, and the
+        # citer could never fix it — filenames are immutable.
+        folded = path_re.sub(" ", line).casefold()
         hit = next((k for k, kf in folded_keywords if kf in folded), None)
         if hit is not None:
             issues.append(
@@ -1816,25 +1819,33 @@ def list_active_docs(
     return 0
 
 
-def diff_units(text: str) -> tuple[str, dict[str, list[str]]]:
+def diff_units(text: str) -> tuple[str, dict[tuple[str, ...], list[str]]]:
     """`(title, units)` — a pitch body cut into the pieces `changes` names.
 
-    A unit is the text under one `## ` up to its first `### ` (keyed by the
-    `## ` heading), or under one `### ` (keyed by its heading); deeper
-    headings are content. The `# ` title and anything before the first `## `
-    form the title unit, keyed `TITLE_KEY`, so a retitled successor still
-    pairs with its predecessor. Lines are whitespace-normalized, blank lines
-    dropped, order kept, duplicates once."""
+    A unit is the text under one `## ` up to its first `### ` (key
+    `("##", heading)`), or under one `### ` (key `("###", enclosing ## heading,
+    heading)`); deeper headings are content. The `# ` title and anything
+    before the first `## ` form the title unit, `(TITLE_KEY,)`, so a retitled
+    successor still pairs with its predecessor. Keys carry the level and the
+    parent, so a `### Limits` under two different `## ` headings stays two
+    units. Lines are whitespace-normalized, blank lines dropped, order kept,
+    duplicates once."""
     title = ""
-    units: dict[str, list[str]] = {TITLE_KEY: []}
-    key = TITLE_KEY
+    units: dict[tuple[str, ...], list[str]] = {(TITLE_KEY,): []}
+    key: tuple[str, ...] = (TITLE_KEY,)
+    parent = ""
     for _, line, fenced in iter_body(text):
         m = None if fenced else HEADING_RE.match(line)
-        if m and len(m.group(1)) == 1 and key == TITLE_KEY and not title:
+        if m and len(m.group(1)) == 1 and key == (TITLE_KEY,) and not title:
             title = norm_line(m.group(2))
             continue
-        if m and len(m.group(1)) in (2, 3):
-            key = section_key(m.group(2))
+        if m and len(m.group(1)) == 2:
+            parent = section_key(m.group(2))
+            key = ("##", parent)
+            units.setdefault(key, [])
+            continue
+        if m and len(m.group(1)) == 3:
+            key = ("###", parent, section_key(m.group(2)))
             units.setdefault(key, [])
             continue
         n = norm_line(line)
@@ -1843,28 +1854,50 @@ def diff_units(text: str) -> tuple[str, dict[str, list[str]]]:
     return title, units
 
 
+def git_toplevel(repo_root: Path) -> Path | None:
+    proc = subprocess.run(
+        ["git", "-C", str(repo_root), "rev-parse", "--show-toplevel"],
+        capture_output=True, text=True, timeout=10, check=False,
+    )
+    top = proc.stdout.strip()
+    return Path(top).resolve() if proc.returncode == 0 and top else None
+
+
 def added_pitches_since(repo_root: Path, base: str, pitches_root: Path) -> list[Path]:
-    """Pitches added between `base` and HEAD — the successors a PR or a push introduces."""
+    """Pitches added between `base` and HEAD — the successors a PR or a push introduces.
+
+    `-z` with `core.quotePath=false`: git otherwise prints a path holding a
+    non-ASCII byte (a Korean directory anywhere above the pitch) quoted and
+    octal-escaped, which no `.md` suffix test recognises — the file was
+    silently never judged."""
     try:
         proc = subprocess.run(
-            ["git", "-C", str(repo_root), "diff", "--no-renames", "--diff-filter=A",
-             "--name-only", base, "HEAD", "--", str(pitches_root)],
+            ["git", "-c", "core.quotePath=false", "-C", str(repo_root), "diff", "--no-renames",
+             "--diff-filter=A", "--name-only", "-z", base, "HEAD", "--", str(pitches_root)],
             capture_output=True, text=True, timeout=30, check=True,
         )
     except (OSError, subprocess.SubprocessError) as exc:
         detail = getattr(exc, "stderr", "") or str(exc)
         sys.stderr.write(f"error: cannot diff against --base {base}: {detail.strip()}\n")
         sys.exit(2)
-    top = subprocess.run(
-        ["git", "-C", str(repo_root), "rev-parse", "--show-toplevel"],
-        capture_output=True, text=True, timeout=10, check=False,
-    ).stdout.strip()
-    root = Path(top) if top else repo_root
+    root = git_toplevel(repo_root) or repo_root
     return [
-        (root / line).resolve()
-        for line in proc.stdout.splitlines()
-        if line.endswith(".md") and Path(line).name not in NON_PITCH_FILES
+        (root / name).resolve()
+        for name in proc.stdout.split("\0")
+        if name.endswith(".md") and Path(name).name not in NON_PITCH_FILES
     ]
+
+
+def text_at(repo_root: Path, rev: str, path: Path) -> str | None:
+    """`path`'s content at `rev`, or None when it did not exist there."""
+    top = git_toplevel(repo_root)
+    if top is None or not path.is_relative_to(top):
+        return None
+    proc = subprocess.run(
+        ["git", "-C", str(top), "show", f"{rev}:{path.relative_to(top).as_posix()}"],
+        capture_output=True, text=True, timeout=30, check=False,
+    )
+    return proc.stdout if proc.returncode == 0 else None
 
 
 def supersede_diff_group(
@@ -1872,6 +1905,7 @@ def supersede_diff_group(
     docs: dict[Path, tuple[dict[str, Any] | None, str]],
     tokens: list[str],
     repo_root: Path,
+    base: str | None = None,
 ) -> tuple[dict[str, Any], list[str]]:
     """Diff one supersede group — successors judged together (a refactor-split's
     N files) against the union of their predecessors (a fold's N files).
@@ -1882,7 +1916,9 @@ def supersede_diff_group(
     kind; a declaration that matches no change is stale and also fails, so
     `changes` is a true account of the diff in both directions. Lines are
     compared as sets — a split may repeat a cross-cutting line in every file,
-    and a fold merges two edge-case tables in any order."""
+    and a fold merges two edge-case tables in any order. With `base`, a
+    predecessor that existed at `base` is read as it was there, so an edit
+    to the predecessor in the same change cannot make the diff agree."""
     def rel(p: Path) -> str:
         return str(p.relative_to(repo_root)) if p.is_relative_to(repo_root) else str(p)
 
@@ -1896,53 +1932,101 @@ def supersede_diff_group(
                 preds.append(p)
     label = " + ".join(rel(s) for s in successors)
     missing = [p for p in preds if p not in docs]
+    report: dict[str, Any] = {
+        "successors": [rel(s) for s in successors],
+        "predecessors": [rel(p) for p in preds],
+        "changes": [],
+    }
     if missing:
         violations.append(
             f"{label}: cannot diff — predecessor not found: {', '.join(rel(p) for p in missing)}"
         )
-        return {"successors": [rel(s) for s in successors], "predecessors": [rel(p) for p in preds], "changes": []}, violations
+        return report, violations
 
-    def union(paths: list[Path]) -> tuple[list[str], dict[str, list[str]]]:
+    pred_text: dict[Path, str] = {}
+    for p in preds:
+        at_base = text_at(repo_root, base, p) if base is not None else None
+        pred_text[p] = at_base if at_base is not None else docs[p][1]
+        if at_base is not None:
+            report["predecessors"][preds.index(p)] += f"@{base}"
+
+    def union(texts: list[str]) -> tuple[list[str], dict[tuple[str, ...], list[str]]]:
         titles: list[str] = []
-        merged: dict[str, list[str]] = {}
-        for p in paths:
-            title, units = diff_units(docs[p][1])
+        merged: dict[tuple[str, ...], list[str]] = {}
+        for text in texts:
+            title, units = diff_units(text)
             titles.append(title)
             for k, lines in units.items():
                 bucket = merged.setdefault(k, [])
                 bucket.extend(x for x in lines if x not in bucket)
         return titles, merged
 
-    succ_titles, after = union(successors)
-    _, before = union(preds)
+    succ_titles, after = union([docs[s][1] for s in successors])
+    _, before = union([pred_text[p] for p in preds])
+    keys = list(dict.fromkeys([*after, *before]))
 
-    # A declaration names a `## ` / `### ` heading; it names the title unit only
-    # when written `# <title>` or when no heading carries that text, so a story
-    # titled like the pitch is still that story.
-    declared: dict[str, str] = {}
+    # A unit's name is its heading; where two units share a heading, `## X`
+    # and `<parent> / X` tell them apart, in the report and in `changes`.
+    short = {k: (k[-1] if k[0] != TITLE_KEY else "") for k in keys}
+    clash = {n for n in short.values() if n and list(short.values()).count(n) > 1}
+
+    def shown(k: tuple[str, ...]) -> str:
+        if k[0] == TITLE_KEY:
+            return f"# {succ_titles[0]}"
+        if k[-1] not in clash:
+            return k[-1]
+        return f"## {k[1]}" if k[0] == "##" else (f"{k[1]} / {k[2]}" if k[1] else f"### {k[2]}")
+
+    def resolve(raw: str) -> tuple[tuple[str, ...] | None, str | None]:
+        """The unit a `changes[].section` names, or (None, why not)."""
+        raw = raw.strip()
+        if re.match(r"^#(?!#)\s", raw):
+            return (TITLE_KEY,), None
+        if raw.startswith("### "):
+            want = [k for k in keys if k[0] == "###" and k[2] == section_key(raw)]
+        elif raw.startswith("## "):
+            want = [k for k in keys if k[0] == "##" and k[1] == section_key(raw)]
+        elif " / " in raw:
+            parent, _, child = raw.partition(" / ")
+            want = [k for k in keys if k[0] == "###" and k[1] == section_key(parent) and k[2] == section_key(child)]
+        else:
+            want = [k for k in keys if k[0] != TITLE_KEY and k[-1] == section_key(raw)]
+            if not want and section_key(raw) in succ_titles:
+                return (TITLE_KEY,), None
+        if len(want) == 1:
+            return want[0], None
+        if not want:
+            return None, "the pitch has no such section"
+        return None, (
+            "it names more than one section — write "
+            + " or ".join(f"`{shown(k)}`" for k in want)
+        )
+
+    declared: dict[tuple[str, ...], str] = {}
     for s in successors:
         changes = (docs[s][0] or {}).get("changes")
         if not isinstance(changes, list):
             continue
         for entry in changes:
-            if isinstance(entry, dict) and isinstance(entry.get("section"), str) and section_key(entry["section"]):
-                raw = entry["section"].strip()
-                key = section_key(raw)
-                is_title = re.match(r"^#(?!#)\s", raw) is not None or (
-                    key in succ_titles and key not in after and key not in before
+            if not (isinstance(entry, dict) and isinstance(entry.get("section"), str) and section_key(entry["section"])):
+                continue  # the shape check reports it
+            key, why = resolve(entry["section"])
+            if key is None:
+                violations.append(
+                    f"{label}: «{entry['section'].strip()}» is declared `{entry.get('kind')}` in `changes`, but {why}"
                 )
-                declared[TITLE_KEY if is_title else key] = str(entry.get("kind"))
-
-    def shown(key: str) -> str:
-        return f"# {succ_titles[0]}" if key == TITLE_KEY else key
+                continue
+            declared[key] = str(entry.get("kind"))
 
     rows: list[dict[str, Any]] = []
-    for key in list(dict.fromkeys([*after, *before])):
+    changed: set[tuple[str, ...]] = set()
+    for key in keys:
         a, b = after.get(key), before.get(key)
         if a is not None and b is not None and set(a) == set(b):
             continue
-        if key == TITLE_KEY and not (a or b):
+        if key == (TITLE_KEY,) and not (a or b):
             continue  # a retitle alone is not a change in content
+        changed.add(key)
         kind = "add" if b is None else "remove" if a is None else "modify"
         removed = [x for x in (b or []) if x not in set(a or [])]
         added = [x for x in (a or []) if x not in set(b or [])]
@@ -1964,17 +2048,10 @@ def supersede_diff_group(
             if len(ordered) > DIFF_SAMPLE_LINES:
                 sample.append(f"{sign} (+{len(ordered) - DIFF_SAMPLE_LINES} more line(s))")
         violations.append(head + ("\n  " + "\n  ".join(sample) if sample else ""))
-    changed = {r["section"] for r in rows}
     for key, kind in declared.items():
-        if shown(key) in changed:
-            continue
-        where = "nothing in it changed" if key in after or key in before else "the pitch has no such section"
-        violations.append(f"{label}: «{shown(key)}» is declared `{kind}` in `changes`, but {where}")
-    report = {
-        "successors": [rel(s) for s in successors],
-        "predecessors": [rel(p) for p in preds],
-        "changes": rows,
-    }
+        if key not in changed:
+            violations.append(f"{label}: «{shown(key)}» is declared `{kind}` in `changes`, but nothing in it changed")
+    report["changes"] = rows
     return report, violations
 
 
@@ -1997,12 +2074,18 @@ def run_supersede_diff(
     skill now copies the predecessor and edits declared hunks; this proves it.
 
     Judged: the given paths, plus with `base` every pitch added in base..HEAD.
-    A judged pitch that supersedes nothing is skipped with a note. Successors
-    sharing a predecessor are judged as one group, so pass every file of a
+    A judged pitch whose `supersedes` is null is skipped with a note; one whose
+    frontmatter or `supersedes` / `changes` is malformed is a violation, since
+    this mode runs on its own in a pre-push hook. Successors sharing a
+    predecessor — directly or through another successor — are judged as one
+    group, whatever the order they were given in, so pass every file of a
     split together (`--base` does). Exit 0 clean, 1 on any violation, 2 when
     it cannot run (no pitch directory, a path outside it, git failing)."""
-    if pitches_root is None:
-        sys.stderr.write("error: --supersede-diff needs a repo that hosts pitches (spec or single-repo mode)\n")
+    if pitches_root is None or not pitches_root.is_dir():
+        sys.stderr.write(
+            f"error: --supersede-diff needs the repo's pitch directory, and "
+            f"{pitches_root if pitches_root is not None else 'this repo mode'} is none\n"
+        )
         return 2
     root = pitches_root.resolve()
     repo_root = repo_root.resolve()
@@ -2017,32 +2100,46 @@ def run_supersede_diff(
         judged.extend(added_pitches_since(repo_root, base, root))
     judged = list(dict.fromkeys(judged))
 
+    def rel(p: Path) -> str:
+        return str(p.relative_to(repo_root)) if p.is_relative_to(repo_root) else str(p)
+
     docs: dict[Path, tuple[dict[str, Any] | None, str]] = {}
     for p in iter_docs(root, "pitch"):
-        text = p.read_text(encoding="utf-8")
-        docs[p.resolve()] = (load_frontmatter(p), text)
+        docs[p.resolve()] = (load_frontmatter(p), p.read_text(encoding="utf-8"))
 
-    successors = [p for p in judged if p in docs and supersede_targets(docs[p][0], "pitch")]
+    violations: list[str] = []
+    successors: list[Path] = []
     for p in judged:
-        if p not in successors:
+        fm = docs.get(p, (None, ""))[0]
+        if fm is None:
+            violations.append(f"{rel(p)}: frontmatter missing or malformed — what it supersedes cannot be read")
+            continue
+        problem = supersedes_shape_problem(fm.get("supersedes"), "pitch")
+        if problem:
+            violations.append(f"{rel(p)}: {problem}")
+            continue
+        if "changes" in fm:
+            violations.extend(f"{rel(p)}: {x}" for x in changes_shape_problems(fm, "pitch"))
+        if supersede_targets(fm, "pitch"):
+            successors.append(p)
+        else:
             sys.stderr.write(f"note: {p}: supersedes nothing — no predecessor to diff against.\n")
 
-    # Group successors that share a predecessor (a split's files are judged together).
-    groups: list[list[Path]] = []
+    # Connected components over shared predecessors: a successor that bridges
+    # two groups merges them, so the grouping never depends on argument order.
+    groups: list[tuple[list[Path], set[Path]]] = []
     for s in successors:
         mine = {(s.parent / t).resolve() for t in supersede_targets(docs[s][0], "pitch")}
-        for g in groups:
-            theirs = {(x.parent / t).resolve() for x in g for t in supersede_targets(docs[x][0], "pitch")}
-            if mine & theirs:
-                g.append(s)
-                break
-        else:
-            groups.append([s])
+        members, preds = [s], set(mine)
+        for g in [g for g in groups if g[1] & mine]:
+            groups.remove(g)
+            members = g[0] + members
+            preds |= g[1]
+        groups.append((members, preds))
 
     reports: list[dict[str, Any]] = []
-    violations: list[str] = []
-    for g in groups:
-        report, found = supersede_diff_group(g, docs, tokens, repo_root)
+    for members, _ in groups:
+        report, found = supersede_diff_group(members, docs, tokens, repo_root, base)
         reports.append(report)
         violations.extend(found)
 
