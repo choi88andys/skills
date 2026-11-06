@@ -1,0 +1,44 @@
+# schema_v9.yml — what profile_schema 9 (plugin v0.18.0) needs beyond the universal
+# diff, for /immutable:migrate Stage 5.2.8.
+#
+# The universal diff (5.2.1) adds `sections[id=input_contract]`, `input_markers` and
+# `gate.criteria[id=input_contract]` on its own. Four things it cannot do:
+#
+# `insert_after` — where a new id-keyed entry goes. 5.2.1 appends at the end of the
+#   list, but `sections` is render order: the new section goes right after the named
+#   entry when the team profile has it, else at the end.
+# `dated` — `since` paths written as a date relative to the migration, not copied
+#   from the bundled file (5.2.6): `day_after` = the day after the migration date. The
+#   rule judges a pitch by its filename date, and a pitch dated the migration day may
+#   already exist, so the first day judged is the next one.
+# `gate_criteria_added` — criteria whose ADD raises `gate.total` and
+#   `gate.pass_threshold` by one each (7/6 → 8/7; a customised 9/8 → 10/9), so the
+#   team keeps its own tolerance. Not raised when the team already listed the criterion.
+# `replace_if_stock` — the bundled schema-8 values, verbatim, per locale. A team value
+#   EQUAL to the entry is untouched stock and is replaced with the bundled value; a
+#   value already equal to the bundled one is current (5.2.7 may have replaced it in
+#   the same run) and is left; any other value is the team's own wording and is kept
+#   (and named in the handoff). Lists compare element by element, in order. Strings
+#   are JSON-quoted to stay verbatim.
+schema: 9
+insert_after:
+  "sections[id=input_contract]": "sections[id=user_stories]"
+dated:
+  "sections[id=input_contract].since": day_after
+gate_criteria_added:
+  - input_contract
+replace_if_stock:
+  ko:
+    "personas[id=quality_auditor].checks":
+      - "각 normative 줄에 정량 기준(숫자·타임아웃·threshold·UI spec) 포함 여부"
+      - "'적절히', '자연스럽게', '충분히', '합리적' 같은 모호어 잔존 여부 (Stage 3 regex를 통과했더라도 맥락상 모호한 경우 포함)"
+      - "각 GWT의 Then이 pass/fail 판정 가능한가, 아니면 주관적 판단 요구"
+      - "주어 생략·passive voice로 책임 주체가 불분명한 문장 유무 (예: '처리된다', '보여진다')"
+      - "Stage 1.5 intake의 일부만 다루는 PRD라면 나머지 부분은 별도 PRD로 분할되었거나 분할 예정인지 확인 (intake 1:1 매핑 가정 폐기 — 1 도메인의 intake가 N개 PRD로 자연 분해됨)"
+  en:
+    "personas[id=quality_auditor].checks":
+      - "Each normative line carries a concrete criterion (numbers, timeouts, thresholds, UI specs)"
+      - "Vague hedge words (\"appropriate\", \"reasonable\", \"naturally\", \"sufficient\") — catches context-vague cases even if the Stage 3 regex was satisfied"
+      - "Every Then is pass/fail decidable rather than demanding subjective judgment"
+      - "Passive voice / missing subject that hides the responsible actor (e.g., \"is processed\", \"is shown\")"
+      - "If this PRD covers only part of the Stage 1.5 intake, confirm the rest is split into separate PRDs or planned to be (intake 1:1 mapping assumption dropped — one domain's intake naturally decomposes into N PRDs)"

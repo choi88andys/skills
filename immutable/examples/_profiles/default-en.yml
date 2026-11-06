@@ -29,7 +29,12 @@
 # (gate 8/7 → 7/6) — and added `max_bytes` and `precedence_keywords`.
 # `/immutable:migrate` removes the retired fields from a team profile. The ADR
 # block `adr.anti_monolith` is unchanged.
-profile_schema: 8
+# v8 → v9 (v0.18.0): added `sections[input_contract]` (with `columns` and a dated
+# `since`), the top-level `input_markers` list, the gate criterion `input_contract`
+# (gate 7/6 → 8/7) and a `quality_auditor` check. `/immutable:migrate` writes
+# `since` as the day after the migration, so no pitch that existed before it is
+# judged by the rule.
+profile_schema: 9
 
 locale: en
 
@@ -56,6 +61,26 @@ sections:
     min_items: 1
     structure: per_story_grouped
     description: "Given/When/Then blocks — happy path + alternate/error each ≥1 (sum ≥2). Single-feature PRDs may legitimately have 1 sub-section + multiple MUSTs. Under the default per_story_grouped structure, each story gets its own `### ` sub-section carrying the GWT triple + bound normative keyword lines. The story count has no cap: one feature area can need many stories."
+  # Inputs (v0.18.0, profile_schema 9) — see default-ko.yml for why. Per value:
+  # how it is entered, what is accepted, what happens to an invalid one.
+  #   columns — the four header labels, in order; the validator reads the
+  #             table header verbatim.
+  #   since   — a date. A pitch whose filename date is on or after it, whose
+  #             bracketed normative lines match `input_markers` and which has no
+  #             Inputs section, fails --strict-body; an older one is warned.
+  #             Absent = every pitch. Bundled: the day after the rule was
+  #             written; /immutable:migrate writes the day after the migration.
+  - id: input_contract
+    heading: "Inputs"
+    required: false
+    min_items: 0
+    since: 2026-11-07
+    columns:
+      field: "Field"
+      entry: "How it is entered"
+      accepted: "Accepted values"
+      invalid: "On an invalid value"
+    description: "In a pitch that introduces or changes a value the user enters (types or picks). One table row per value, all four cells filled: field, how it is entered, accepted values, and what happens on an invalid value — what the user sees and what the system does when it refuses the value (when no invalid value is possible, say why). No cell is left to the design or the implementation. A pitch that only mentions an input another pitch defines writes one line saying so and naming the owner, instead of a table. A pitch dated on or after `since` whose normative lines match `input_markers` cannot merge without this section (validator --strict-body)."
   - id: edge_cases
     heading: "Edge Cases"
     required: true
@@ -108,6 +133,7 @@ personas:
       - "Every Then is pass/fail decidable rather than demanding subjective judgment"
       - "Passive voice / missing subject that hides the responsible actor (e.g., \"is processed\", \"is shown\")"
       - "If this PRD covers only part of the Stage 1.5 intake, confirm the rest is split into separate PRDs or planned to be (intake 1:1 mapping assumption dropped — one domain's intake naturally decomposes into N PRDs)"
+      - "For every value the user enters, does the pitch answer \"what happens when this value is wrong?\" — the Inputs table states how it is entered, the accepted values and the handling of an invalid value, with no cell left to the design or the implementation. Also look for an input the stories use that the table lacks"
 
 # Pitch size and cross-pitch references (v0.17.0 / profile_schema 8). Read by
 # `validate_docs.py --strict-body` on every active pitch.
@@ -125,6 +151,21 @@ precedence_keywords:
   - "overrides"
   - "supersedes"
   - "replaces"
+
+# Input markers (v0.18.0, profile_schema 9). Regexes (case-insensitive) matched
+# against each bracketed normative line by `validate_docs.py --strict-body`. A
+# matching line in a pitch with no Inputs section is a warning, and a violation
+# for a pitch dated on or after that section's `since`. With a table, a matching
+# line that names none of its fields is a warning (the per-field net; it never
+# blocks). The markers are a net, not the definition: the author declares which
+# values are inputs. The Korean list was measured on a live spec repo
+# (default-ko.yml); these mirror its intent and are NOT measured — tune per team.
+input_markers:
+  - '\b(types?|typed|typing)\b'
+  - '\binputs?\b'
+  - '\bfill(s|ed|ing)? (in|out)\b'
+  - '\benter(s|ed|ing)?\b(?![^.\n]{0,20}\b(screen|page|flow|view|step|state|mode|app)\b)'
+  - '\bpaste[sd]?\b'
 
 normative_keywords:
   - key: MUST
@@ -144,8 +185,8 @@ normative_keywords:
     meaning: "Optional."
 
 gate:
-  total: 7
-  pass_threshold: 6
+  total: 8
+  pass_threshold: 7
   reject_on_unresolved: true
   unresolved_tag: "[TBD]"
   criteria:
@@ -170,6 +211,11 @@ gate:
     - id: feature_scope
       label: "Feature-scale scope"
       pass_condition: "Single-flag toggle test passes, and the pitch covers one user-facing feature area (the product_lead review found no second one). Length and story count are not part of this criterion."
+    # v0.18.0 — a failure refuses generation whatever the count (Stage 5).
+    # Last on purpose: migrate appends it to a team's list, so the numbers match.
+    - id: input_contract
+      label: "Inputs defined"
+      pass_condition: "Every value the user enters has a row in the Inputs table with all four cells decided (field, how it is entered, accepted values, on an invalid value) — no cell left to the design or the implementation, no [TBD] cell. A pitch that introduces or changes no input passes."
 
 identifier_patterns:
   - id: camelCase

@@ -39,7 +39,12 @@
 # (gate 8/7 → 7/6) — and added `max_bytes` and `precedence_keywords`.
 # `/immutable:migrate` removes the retired fields from a team profile. The ADR
 # block `adr.anti_monolith` is unchanged.
-profile_schema: 8
+# v8 → v9 (v0.18.0): added `sections[input_contract]` (with `columns` and a dated
+# `since`), the top-level `input_markers` list, the gate criterion `input_contract`
+# (gate 7/6 → 8/7) and a `quality_auditor` check. `/immutable:migrate` writes
+# `since` as the day after the migration, so no pitch that existed before it is
+# judged by the rule.
+profile_schema: 9
 
 # Team working language key. Must match `strings/strings.<locale>.yml` when
 # strings catalog lookup is enabled. v0.5 renders inline strings from this file.
@@ -66,6 +71,15 @@ display_name: "한국어 기본 프로필"
 #                Enforced at Stage 2 Branch B completion, Stage 6 pre-write guard,
 #                and `validate_docs.py --strict-body` (all three activate only when
 #                the value is `per_story_grouped`).
+#   columns    — (v0.18+, `input_contract` only) 표 머리 네 칸의 라벨 — 항목 /
+#                입력 방식 / 받는 값 / 잘못된 값일 때. validator 가 표 머리를 이
+#                순서 그대로 읽는다.
+#   since      — (v0.18+, `input_contract` only) 날짜. 파일명 날짜가 이 날 이후인
+#                pitch 는 normative 줄이 `input_markers` 에 걸리는데 이 섹션이
+#                없으면 막힌다 (그 전 pitch 는 경고만). 없으면 모든 pitch 를 막는다.
+#                bundled 값은 이 규칙을 쓴 날의 다음 날이고, `/immutable:migrate` 는
+#                마이그레이션 다음 날로 바꿔 쓴다 — 그날 이미 있던 pitch 가 같은
+#                날짜를 달고 있을 수 있어서다.
 #   description — hint shown during interview; also used as gate pass condition.
 # Order of entries = order of Stage 2 branches + final file layout.
 # -----------------------------------------------------------------------------
@@ -81,6 +95,25 @@ sections:
     min_items: 1
     structure: per_story_grouped
     description: "Given/When/Then 블록 — happy path + alternate/error 최소 1개씩 (각 종류 ≥1, 총 합으로 ≥2개). 단일-feature PRD는 1 sub-section + 다중 MUST로도 정상. 기본 구조(per_story_grouped)에선 각 스토리를 `### ` 서브섹션으로 묶고 서브섹션 내부에 GWT + 결합 normative 줄을 함께 둔다. 스토리 개수에는 상한이 없다 — 한 기능 영역에 스토리가 여럿 필요할 수 있다."
+  # 사용자가 입력하는 값마다 입력 방식과 잘못된 값의 처리를 pitch 가 정한다
+  # (v0.18.0, owner 결정 2026-11-06 — pitch 가 정하지 않은 동작은 구현자가 고를
+  # 기본값이 아니라 pitch 의 빈칸이다). lounge-x-app 2.3.1 의 가입 pitch 는 선택
+  # 항목인 생년월일의 입력 방식도, 잘못된 값의 처리도 정하지 않았고 — 티켓도
+  # 침묵, 시안은 평범한 텍스트 칸 — 앱은 숫자 여섯 자리를 받아 없는 날짜를
+  # 저장했다. 엣지 케이스 표에 인증번호 오류 행이 있어 pitch 단위 검사는 그
+  # pitch 를 통과시켰다 (2026-11-06, lounge-x-spec active 53개 중 입력이 있는 9개에서
+  # pitch 단위 검사가 잡은 것은 1개). 그래서 검사는 값 단위다.
+  - id: input_contract
+    heading: "입력 항목"
+    required: false
+    min_items: 0
+    since: 2026-11-07
+    columns:
+      field: "항목"
+      entry: "입력 방식"
+      accepted: "받는 값"
+      invalid: "잘못된 값일 때"
+    description: "사용자가 입력하는 값(직접 쓰거나 고르는 값)을 새로 만들거나 바꾸는 pitch 에 둔다. 값마다 표 한 행 — 항목, 입력 방식, 받는 값, 잘못된 값일 때 네 칸을 모두 채운다. 「잘못된 값일 때」는 그 값을 거절할 때 사용자가 보는 것과 시스템이 하는 일이다 (잘못된 값이 있을 수 없으면 왜 없는지를 쓴다). 칸을 시안이나 구현에 맡기지 않는다. 다른 pitch 가 정한 입력을 언급만 하는 pitch 는 표 대신 그 사실과 소유 pitch 를 한 줄로 쓴다. 파일명 날짜가 `since` 이후인 pitch 는 normative 줄이 `input_markers` 에 걸리는데 이 섹션이 없으면 머지할 수 없다 (validator --strict-body)."
   - id: edge_cases
     heading: "엣지 케이스"
     required: true
@@ -138,6 +171,7 @@ personas:
       - "각 GWT의 Then이 pass/fail 판정 가능한가, 아니면 주관적 판단 요구"
       - "주어 생략·passive voice로 책임 주체가 불분명한 문장 유무 (예: '처리된다', '보여진다')"
       - "Stage 1.5 intake의 일부만 다루는 PRD라면 나머지 부분은 별도 PRD로 분할되었거나 분할 예정인지 확인 (intake 1:1 매핑 가정 폐기 — 1 도메인의 intake가 N개 PRD로 자연 분해됨)"
+      - "사용자가 입력하는 값마다 「이 값이 잘못되면 무엇이 일어나는가?」에 pitch 가 답하는가 — 「입력 항목」 표에 입력 방식, 받는 값, 잘못된 값일 때가 모두 있고 시안이나 구현에 맡긴 칸이 없다. 스토리에 나오는데 표에 없는 입력도 찾는다"
 
 # -----------------------------------------------------------------------------
 # Pitch 크기와 pitch 사이 참조 (v0.17.0 / profile_schema 8).
@@ -155,6 +189,27 @@ max_bytes: 50000
 precedence_keywords:
   - "우선한다"
   - "대체한다"
+
+# -----------------------------------------------------------------------------
+# 입력 표지 (v0.18.0 / profile_schema 9). `validate_docs.py --strict-body` 가
+# 대괄호 normative 줄마다 대는 정규식 목록 (대소문자 무시). 걸린 줄이 있는데
+# pitch 에 `sections[id=input_contract]` 섹션이 없으면 경고 — 파일명 날짜가 그
+# 섹션의 `since` 이후면 위반이다. 섹션에 표가 있으면, 걸린 줄이 표의 어느 항목도
+# 이름으로 부르지 않을 때 경고한다 (값 단위 그물 — 막지는 않는다).
+#
+# 표지는 그물이다 — 어떤 값이 입력인지는 작성자가 표로 정하고, validator 는
+# 정해진 것과 이 경고만 본다. 2026-11-06 lounge-x-spec main 78b62e8 측정 (active
+# 53개, 대괄호 normative 줄): 이 목록은 12개에 걸린다 — 같은 날 사용자 입력을 다루는
+# [MUST] 가 있다고 센 9개 전부와, 그 밖의 3개 (그 pitch 가 정하지 않는 입력을 언급만
+# 한다 — 표 대신 소유자를 적는 한 줄로 풀린다). 「작성」은 2개에 걸려 2개 모두
+# 오탐 (「작성 시각」, 「작성 시점」) 이라 뺐다.
+# -----------------------------------------------------------------------------
+input_markers:
+  - '입력'
+  - '기입'
+  - '타이핑'
+  - '직접\s*(써|쓰|적)'
+  - '붙여\s*넣'
 
 # -----------------------------------------------------------------------------
 # RFC 2119 normative keywords used inside pitch body.
@@ -184,8 +239,8 @@ normative_keywords:
 #   reject_on_unresolved — any `[미확정]` tag blocks regardless of pass count.
 # -----------------------------------------------------------------------------
 gate:
-  total: 7
-  pass_threshold: 6
+  total: 8
+  pass_threshold: 7
   reject_on_unresolved: true
   unresolved_tag: "[미확정]"
   criteria:
@@ -210,6 +265,11 @@ gate:
     - id: feature_scope
       label: "Feature 규모"
       pass_condition: "단일 플래그 토글 테스트 통과 + 사용자에게 보이는 기능 영역 하나만 다룬다 (제품 책임자 리뷰가 두 번째 영역을 찾지 못했다). 길이와 스토리 개수는 이 기준에 들지 않는다"
+    # v0.18.0 — 실패하면 통과 개수와 상관없이 파일을 만들지 않는다 (Stage 5).
+    # 맨 끝에 둔다: migrate 가 팀 프로필의 목록 끝에 붙이므로 번호가 같아진다.
+    - id: input_contract
+      label: "입력 항목 정의"
+      pass_condition: "사용자가 입력하는 값마다 「입력 항목」 표에 한 행이 있고 네 칸(항목, 입력 방식, 받는 값, 잘못된 값일 때)이 모두 정해져 있다 — 시안이나 구현에 맡긴 칸, [미확정] 칸이 없다. 입력을 새로 만들거나 바꾸지 않는 pitch 는 통과한다"
 
 # -----------------------------------------------------------------------------
 # Code identifier detection patterns (Stage 3).

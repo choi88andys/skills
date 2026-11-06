@@ -66,6 +66,7 @@ ADR도 동일한 append-only 원칙. 상세는 [`../adr/README.md`](../adr/READM
 - **구속력 키워드**: `[MUST]`, `[MUST NOT]`, `[SHOULD]`, `[SHOULD NOT]`, `[MAY]` (RFC 2119)
 - **금지 사항**: 코드 변수명·파일 경로·클래스명·패키지명·API endpoint·디자인 토큰 수치 일절 금지 (도메인 용어만)
 - **Pitch 단위**: 사용자에게 보이는 기능 영역 하나 (단일 플래그로 on/off 가능). 길이는 쪼갤 이유가 아니다 — 크기 제한은 `max_bytes` 하나
+- **입력 항목**: 사용자가 입력하는 값마다 `## 입력 항목` 표에 입력 방식, 받는 값, 잘못된 값일 때를 쓴다 — 시안이나 구현에 맡기지 않는다
 - **새 버전**: 이전 파일을 복사해 바꾸는 절만 고치고 `changes` 에 적는다 (`validate_docs.py --supersede-diff` 로 확인). 다른 Pitch 의 규칙은 그 Pitch 의 새 버전으로만 바꾼다
 
 ---
