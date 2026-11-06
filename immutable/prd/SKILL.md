@@ -39,9 +39,10 @@ The skill is **profile-aware** in v0.5: section headings, the gate threshold, pe
 | Profile field | Where used |
 |---|---|
 | `sections[].heading` | Stage 6 body assembly (rendered in pitch file) |
-| `sections[].id` / `required` / `min_items` / `max_items` / `description` | Stage 2 interview branches + Stage 6 required-sections guard. `max_items` (v0.5.6+, user_stories only) caps `### ` sub-section count — exceeding triggers `anti_monolith` escalation. |
+| `sections[].id` / `required` / `min_items` / `description` | Stage 2 interview branches + Stage 6 required-sections guard. (`max_items` was retired in profile_schema 8 — story count has no cap.) |
 | `sections[id=user_stories].structure` (v0.5.3+) | Stage 2 Branch B completion criterion + Stage 6 pre-write structure guard. `per_story_grouped` (default) requires each story in a `### ` sub-section carrying a GWT triple + ≥1 bracketed normative line; `consolidated` accepts a single GWT list + single normative list under the H2 (v0.5.2 shape). |
-| `anti_monolith.tiers.{L1,L2,L3}` (v0.5.6+) | Stage 1.2 pre-check tier classification of existing active PRDs; Stage 1.3 intent menu adjustment (L2 promotes split, L3 blocks `update`); Stage 5 `concern_scope` criterion fail threshold. Fallback derived from `sections[user_stories].max_items` if block omitted. |
+| `max_bytes` (v0.17+, profile_schema 8) | §1.2.1 size column and the Stage 6 size guard — the one size limit, a byte ceiling per pitch file (Claude Code's Read returns a partial page past about 55 KB of Korean text). The validator enforces the same value under `--strict-body`. |
+| `precedence_keywords[]` (v0.17+, profile_schema 8) | Stage 6 cross-pitch reference guard — a body line naming another pitch's path may not carry one. The validator enforces the same list under `--strict-body`. |
 | `normative_keywords[].token` / `meaning` | Stage 2 Branch C bracket vocabulary |
 | `identifier_patterns[].regex` / `hint` | Stage 3 code-identifier detection |
 | `vague_words[].regex` / `hint` (v0.5.3+) | Stage 3 vague-word detection (skill-side only; not enforced by the CI validator) |
@@ -77,8 +78,10 @@ Each pitch file requires YAML frontmatter:
 ```yaml
 ---
 domain: <name>              # must match parent directory
-supersedes: <filename|null> # previous active file in the same domain
+supersedes: <filename|null> # previous active file in the same domain — a list for a fold (v0.17+)
 deprecated: false           # flipped to true when a new version supersedes
+changes:                    # v0.17+, only with supersedes — the sections this version changes
+  - {section: <heading>, kind: add|modify|remove}
 ---
 ```
 
@@ -135,68 +138,54 @@ Use Bash + Glob + Read to collect:
 1.bis. **Profile schema mismatch detection** (added v0.5.7):
    - When the loaded profile is a TEAM profile (config v3 with `profile:` pointer to a repo-local file), read its `profile_schema:` value (default `1` if absent).
    - Read the bundled default profile's `profile_schema:` value for the same `team_language`.
-   - **If `team_profile_schema < bundled_profile_schema`**: render `prd.stage1.profile_schema_mismatch` with `{team_schema}`, `{bundled_schema}`, and a comma-joined list of missing top-level fields detected via direct comparison (e.g., `anti_monolith`, `vague_words`, `personas[quality_auditor]`, `gate.criteria[concern_scope]`). Recommend `/immutable:migrate`.
-   - **For this run only**: when the skill needs a missing field (e.g., `anti_monolith.tiers.L3.sub_sections` for §1.2.1 anti-monolith pre-check), READ THE VALUE FROM THE BUNDLED DEFAULT and use it. Do NOT write to disk. Do NOT mutate the in-memory team profile object — fetch fallback values via a "look up in team profile, else look up in bundled default" function so the fallback path is auditable.
+   - **If `team_profile_schema < bundled_profile_schema`**: render `prd.stage1.profile_schema_mismatch` with `{team_schema}`, `{bundled_schema}`, and a comma-joined list of missing top-level fields detected via direct comparison (e.g., `max_bytes`, `precedence_keywords`, `vague_words`, `personas[quality_auditor]`). Recommend `/immutable:migrate`.
+   - **For this run only**: when the skill needs a missing field (e.g., `max_bytes` for the Stage 6 size guard), READ THE VALUE FROM THE BUNDLED DEFAULT and use it. Do NOT write to disk. Do NOT mutate the in-memory team profile object — fetch fallback values via a "look up in team profile, else look up in bundled default" function so the fallback path is auditable.
    - **Skill traceability**: any output that references a value sourced from the bundled default fallback (rather than the team profile) MUST annotate the source — e.g., "(from bundled default-ko v2 — your team profile is v1)".
-   - This guard exists to surface silent-skip behavior immediately. Without it, teams who ran `/immutable:migrate` once on plugin v0.5.0-era and never re-migrated would see new features (anti_monolith, etc.) silently disabled.
+   - This guard exists to surface silent-skip behavior immediately. Without it, teams who ran `/immutable:migrate` once on plugin v0.5.0-era and never re-migrated would see new features (the size ceiling, etc.) silently disabled.
+   - **Retired fields** (profile_schema 8): a team profile below 8 may still carry `anti_monolith`, `sections[user_stories].max_items` and `gate.criteria[concern_scope]`. Ignore all three — never classify by tier, never count `concern_scope`, and judge the gate against the remaining criteria with `gate.total` and `gate.pass_threshold` each lowered by one when the team's list still holds `concern_scope`. Name them in the mismatch message as retired; `/immutable:migrate` removes them.
 2. Confirm `pitches/` exists in CWD (or at the configured `pitches_path`). If not, stop by rendering `prd.stage1.no_pitches_dir` (no substitutions).
 3. Read `pitches/README.md` — extract domain allowlist from the allowed-domains table (rows matching `` | `<name>` | ``). Use `profile.domain_allowlist.source` if it differs from the default `pitches/README.md`.
 4. **Enumerate active pitches per domain** (changed v0.5.6 — was: "find the active pitch", singular; v0.10.0 — the ad-hoc frontmatter scan became a resolver call). Run `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/validate_docs.py" --type pitch --list-active` (config auto-detected by walk-up from CWD) and group its output by the domain column — one `<absolute path>` TAB `<domain>` line per active pitch, `README.md`/`TEMPLATE.md` already excluded, deprecation judged by a real YAML frontmatter parse rather than a text grep. A domain may host multiple active PRDs, each on its own supersede chain. None is privileged as "the" baseline for the domain.
 
-### 1.2.1 Anti-monolith pre-check (v0.5.6+)
+### 1.2.1 Ownership pre-check (v0.17+ — replaces the v0.5.6 anti-monolith tiers)
 
-Resolve the active anti-monolith policy via this fallback chain (v0.5.7+):
+A rule lives in exactly one active pitch. Before classifying intent, find out which active pitch of the target domain — if any — already states a rule about the behavior the request changes. Once the user has hinted at a target domain (from Stage 1.1 free-text or the implicit domain in the request), for every active pitch in that domain (§1.2 step 4) collect:
 
-1. **Team profile `anti_monolith.tiers`** — if `profile.anti_monolith.enabled == true` and `profile.anti_monolith.tiers` exists in the team profile → use those thresholds.
-2. **Team profile `sections[user_stories].max_items` derivation** — else if the team profile has `max_items` → derive: `L1.sub_sections = max_items + 1`, `L2 = max_items + 2`, `L3 = max_items × 3`, `L1/L2/L3.normative_lines = sub_sections × 5`.
-3. **Bundled default fallback** (added v0.5.7) — else if Stage 1.bis flagged a profile schema mismatch and the bundled default has `anti_monolith` (or `max_items`) → repeat steps 1-2 against the bundled default profile values. Annotate the rendered tier output with "(thresholds from bundled default-<lang> v<N> — your team profile is v<M>)".
-4. **Skip pre-check** — only when none of the above resolve (very old plugin + truly empty profile). Surface a one-line note: "anti-monolith pre-check skipped — profile lacks both `anti_monolith` block and `max_items` field. Run `/immutable:migrate` to enable."
+- its filename and size in bytes (`wc -c`) — shown so a pitch near `profile.max_bytes` is visible before a change grows it
+- its `### ` titles under the user-stories H2 and its other `## ` headings (strip fenced code first) — the rules it owns, in its own words
 
-Step 4 was the silent-skip behavior in v0.5.6 — replaced in v0.5.7 by the bundled-default fallback in step 3 plus the explicit note when even that fails.
+Read the body of every pitch whose headings touch the behavior the request names. Ownership is decided by what the pitch states, not by its size or story count: a 40-story pitch that states the rule owns it as fully as a 2-story one. Render the result as `prd.stage1.ownership_summary_template` (one `prd.stage1.ownership_row` per active pitch, `{size_kb}` rounded to one decimal, `{sections}` the comma-joined headings) into the Stage 1.4 confirmation block, and mark the pitch(es) that state a rule about the requested behavior.
 
-Once the user has hinted at a target domain (from Stage 1.1 free-text or from the implicit domain in the request), compute metrics for every active PRD in that domain:
+The v0.5.6 tiers (L1 hint / L2 strong-recommend / L3 block on `### ` and normative counts) are retired: they steered every change toward a new sibling pitch and pushed long pitches apart, so one rule area spread over many files, and siblings began overriding each other in prose — the 2026-11-06 lounge-x-spec incident, where two live pitches demanded 4 and 3 payment-auth methods. Length is not a defect; the one size limit is `max_bytes` (Stage 6 size guard).
 
-- `sub_sections` — count of `### ` headers within the user_stories H2 slice (strip fenced code blocks first to avoid false matches)
-- `normative_lines` — count of lines whose first non-whitespace bracket token matches a `profile.normative_keywords[].token` (`[MUST]`, `[MUST NOT]`, `[SHOULD]`, `[SHOULD NOT]`, `[MAY]`)
+### 1.3 Classify intent (v0.17+: by ownership, no default lean)
 
-Classify each active PRD into the highest tier it triggers (L3 > L2 > L1 > none). Surface the result as part of the Stage 1.4 confirmation block:
+Decide `update` versus `new` by **ownership** (§1.2.1), never by a default lean or by the size of the pitch that owns the rule:
 
-```
-도메인 `<domain>` 의 active PRDs:
-  - 2026-04-20-foo.md          [L3 — 8 sub-sections, 50+ normatives]
-  - 2026-04-22-bar.md          [pass]
-  - 2026-04-23-baz.md          [L1 — 4 sub-sections]
-```
-
-When the user's request appears to touch an L2/L3 PRD, this classification drives the Stage 1.3 intent menu.
-
-### 1.3 Classify intent (5-way, v0.5.6+)
+- An active pitch already states a rule about the behavior being changed → the change is a **new version of that pitch** (`update`). Restating or overriding its rule from another pitch leaves two live statements of one rule — the defect this routing exists to prevent.
+- No active pitch states such a rule → a **new pitch** (`new`), on its own supersede chain.
+- Two active pitches could own it → ask with `prd.stage1.ownership_question`. Ask only then; one owner, or none, needs no question.
 
 | Signal | Intent |
 |---|---|
 | New feature/flow, fits no allowlisted domain | `new-domain` (requires allowlist update) |
-| New feature/flow in an existing domain — distinct concern from any active PRD | **`new`** ← most common (`supersedes: null`, joins the domain as another active chain) |
-| The exact scope of one specific active PRD is being re-declared (the PRD's stated promise is wrong/incomplete and you are restating it) | `update` (copy active, revise, flip old deprecated). **Rare** — most "I want to change X" cases are actually `new` (separate concern) or `split-from` (X is one slice of a too-broad PRD) |
-| Existing PRD is too large (anti-monolith tier ≥ L1) and you want to reorganize it without semantic change | **`refactor-split`** ← Stage 1 only. Decomposes one PRD into N smaller ones preserving all behavior |
-| Existing PRD is too large AND you have a new semantic change targeting one of its sub-scopes | **`split-from`** ← Stage 1 (refactor) + Stage 2 (semantic change in the relevant new sub-PRD). Two-stage flow described below. |
+| No active pitch in the domain states a rule about this behavior | `new` (`supersedes: null`, joins the domain as another active chain) |
+| An active pitch states a rule about this behavior — the change adds to, alters or removes what it says | `update` — a new version of that pitch: Stage 6 copies it and edits only the declared sections |
+| An active pitch covers more than one user-facing feature area (the product_lead review, or a user who reads only part of it) and you want it reorganized without semantic change | `refactor-split` ← Stage 1 only. One pitch per feature area, preserving all behavior |
+| As above, AND a semantic change targets one of the areas | `split-from` ← Stage 1 (refactor) + Stage 2 (semantic change in the relevant new pitch). Two-stage flow described below |
+| Several active pitches of one domain describe one user-facing feature area, so its rules are spread over files (or one overrides another in prose) | `fold` ← Stage 1 only (§1.9). One pitch with `supersedes` listing them all, text carried verbatim |
 | "No longer provided" with no replacement | `deprecate-only` (flip target's `deprecated` flag) |
 
-#### Anti-monolith driven menu adjustment
-
-When the user's request maps onto an existing active PRD, consult that PRD's tier from §1.2.1:
-
-- **L1 (hint)**: keep the menu as listed. Show a one-line note: "기존 PRD `<file>` 가 약간 큼 (sub-sections N). 신규 작업이 별도 concern 이라면 `new` 권장."
-- **L2 (strong_recommend)**: reorder the menu so `refactor-split` and `split-from` precede `update`. If the user picks `update`, ask for an explicit reason (recorded in interview transcript only — not written to frontmatter or body).
-- **L3 (block)**: remove `update` from the menu entirely. Only `refactor-split`, `split-from`, `new` (separate small PRD) remain offerable.
+A change that would push the owner past `profile.max_bytes` is still an `update` of the owner; the size guard then asks for a `refactor-split` along feature areas first. Never route a rule to a new sibling because its owner is long.
 
 ### 1.4 Confirmation (mandatory)
 
 Always confirm intent and target before proceeding. Render `prd.stage1.confirmation` with:
 
 - `{domain}` — the confirmed domain name (e.g., `notice`)
-- `{intent_desc}` — lookup of the matching `prd.intent_desc.<intent>` key (`new` / `new_domain` / `update` / `refactor_split` / `split_from` / `deprecate_only`)
-- `{base_file}` — for `update` / `refactor-split` / `split-from` / `deprecate-only`: the active file being acted on. For `new` / `new-domain`: `common.placeholder.none`.
-- `{anti_monolith_summary}` — the per-PRD tier summary from §1.2.1 (rendered when the domain has ≥1 active PRD)
+- `{intent_desc}` — lookup of the matching `prd.intent_desc.<intent>` key (`new` / `new_domain` / `update` / `refactor_split` / `split_from` / `fold` / `deprecate_only`)
+- `{base_file}` — for `update` / `refactor-split` / `split-from` / `deprecate-only`: the active file being acted on; for `fold`: every file being folded, comma-joined. For `new` / `new-domain`: `common.placeholder.none`.
+- `{ownership_summary}` — the per-pitch ownership summary from §1.2.1 (rendered when the domain has ≥1 active PRD)
 
 If classification is ambiguous, ask rather than guess.
 
@@ -216,11 +205,11 @@ Skip the interview. Request a reason string. Flip the target file's `deprecated:
 
 ### 1.7 Refactor-split flow (v0.5.6+, Stage 1 only)
 
-Decomposes an oversized active PRD into N smaller PRDs **without semantic change**. Pure structural refactor.
+Splits an active PRD that covers more than one user-facing feature area into one PRD per area **without semantic change**. Pure structural refactor. The trigger is a second feature area — found by the product_lead review, or by a reader who needs only part of the pitch — or the Stage 6 size guard; never a sub-section or normative count. Each split unit is a feature area, not a `### `: one area keeps all of its stories together.
 
 #### 1.7.1 Sub-section enumeration
 
-Read the target PRD. Parse the user_stories H2 slice. Extract every `### ` sub-section as a candidate split unit. Each candidate carries:
+Read the target PRD. Parse the user_stories H2 slice. Group its `### ` sub-sections by the user-facing feature area each one serves; each group is a candidate split unit. Each candidate carries:
 
 - Sub-section title (the `### ` text)
 - The sub-section's GWT triple (if present)
@@ -237,9 +226,9 @@ Present the proposed split to the user:
 ```
 기존 PRD: 2026-04-20-foo.md (8 sub-sections, 50 normatives)
 
-분할 후보 (N = 8):
-  1. <title-1>  — 4 GWT 라인, 5 normatives, 2 edge cases, 1 no-go
-  2. <title-2>  — 3 GWT 라인, 7 normatives, 1 edge case, 0 no-gos
+분할 후보 (N = 2 기능 영역):
+  1. 주문 내역 조회 — sub-section 5개 (<title-1>, <title-2>, …), 31 normatives, 4 edge cases, 2 no-gos
+  2. 영수증 발급     — sub-section 3개 (<title-6>, <title-7>, <title-8>), 19 normatives, 2 edge cases, 1 no-go
   ...
 
 Cross-cutting (특정 sub-section 에 귀속되지 않음):
@@ -257,41 +246,16 @@ If user picks (b) or (c), iterate until boundary is confirmed.
 - **형식 선언** (RFC 2119, 라이센스, glossary 헤더 등 — 1-line declarations) → 모든 split PRD 의 top 에 자동 복사. 중복은 해롭지 않음.
 - **Behavioral cross-cutting MUSTs**: ask the user per item which sub-section owns it. If truly cross-section (no single owner), offer to extract into a separate small PRD (`<domain>-<concern>-shared.md` — same domain, separate chain).
 
-#### 1.7.4 Mechanical write-out
+#### 1.7.4 Mechanical write-out (v0.17+: copy, then delete)
 
-For each accepted sub-section, generate a small PRD file:
+Never re-type a split file. For each accepted unit:
 
-```yaml
----
-domain: <same as original>
-supersedes: <original filename>
-deprecated: false
----
+1. `cp` the original to the new path — `YYYY-MM-DD-<area-slug>.md` (date = today, slug = kebab-cased area name or user-chosen).
+2. Edit the copy's frontmatter: `supersedes: <original filename>`, `deprecated: false`, and drop `references.tickets[].covers` groups the unit no longer reflects.
+3. Delete — with Edit, one hunk at a time — every `### ` sub-section, edge-case row and no-go that belongs to another unit. Cross-cutting form declarations stay in every copy.
+4. Retitle (`# ...`) and add the one scope line to the background, e.g. "본 PRD 는 원본 `<original>.md` 의 `<area>` 부분을 분리하여 다룬다." That background line is this copy's one declared change: `changes: [{section: <background heading>, kind: modify}]`.
 
-# <derived title from sub-section>
-
-## <profile.sections[id=background].heading>
-
-(상속: 원본 Background 에서 본 sub-scope 와 무관한 단락은 생략. scope 명시
-한 줄 추가: "본 PRD 는 원본 `<original>.md` 의 `<sub-section title>` 부분을
-분리하여 다룬다.")
-
-## <profile.sections[id=user_stories].heading>
-
-### <sub-section title>
-
-(원본의 GWT + bullet-head normatives 그대로 복사)
-
-## <profile.sections[id=edge_cases].heading>
-
-(이 sub-scope 와 관련된 edge case 행만 복사)
-
-## <profile.sections[id=no_gos].heading>
-
-(이 sub-scope 와 관련된 no-go 항목만 복사 + cross-domain 항목은 그대로 상속)
-```
-
-Filename: `YYYY-MM-DD-<sub-section-slug>.md` (date = today, slug = kebab-cased sub-section title or user-chosen).
+Copying and deleting keeps every carried line byte-identical, which `validate_docs.py --supersede-diff` (§1.7.5) proves. A file assembled by retyping drifts: measured 2026-11-06 in lounge-x-spec, a split re-authored inside a batch kept 5 of 15 inherited normative lines identical.
 
 #### 1.7.5 Sanity check (instead of full 90% gate)
 
@@ -302,13 +266,15 @@ Skip the standard Stage 5 gate (this is a refactor, not new content). Run instea
 - Every original edge case row appears in at least one split file
 - Every original no-go appears in at least one split file
 
-On any failure: do NOT write any file, report the missing/duplicated items, return to §1.7.2 for re-mapping.
+Then run `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/validate_docs.py" --supersede-diff <every split file>` (all of them in one call, so they are judged as one group). It must report no undeclared change and no stale declaration.
+
+On any failure: delete the copies (nothing else was changed yet), report the missing/duplicated items or the diff's violations, return to §1.7.2 for re-mapping.
 
 #### 1.7.6 Atomic write
 
 When sanity check passes, perform in this order:
 
-1. Write all N split files (`supersedes: <original>`, `deprecated: false`)
+1. The N split files already exist (§1.7.4); §1.7.5 passed on them
 2. Flip original file's `deprecated: false` → `true` (single-line edit)
 
 If the user wants to abort after seeing the proposed write list, halt without changing any file.
@@ -325,6 +291,19 @@ When the user has both a structural refactor need AND a semantic change targetin
 2. Ask: "Stage 2 진행 (신규 변경) 하시겠습니까? Y → 다음 단계 / N → 별도 commit 가시성 확보를 위해 여기서 종료, 나중에 `/immutable:prd` 다시 호출하여 update."
 3. If Y: re-enter Stage 1.3 with intent locked to `update`, target = the specific split-out PRD that owns the user's semantic change. Proceed through Stage 2 → Stage 5 → Stage 6 normally (full 90% gate applies to this step — it IS a semantic change).
 4. If N: end. The refactor-split commit stands alone.
+
+### 1.9 Fold flow (v0.17+, Stage 1 only)
+
+Folds N active PRDs of **one domain** that describe one user-facing feature area into one PRD, **without semantic change**. It is the inverse of §1.7 and the repair for a rule area spread over sibling files — siblings that restate one another, or override one another in prose (「그 조항에 한해 … 우선한다」), which the validator now refuses. Never fold across domains: a supersede is keyed by (domain, filename) and cannot be resolved across them.
+
+1. **Pick the set.** From §1.2.1, the PRDs the feature area spans. Confirm the list with the user. Sum their sizes: a fold whose result would exceed `profile.max_bytes` is two feature areas, not one — fold fewer.
+2. **Resolve every prose override first.** Where one member outranks another's clause, the folded text states the clause as the outranking member decided, once; the overridden wording goes. Each such resolution is a declared `modify` of that section. Ask the user to confirm each one — it is a reading of the members, not a mechanical step.
+3. **Copy, then move.** `cp` the member that owns the most content to the new path; set `supersedes:` to the list of every member's filename and `deprecated: false`; merge the members' `references.tickets` records (one record per ticket — union their `covers`). Then move each other member's `### ` sub-sections, edge-case rows and no-gos into the copy with Edit, lines copied verbatim (read them with `cat`, never retype from memory). Merge the backgrounds into one and retitle: the background is a declared `modify`. Drop the sentences that only existed to point at a sibling member — they are now one file; that is a `modify` of their section.
+4. **Prove it.** `changes` lists exactly the sections steps 2-3 changed. Run `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/validate_docs.py" --supersede-diff <new file>`: it diffs the copy against the union of the members and must report no undeclared change. On failure delete the copy and loop.
+5. **Flip.** Each member's `deprecated: false` → `true` (single-line edits). Run the validator with `--strict-body` — its cross-pitch reference rules must pass for the new file.
+6. **Handoff.** Render `prd.fold.handoff`. Citations of the members elsewhere need no edit: a citation names a supersede chain, and every member's chain now ends in the fold.
+
+A semantic change to the folded area comes afterwards, as an `update` of the folded PRD — never inside the fold.
 
 ---
 
@@ -518,13 +497,11 @@ From here on the pitch is authored against the corrected text: in Stage 2 the co
      This is the authoring order for the pitch's content, not a reading order — once registered, the pitch is the reference for implementation and QA; a ticket item the pitch corrected through a disagreement is not revived. (A session on 2026-10-24 generalized this list into "ticket over pitch" at read time, which would revive exactly those corrected items.)
   2. **Confirmed Stage 1.5 summary** (the user explicitly curated context — most reliable).
   3. **Industry defaults** / Apple HIG / cited vendor docs.
-  4. **Analogous active pitches in other domains** — preferred sources are small PRDs (sub-section count ≤ `profile.sections[user_stories].max_items`). Use as structural template.
-  5. **Active pitches in the same domain** — but with tier-aware handling:
-     - Tier `pass` (under L1) — usable as both fact-source and structural template.
-     - Tier `L1` — usable as fact-source. Avoid copying its structure (it is borderline oversized).
-     - Tier `L2` / `L3` — **fact-source only, never a structural template.** Read for "this PRD says [MUST] X, ensure no contradiction" only. Do not derive sub-section count, ordering, normative density, or scope breadth from these. They are anti-pattern instances retained for backward compatibility.
+  4. **Analogous active pitches in other domains** — structural template (section order, how stories are grouped). Size is not a selection criterion.
+  5. **Active pitches in the same domain** — fact-source: "this PRD says [MUST] X, ensure no contradiction". A rule another active pitch already states is not restated in this draft: either this run is that pitch's `update`, or the draft cites the owner by path and says nothing about its rule.
 - **Forbid speculation.** When the user cannot answer or the answer is vague, record a tag in the format `<profile.gate.unresolved_tag> — <question summary>`. The tag literal comes from the active profile (one per locale). Never fill gaps with plausible-sounding content.
 - **Prefer codebase exploration over asking** when an answer is already present.
+- **A new version interviews only its change** (v0.17+, `update` and the Stage 2 of `split-from`). Before Branch A, agree the **change list** with the user — every `## ` / `### ` section the change adds, modifies or removes — and render `prd.stage6.change_list_confirmation` (`{base_files}` = the predecessor, `{change_rows}` = one `prd.stage6.change_row` per entry). The branches below then cover only those sections; every other section is carried by Stage 6's copy, byte for byte, and is never re-elicited, reworded or "tidied". A section found mid-interview to need a change is added to the list with the user's agreement, never edited silently. Stage 5 still judges the assembled whole. The list becomes the successor's `changes` frontmatter.
 
 ### Question Branches (fixed order)
 
@@ -612,7 +589,7 @@ Ask whether a feature flag is needed. If yes, capture:
 - **Initial state**: usually `hidden` → promote to `deployed` after internal validation
 - **Fallback behavior**: UX in `hidden` state
 
-Apply the **Goldilocks test**: "Can this entire feature be toggled on/off by a single flag?" If no, the pitch is too large and must be split.
+Apply the **Goldilocks test**: "Can this entire feature be toggled on/off by a single flag?" If no, the pitch spans more than one feature and must be split by feature area — the test is about what the flag covers, not about length.
 
 ---
 
@@ -668,13 +645,14 @@ Apply the checks from `profile.personas[id=customer_support].checks[]`. The prof
 
 ### Persona 3 — Product Lead
 
-Question: "Is this pitch at Feature scale?"
+Question rendered from `profile.personas[id=product_lead].question` (default, v0.17+: "Does this pitch cover exactly one user-facing feature area?").
 
-Check for:
+Apply the checks from `profile.personas[id=product_lead].checks[]`. The bundled default covers:
 - Single-flag toggleability
-- Completion within 2–6 weeks
-- Epic-level content that should be split
-- Overlap or conflict with existing active pitches
+- A second user-facing feature area — different users, screens or entry points each needing only part of the pitch. This is the defect the v0.5.6 size caps aimed at; length and story count are not evidence of it, and one area can need many stories
+- Each rule in exactly one active pitch — a rule another active pitch states is changed by that pitch's new version, never restated or overridden here
+
+A team profile below profile_schema 8 may still list "2–6 weeks" or sub-section thresholds in its `checks`; read those as the team's own wording, never as a size cap.
 
 ### Persona 4 — Quality Auditor (v0.5.3+)
 
@@ -702,7 +680,7 @@ For each finding, offer three options (rendered in the active locale via profile
 
 ## Stage 5 — 90% Completeness Gate
 
-### Checklist (8 criteria, v0.5.6+)
+### Checklist (7 criteria, v0.17+)
 
 The criteria list is sourced from `profile.gate.criteria[]` (id-keyed). Defaults below.
 
@@ -714,31 +692,16 @@ The criteria list is sourced from `profile.gate.criteria[]` (id-keyed). Defaults
 | 4 | `edge_cases_minimum` | At least 1 row with explicit handling |
 | 5 | `no_gos_minimum` | At least 1 item with reason or handoff |
 | 6 | `no_code_identifiers` | Stage 3 passed cleanly |
-| 7 | `feature_scope` | Passes the single-flag toggle test |
-| 8 | `concern_scope` | Anti-monolith — see below |
+| 7 | `feature_scope` | Passes the single-flag toggle test, and the pitch covers one user-facing feature area — the product_lead review found no second one. Length and story count are not part of it |
 
-### `concern_scope` evaluation (v0.5.6+)
-
-Compute the in-flight draft's metrics before evaluating:
-
-- `sub_sections` — count of `### ` headers under the user_stories H2 slice
-- `normative_lines` — count of bracketed-keyword lines across the entire body
-
-Compare against `profile.anti_monolith.tiers` (or derived fallback per §1.2.1):
-
-- `sub_sections > L3.sub_sections` OR `normative_lines > L3.normative_lines` → **fail** (block file generation, force `refactor-split`)
-- `sub_sections > L2.sub_sections` OR `normative_lines > L2.normative_lines` → **pass with strong-recommend warning** (criterion counts as pass; surface `prd.stage5.l2_warning` to the user)
-- `sub_sections > L1.sub_sections` OR `normative_lines > L1.normative_lines` → **pass with hint** (criterion counts as pass; surface `prd.stage5.l1_hint`)
-- otherwise → pass
-
-The criterion only fails on L3 violation. L1/L2 are warnings that do not block but are visible.
+`concern_scope` (v0.5.6-v0.16, the anti-monolith tier criterion) is retired; a team profile that still lists it is judged without it (§1.2 step 1.bis).
 
 ### Judgment
 
-- Use `profile.gate.pass_threshold` (default 7 of 8 in default-ko / default-en since v0.5.6) → proceed to Stage 6
+- Use `profile.gate.pass_threshold` (default 6 of 7 in default-ko / default-en since v0.17) → proceed to Stage 6
 - Below threshold → refuse generation; loop to the relevant branch
 - **Any `<profile.gate.unresolved_tag>` tag remains anywhere** → refuse generation regardless of count
-- **`concern_scope` failed (L3)** → refuse generation regardless of count, AND offer `refactor-split` of the in-flight draft as the recovery action
+- **`feature_scope` failed on a second feature area** → refuse generation regardless of count, AND offer to author the second area as its own pitch (or, for an existing pitch, `refactor-split`)
 - **A ticket is bound** (v0.11+) → accounting is by **ledger**, at the level of the **set** of pitches that cite the ticket — never by per-item no-gos. This pitch declares in `references.tickets[].covers` the binding groups (or in-group item numbers — the parser's `in_group`) it *reflects* — a contested item counts as reflected through its correction — and in `references.tickets[].delegates` the items it reflects in substance while the literal is owned elsewhere (copy → Figma, an identifier → the backend spec), naming the owner. A `delegates` declaration says who owns a literal; it never resolves a lint `block` hit on that item (v0.15+ — the gate ignores it), which is contested by a disagreement or acknowledged in the ledger. Items in neither belong to a sibling and need **no** no-go here: the 범위 제외 section carries at most ONE bullet saying that the rest of the Epic is owned by sibling pitches citing the same ticket, **without filenames** (an append-only list of siblings rots the moment one more is written). Group labels are copied verbatim from the parser's `bindings[].groups[].label`. Then run `requirement_contract.py coverage` over every pitch in the repo plus this draft (the §8 command, carrying the same `--binding` and `--optional-binding` flags §1.5.1 used) and refuse generation when: (1) a declared group or item is not actually reflected in the draft — render `prd.contract.unaccounted_items` with the declared-but-unreflected items; (2) the report lists `overlaps` (two pitches claim an item without `shared: true` on both sides) or `stale` (a declaration naming a binding, group or item the ticket does not have — including a claim on a section the ticket never supplied, which the report names as such). A binding listed in the report's `absent[]` binds nothing here: it is reported to the user, never silently skipped, and its unclaimed work is carried into the handoff like an `uncovered` item. `uncovered` items are the Epic's remaining gaps, not this pitch's defect: render `prd.contract.coverage_summary`, carry them into the handoff (`prd.contract.handoff_gap_line`), and refuse only when the user says this pitch is the last of the set. One sentence that genuinely spans two pitches (one item, two screens) is claimed by both with `shared: true`. The Stage 6 supersede completeness guard still applies to what the superseded pitch used to state. This is the contract's own rule ("the list is honoured in full"), not a coverage check against anything outside the ticket.
 
 ### Refusal message
@@ -746,7 +709,7 @@ The criterion only fails on L3 violation. L1/L2 are warnings that do not block b
 Render `common.gate.refusal_template` with:
 
 - `{criteria_rows}` — newline-joined per-criterion rows built from `common.gate.row_template` with `{n}` = 1..N (N = `profile.gate.total`), `{label}` = `profile.gate.criteria[i].label`, `{status}` = `common.gate.status_pass` or `common.gate.status_fail` (optionally appended with a short reason for failures in the active locale)
-- `{next_action}` — one-line actionable next step in the active locale, derived from which criteria failed (identify the failing branches by `profile.gate.criteria[i].id` and ask the user to address them). For `concern_scope` failure specifically, the next_action MUST recommend `refactor-split` (the failed draft is too large to ship as one PRD).
+- `{next_action}` — one-line actionable next step in the active locale, derived from which criteria failed (identify the failing branches by `profile.gate.criteria[i].id` and ask the user to address them). For a `feature_scope` failure on a second feature area, the next_action MUST name that area and recommend authoring it as its own PRD.
 
 ---
 
@@ -757,21 +720,27 @@ Render `common.gate.refusal_template` with:
 - **new / new-domain / update**:
   - Path: `pitches/<domain>/YYYY-MM-DD-<slug>.md`
   - `YYYY-MM-DD`: today's date (use `date +%Y-%m-%d`)
-  - `<slug>`: English kebab-case derived from the title; confirm with the user
-- **update** additionally: flip the previous active file's `deprecated: false` → `true`. Only that one line.
+  - `<slug>`: English kebab-case derived from the title; confirm with the user. An `update` usually keeps its predecessor's slug.
+- **update** additionally: the body is the predecessor's, copied — see "Mechanical supersede" below — and after the supersede diff passes, flip the previous active file's `deprecated: false` → `true`. Only that one line.
 - **deprecate-only**: flip only. No new file.
-- **refactor-split** (v0.5.6+): handled by §1.7 — N new files + flip original. Bypasses standard Stage 6 (no 90% gate, sanity check only).
+- **refactor-split** (v0.5.6+): handled by §1.7 — N copies + flip original. Bypasses standard Stage 6 (no 90% gate, sanity check and supersede diff only).
 - **split-from** (v0.5.6+): Stage 1 phase = §1.7 / §1.8; Stage 2 phase enters this section as an ordinary `update` against the relevant split-out PRD.
+- **fold** (v0.17+): handled by §1.9 — one copy superseding N + flip each. Bypasses standard Stage 6 like `refactor-split`.
 
 ### Frontmatter
 
 ```yaml
 ---
 domain: <name>
-supersedes: <previous-filename | null>
+supersedes: <previous-filename | null>   # a list of filenames for a fold (v0.17+)
 deprecated: false
+changes:                                  # v0.17+, update / refactor-split / split-from / fold only
+  - section: <## or ### heading, as written>
+    kind: modify                          # add | modify | remove
 ---
 ```
+
+**`changes`** (v0.17+) is the change list Stage 2 agreed, one entry per section — a `## ` heading names the text under it up to its first `### `, a `### ` heading names that sub-section, `# <title>` names the text before the first `## `. It is a true account in both directions: `validate_docs.py --supersede-diff` fails on a difference it does not declare and on a declaration nothing matches. Write it from the agreed list, never from the diff — a list read off the diff declares the drift it exists to catch. A `new` pitch carries no `changes`.
 
 **Requirement contract (v0.11+)** — when §1.5.1 bound a ticket, add `references.tickets` with one entry per bound ticket, copied from the parser's `source`: `tracker`, `repo`, `id`, `version`, `read_at`, `url`, `created_at` (v0.16+, quoted as the parser prints it, always — the validator applies a rule with `since` to this ticket's corrections by it, and refuses a contested ticket without it on a pitch dated within a day of the profile's earliest `since` or later; when the adapter gave none, ask the user for the ticket's creation date and record it), plus the Stage 5 ledger — `covers` (binding id → list of `{group, items?, shared?}`) and `delegates` (list of `{binding, group, items?, to, why?}`), group labels verbatim from the parser. Never copy ticket text — the tracker keeps the body at that version. `id` is the **bare** identifier as the tracker spells it (`"3755"`, `PROJ-123`) — never decorated with a repository or a `#`; the repository belongs in `repo:`. That is the string `requirement_contract.py coverage` matches on, and `validate_docs.py` refuses anything else (SCHEMA.md invariant 9): a decorated id reconciles against nothing while still satisfying the presence rule. When the run was exempted under `required`, write `references.ticket_exemption: <reason>` instead. Without the contract block, emit neither.
 
@@ -802,6 +771,18 @@ references:
           to: Figma
           why: 카드 문구의 진실 소스는 시안
 ```
+
+### Mechanical supersede (v0.17+ — `update`, and the Stage 2 of `split-from`)
+
+A new version is never written whole. Supersedes that said they inherited text unchanged drifted when the body was re-authored from the interview (lounge-x-spec, measured 2026-11-06: one kept 5 of 15 inherited normative lines identical and added a duty; another resurrected three items its parent had removed), while single-purpose supersedes made by copying stayed byte-identical outside their change. So:
+
+1. `cp <predecessor> <new path>`.
+2. Edit the copy's frontmatter: `supersedes`, `deprecated: false`, `changes` (the agreed list), and the ticket record when a ticket is bound.
+3. Edit only the sections in `changes`, one Edit per hunk, rendering new content per "Body assembly" below. Never Write the file, never re-type an unchanged line.
+4. Run the guards below, then `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/validate_docs.py" --supersede-diff <new path>`. Any undeclared change or stale declaration → render `prd.stage6.supersede_diff_failure` (`{base_files}`, `{violations}` = the tool's output), undo or confirm, and re-run. Only a clean diff lets step 5 happen.
+5. Flip the predecessor's `deprecated`.
+
+A `new` / `new-domain` pitch has no predecessor and is assembled from the template as below.
 
 ### Body assembly
 
@@ -911,12 +892,26 @@ Previously written pitches are append-only and out of scope — the guard runs o
 
 Deprecating the previous pitch removes the only active statement of everything it bound. Before writing, compare the superseded file against the draft: every `### ` sub-section and every bracketed normative of the old pitch must be (a) carried into the draft, (b) handed off to an **existing** active pitch in a no-go, or (c) listed as a gap to be closed in the same pull request by a sibling pitch that also declares `supersedes: <old file>` (fan-out is permitted — `../SCHEMA.md` "Mutability policy"). Anything else is a hole: render `prd.stage6.supersede_gap` with `{old_file}` and `{missing}` (one line per uncarried sub-section or normative) and loop to Stage 2 or Branch E. The first real run superseded the pitch that defined the reward-tab display while handing that display to a pitch that did not exist yet.
 
+### Size guard (v0.17+)
+
+Before writing (for a copy, before flipping its predecessor), measure the file in bytes (`wc -c`). Over `profile.max_bytes` (bundled 50000; a team profile without it uses the bundled value with the §1.bis annotation) → render `prd.stage6.size_over` with `{bytes}` and `{max_bytes}`, do not flip anything, and offer `refactor-split` along the pitch's user-facing feature areas. Never trim or compress content to fit. This is the only size check: below the ceiling, any length is fine. `validate_docs.py --strict-body` enforces the same ceiling in CI.
+
+### Cross-pitch reference guard (v0.17+)
+
+Scan the draft (outside fenced code) for lines that name another pitch's path (`pitches/<domain>/<file>.md`) — the pitch's own `supersedes` targets excepted:
+
+- A line that also carries a `profile.precedence_keywords` phrase (case-insensitive) is an override in prose → render `prd.stage6.precedence_prose` with `{line}`, `{keyword}` and `{target}`, and loop: the change belongs in a new version of `{target}` (§1.3), or the two pitches are one feature area (`fold`). `supersedes` is the only relation that changes another pitch's meaning. The incident this closes: a sibling outranked a baseline clause with 「그 조항에 한해 … 우선한다」; a later supersede of the baseline never saw the sentence and copied the clause back.
+- A cited path must name a pitch whose supersede chain reaches an active one. Cite the active version when writing; an older version's path still resolves (the read guard names its successor), so a citation never forces another pitch's new version.
+
+`validate_docs.py --strict-body` enforces both in CI.
+
 ### Handoff output
 
 After writing, emit a handoff message by rendering `prd.stage6.handoff` with:
 
 - `{new_file_path}` — relative path of the newly generated pitch
 - `{deprecated_line}` — for `update` intent, render `prd.stage6.deprecated_line` with `{old_file_path}` = the previous active file; for `new` / `new_domain`, substitute with an empty string
+- **Supersede diff** (v0.17+) — for `update`, add one line with the clean `--supersede-diff` command so the reviewer can re-run it, and the same command with `--base <PR base>` for CI or a pre-push hook
 - `{github_web_steps}` — render `common.handoff.github_web_steps`
 - `{cli_steps}` — render `common.handoff.cli_steps`
 - **Requirement contract (v0.11+)** — when a ticket was bound, append `prd.contract.handoff_addendum` with `{ticket_ref}`, `{version}`, `{validator_cmd}` (`python3 "${CLAUDE_PLUGIN_ROOT}/scripts/validate_docs.py" --type pitch --strict-body`) and `{drift_cmd}` (the `requirement_contract.py drift` line for this ticket, its version, and the same `--binding` / `--optional-binding` flags as §1.5.1); when ≥1 disagreement entry exists, also `prd.contract.handoff_disagreement_line` with `{disagreement_count}`, `{provisional}` and `{terminal_joined}` (the `outcome_terminal` tokens joined with `common.separator.or`) and `prd.contract.handoff_request_file` with `{path}` = the file §1.6.3 wrote; always `prd.contract.handoff_coverage_line` with `{covered}`, `{total}` and `{coverage_cmd}` (the `requirement_contract.py coverage` line over `pitches/**/*.md`, with the same flags); when the report left `uncovered` items, `prd.contract.handoff_gap_line` with `{gaps}` = one `<binding> · <group> <item> — <text>` line each — the Epic's items no pitch in the set owns yet. When §1.6.0b left (a) "item stands" differences, also `prd.contract.handoff_design_fix_line` (v0.16+) with `{fixes}` = one `<pin label> · <screen> — <aspect>: <design fact> → <item text>` line each, for the author to hand to the design team.
@@ -940,7 +935,7 @@ SLUG=$("$LH" slug)
 
 # === On success (file written, 90% gate passed) ===
 TYPE=pattern; SOURCE=user-stated; CONF=7
-KEY="pitch-<intent>-${SLUG}"   # <intent> ∈ {new, update, refactor-split, split-from, new-domain}
+KEY="pitch-<intent>-${SLUG}"   # <intent> ∈ {new, update, refactor-split, split-from, fold, new-domain}
 INSIGHT="<one sentence summarising what the pitch establishes or changes; ≤200 chars, no credentials, no instruction-like phrasing>"
 FILES='["<pitch-relative-path>"]'   # e.g. ["pitches/state/use-riverpod.md"]
 
@@ -967,14 +962,14 @@ FILES='["<pitch-relative-path>"]'   # e.g. ["pitches/state/use-riverpod.md"]
 
 1. **Never write a file that fails the 90% gate.** Do not round up.
 2. **Never advance past Stage 5 with any `<profile.gate.unresolved_tag>` tag remaining.**
-3. **Never edit an existing pitch's body.** Append-only. The only allowed in-place change is flipping `deprecated: false` → `true`.
+3. **Never edit an existing pitch's body.** Append-only. The only allowed in-place change is flipping `deprecated: false` → `true`. (Editing the fresh COPY a new version starts from is not this — it is how Stage 6 makes a new version.)
 4. **Never commit or push.** File writes only. The user owns the commit decision.
 5. **Never include code identifiers in the body.** Domain language only.
 6. **Never speculate in interview answers.** Unknown → `<profile.gate.unresolved_tag>` tag.
-7. **Never skip any stage.** Each stage has an explicit completion criterion. (Exception: §1.7 `refactor-split` is a structural refactor and bypasses Stage 2-5; it runs its own §1.7.5 sanity check instead.)
+7. **Never skip any stage.** Each stage has an explicit completion criterion. (Exception: §1.7 `refactor-split` and §1.9 `fold` are structural refactors and bypass Stage 2-5; they run their own sanity check and the supersede diff instead.)
 8. **Never ingest raw dumps from context intake.** Summarize, confirm, then use the summary.
-9. **Never derive PRD structure from an L2/L3 active pitch** (v0.5.6+). Oversized PRDs are anti-pattern instances; treat them as fact-source only when answering individual interview questions, never as templates for the new draft's shape, scope, or normative density.
-10. **Never let `update` intent target an L3 PRD** (v0.5.6+). The intent menu must remove `update` when the target is L3; only `refactor-split`, `split-from`, or `new` (separate small PRD) are offerable. Bypassing this rule perpetuates the domain-charter anti-pattern.
+9. **Never route by length or lean** (v0.17+). `update` versus `new` is decided by which active pitch states the rule (§1.3) — never by a default, a story count or the owner's size. A rule another active pitch states is changed by that pitch's new version, never restated or overridden from a sibling.
+10. **Never write a new version whole** (v0.17+). `update`, `refactor-split`, `split-from` and `fold` start from a `cp` of the predecessor and Edit only the sections in `changes`; the predecessor is flipped only after `validate_docs.py --supersede-diff` is clean. Never write a sentence that overrides another pitch (`precedence_keywords` next to its path).
 11. **Never write to the tracker** (v0.11+). Correction requests, registration comments, status updates — every outbound write is handed to the user as rendered text. The skill reads tickets; it never posts.
 12. **Never write a disagreement entry outside the profile's `requirement_contract.categories`, with a field missing, or with a terminal outcome** (v0.11+). The bundled profiles ship five — the protocol's three on content and, since v0.13, two on wording (`non_concrete`, `delegated_authority`); a team that agrees a further category with its counterpart adds it to the profile, never to this file. "A better way" is a next-list candidate, a missing field is an unfinished judgement, and a terminal outcome is a claim the skill cannot make.
 13. **Never treat a topic the ticket did not raise as a defect** (v0.11+). The contract binds the ticket's stated items only; everything else is the pitch's to decide. No coverage check against Notion, Figma, or any other source. The pinned-design cross-check (§1.6.0b, v0.16+) is not one: it reads only the designs the ticket itself pins and compares only what a binding item states — a design element no item speaks about is never a difference.
