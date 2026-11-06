@@ -1978,7 +1978,12 @@ def supersede_diff_group(
         return f"## {k[1]}" if k[0] == "##" else (f"{k[1]} / {k[2]}" if k[1] else f"### {k[2]}")
 
     def resolve(raw: str) -> tuple[tuple[str, ...] | None, str | None]:
-        """The unit a `changes[].section` names, or (None, why not)."""
+        """The unit a `changes[].section` names, or (None, why not).
+
+        `<parent> / <child>` names a `### ` under a `## `; when no such pair
+        exists the whole string is read as one heading, because a heading may
+        itself hold " / " (「결제 시점 본인 잠금 (PIN / 생체)」 — before v0.18 it
+        was split and reported as no such section)."""
         raw = raw.strip()
         if re.match(r"^#(?!#)\s", raw):
             return (TITLE_KEY,), None
@@ -1986,11 +1991,13 @@ def supersede_diff_group(
             want = [k for k in keys if k[0] == "###" and k[2] == section_key(raw)]
         elif raw.startswith("## "):
             want = [k for k in keys if k[0] == "##" and k[1] == section_key(raw)]
-        elif " / " in raw:
-            parent, _, child = raw.partition(" / ")
-            want = [k for k in keys if k[0] == "###" and k[1] == section_key(parent) and k[2] == section_key(child)]
         else:
-            want = [k for k in keys if k[0] != TITLE_KEY and k[-1] == section_key(raw)]
+            want = []
+            if " / " in raw:
+                parent, _, child = raw.partition(" / ")
+                want = [k for k in keys if k[0] == "###" and k[1] == section_key(parent) and k[2] == section_key(child)]
+            if not want:
+                want = [k for k in keys if k[0] != TITLE_KEY and k[-1] == section_key(raw)]
             if not want and section_key(raw) in succ_titles:
                 return (TITLE_KEY,), None
         if len(want) == 1:
