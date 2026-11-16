@@ -15,7 +15,9 @@
 # cannot trust, a deprecated pitch's disagreement — none buys a pass. Since
 # v0.16.0 a rule may be prospective (`since`); G9 pins that the gate judges a
 # ticket by the rules in force on its creation day, reports what it withheld,
-# and applies everything to a ticket whose creation day it cannot learn.
+# and applies everything to a ticket whose creation day it cannot learn. Since
+# v0.19 the ledger also holds `drift`'s `meaning_unchanged` entries; G10 pins
+# that the gate reads them but lets none resolve a block hit.
 #
 # The fixtures are synthetic. Ticket 4431 mirrors the SHAPE of the pilot's
 # case: one block hit, QA 4 「…시안과 일치한다」 (unpinned_oracle).
@@ -286,6 +288,22 @@ else
 since_skipped=$(q 'd["since_skipped"]')
 tickets=$(q '[(t["id"], t["created"]) for t in d["tickets"]]')
 warnings=$(q 'd["warnings"]') err=$ERR"
+fi
+
+# G10 — v0.19's `meaning_unchanged` entries share the ledger but are `drift`'s:
+# the gate reads them without a problem, never lets one resolve a block hit
+# (even at the hit's exact coordinate), and evicts one only when no active
+# pitch cites its ticket any more — no drift run would ever reach it then.
+DRIFT_4431='  - {tracker: github, repo: acme/tracker, id: "4431", pitch: pitches/bound.md, binding: qa_checklist, group: null, in_group: 4, from_version: "v0", to_version: "v1", kind: meaning_unchanged, reason: 문장만 다듬었다, decided_by: owner, date: 2026-11-16}'
+DRIFT_9999='  - {tracker: github, repo: acme/tracker, id: "9999", pitch: pitches/gone.md, binding: acceptance, group: null, in_group: 1, from_version: "v0", to_version: "v1", kind: meaning_unchanged, reason: 문장만 다듬었다, decided_by: owner, date: 2026-11-16}'
+mkledger drift.yml "$DRIFT_4431" "$DRIFT_9999"
+gate on --ledger "$RIG/drift.yml" "$RIG/pitches/bound.md"
+if [ "$RC" -eq 1 ] && [ "$(q 'd["ledger"]["problems"], d["ledger"]["entries"]')" = "([], 2)" ] \
+  && [ "$(q "$REM")" = "[('4431', 'qa_checklist', None, 4, 'unpinned_oracle')]" ] \
+  && [ "$(q '[(s["index"], s["kind"], s["pitch"], s["why"]) for s in d["stale"]]')" = "[(2, 'meaning_unchanged', 'pitches/gone.md', 'no active pitch cites that ticket')]" ]; then
+  pass "G10 meaning_unchanged entries: read cleanly, resolve no block hit, evicted only for an uncited ticket"
+else
+  fail "G10 drift entries in the gate" "rc=$RC ledger=$(q 'd["ledger"]') remaining=$(q "$REM") stale=$(q 'd["stale"]')"
 fi
 
 echo

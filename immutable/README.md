@@ -184,11 +184,18 @@ What then happens, and what deliberately does not:
   a disagreement entry or acknowledged, hit by hit, in the repo's
   `.immutable-prd/contract-acknowledgements.yml`; an acknowledgement whose
   hit is gone is stale and fails the gate. The on/off switch is the repo's.
-- **Drift** — `requirement_contract.py drift --id <id> --version <recorded> …`
-  re-reads the ticket and reports, item by item, what moved since the pitch
-  was written (exit 1), or that nothing binding did (exit 0). Where it runs —
-  a spec repo's PR check, a tracker-side bot on ticket edits — is the
-  consuming repo's decision; the plugin ships the parser and the exit codes.
+- **Drift** — `requirement_contract.py drift --id <id> --profile <profile>
+  --ledger <ledger> … <pitches>` (v0.19+) re-reads the ticket and judges every
+  active pitch citing it against the version that pitch recorded. A pitch
+  fails only for an edit to an item it owns: any edit to an item it `covers`,
+  an edit of substance to one it `delegates` (a quoted literal swapped is
+  reported, not failed); an item it does not claim is `coverage`'s business.
+  When an owned item was reworded but kept its meaning, a `meaning_unchanged`
+  entry in the ledger says so instead of a new version, and goes stale when
+  the item moves again. The single-version form (`--version <recorded>`, no
+  pitch files) is unchanged. Where it runs — a spec repo's PR check, a
+  tracker-side bot on ticket edits — is the consuming repo's decision; the
+  plugin ships the parser and the exit codes.
 - **Not in the plugin**: any clock (business-day deadlines live with the
   tracker), any write to the tracker, and any coverage check against sources
   the ticket does not name — a topic the ticket never raised is not a defect.
@@ -235,6 +242,19 @@ Before v0.6.0, the plugin shipped only the artifact-authoring skills (`prd`, `ad
 ## Ship positioning
 
 `/immutable:ship` is intentionally **minimum-viable**. It guarantees chain integrity at PR time — verifies the eng review APPROVED, auto-includes the pitch and linked ADR paths in the PR body, and guards against common ship-time mistakes (dirty tree, failing tests, protected branch). It does NOT carry cross-session learnings capture, worktree-policy enforcement, or team-specific telemetry. Teams that want those layers should add them as hooks or wrapper skills around the `/immutable:ship` invocation rather than maintaining a parallel ship path.
+
+## What v0.19.0 changed (vs. v0.18.0)
+
+- Ticket drift fails only the pitch that owns what moved. `requirement_contract.py
+  drift` takes the pitch files and judges each active citing pitch against its
+  own recorded version, through the same claim resolver as `coverage`: a copy
+  edit to an item a pitch delegated to the design passes, the same item
+  reworded fails its delegating pitch, and a pitch that owns nothing that moved
+  passes. A `meaning_unchanged` ledger entry acknowledges an owned edit that
+  kept its meaning, so a reworded sentence no longer costs a new version of
+  every citing pitch. `/immutable:prd` §1.5.2 settles those edits while the
+  author has the ticket open. `drift --version` is unchanged; consumers switch
+  their CI call to the pitch-file form. Details: [`CHANGELOG.md`](CHANGELOG.md).
 
 ## What v0.18.0 changed (vs. v0.17.0)
 

@@ -2,6 +2,67 @@
 
 All notable changes to the `immutable` plugin are documented in this file. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Version is canonically declared in `.claude-plugin/plugin.json`.
 
+## [0.19.0] — 2026-11-16
+
+On 2026-11-13 a designer edited xyzcorpsoftware/task-management#4127, an Epic four active lounge-x-spec pitches cite. Two items changed, and in both only a quoted UI string was swapped (「올바르게 다시 입력해주세요」 → 「올바른 인증번호를 입력해주세요」). The one pitch owning those items had delegated them to Figma (`delegates`, "the design is the source of truth for the copy, the pitch fixes the behaviour"), and the app already showed the new string. Even so, `drift` failed the ticket on every spec PR and main push (xyzcorpsoftware/lounge-x-spec#83). Clearing it meant superseding all four pitches, three of which own neither item. `drift` diffed every binding item and read no pitch, so it could not see who owns what. Fan-out makes this recur: several tickets there are cited by 4 to 6 active pitches. Scope was decided in the lounge-x-app session's handoff of 2026-11-16 (all of it in one minor release; the shortcut "skip delegated items" was refused because it would also pass a delegated change of substance).
+
+### Added
+
+- **`drift` takes the pitch files** — `drift --id <id> [--repo …] --binding … [--optional-binding …] --profile <profile> --ledger <ledger> <pitches…>`. Every active pitch citing the ticket is judged against **its own** recorded version (deprecated pitches are skipped). The changed items are attributed through `ledger_claims`, the resolver `coverage` now uses too:
+  - an item the pitch `covers` fails it on any edit, a quoted literal included;
+  - an item it `delegates` fails it only when the edit is more than a swapped quoted literal: of the spans the profile's `wording_strip` blanks, only quote-delimited ones count as the literal (`quoted_literals_stripped`). A literal-only edit is reported in `literal_only[]`, not failed. The same swap plus a behaviour change fails, and so does a correction written into a provenance parenthetical the lint ignores;
+  - an item it does not claim is counted as `unowned` and left to `coverage`.
+  
+  Ownership is compared as two sets, the items the pitch's claims resolve to at its recorded version and on the live ticket (`owned_changes`), with an item's identity being its binding, group and text. A numbered claim that now reaches another item because the group was reordered or renumbered is `reassigned` and fails (`coverage` cannot see it). An item moved to another group is `removed` for one owner and `added` for the other. Real edits pair by quoted-literal equality within a group, then by coordinate (`pair_changes`). Output: `verdict`, `pitches[]` (`failing[]`, `acknowledged[]`, `literal_only[]`, `unowned`, `history_available`), `version_mismatch[]` (information), `stale[]`, `profile`, `ledger`. Exit 0 / 1 / 2. Fails closed: no file given cites the ticket, a recorded body the edit log cannot produce, or no `--profile` (every delegated edit is then substance, with a warning).
+- **Ledger kind `meaning_unchanged`** in `contract-acknowledgements.yml`. Pitch P re-read the ticket at `to_version`, and one item P owns, changed since `from_version` (P's recorded version), keeps its meaning. Keys: `tracker`, `repo` (optional), `id`, `pitch` (relative, from the repository root), `binding`, `group`, `in_group` (the item at `to_version`), `from_version`, `to_version` (both quoted strings), `kind`, `reason`, `decided_by`, `date`. `drift` treats a matching entry as resolved. The entry is stale, and fails, when:
+  - P is not an active pitch citing the ticket (superseded or deprecated);
+  - `from_version` is not P's recorded version;
+  - the ticket moved past `to_version` and changed that item;
+  - no change P owns matches it any more.
+  
+  An edit elsewhere leaves it standing. Only a `modified` change can be acknowledged; a removed, added or reassigned one takes a new version. `ledger_entries` reads the new kind as strictly as the wording kinds, with its own key set (`rule` is unknown there).
+- **`/immutable:prd` §1.5.2** — after the ticket is fetched, run `drift` over every active pitch. Each owned edit a sibling has not acknowledged is put to the user as (a) meaning unchanged, which writes a `meaning_unchanged` entry in Stage 6, or (b) meaning changed, which means a new version of that sibling and a handoff line until it merges. Stage 6 also deletes stale entries, and the entries of a pitch this run supersedes. Five strings — `prd.contract.drift_check_failed`, `drift_clear`, `drift_header`, `drift_row`, `handoff_drift_supersede_line` — in ko and en (parity kept, 255 keys each).
+- Tests: `requirement_contract.test.sh` D1–D10:
+  - D1 has the #4127 shape: four pitches, one delegating, zero pitch changes;
+  - D2 delegated substance, and a delegated item moved out of its group; D3 covered edits, literal-only included; D4 added items and stale non-owners;
+  - D5 an acknowledgement resolving a change (with absolute pitch arguments too); D6 stale after a re-edit of the same item, standing after an edit elsewhere; D7 superseded pitch;
+  - D8 the single-version form unchanged, plus usage errors; D9 fail-closed cases; D10 ledger shape.
+  
+  - D11–D15 pin what an independent review of the first draft reproduced, each verified by restoring the draft's behaviour in a scratch copy (the case then fails). Four failed open:
+    - an acknowledgement resolved a look-alike change in another group (D11);
+    - an item moved between groups, numbered claims swapped by a reorder, or a duplicate sentence leaving one group escaped ownership, the last one failing the wrong pitch (D12);
+    - a correction in a stripped parenthetical passed as literal-only (D13);
+    - an acknowledgement resolved an added item (D14).
+    
+    A malformed ticket record crashed `coverage` and `gate` with a traceback (D15). `from_version` = `to_version` padded with spaces is caught too (D10).
+  
+  `requirement_contract_gate.test.sh` G10. `validate_docs_requirement_contract.test.sh` C15 now covers the new kind. Mutating the literal-only pairing, the covers-wins rule, or the re-edit staleness check each fails a D case.
+
+### Changed
+
+- `gate` reads `meaning_unchanged` entries without a problem, never lets one resolve a block hit, and evicts one only when no active pitch cites its ticket (no `drift` run would reach it then).
+- `coverage`'s claim loop moved into `ledger_claims`, unchanged in behaviour (C22–C29 pass as before).
+- `SCHEMA.md`: "Drift, and how consumers wire it" rewritten for the per-pitch form and the acknowledgement entry; invariant 9 and the shapes table name the new kind. `README.md`: the Drift bullet and a v0.19.0 summary.
+
+### Fixed
+
+- `SCHEMA.md` said `coverage` skips deprecated pitches. It reconciles whatever files it is given; consumers pass it the active ones. The sentence now says so.
+- `requirement_contract.test.sh` said it needed no PyYAML, while its coverage cases already did.
+- A ticket record whose `delegates` or `references.tickets` is not a list (`delegates: 5`) crashed `coverage` and `gate` with a traceback and exit 1. It is now a `stale` declaration (`coverage`) or a record cited by nothing, and the validator still refuses its shape.
+
+### Measured
+
+- 2026-11-16, lounge-x-spec `main` b16e124, real xyzcorpsoftware/task-management#4127 (live version `2026-11-13T09:45:44Z`), this branch's script. `drift --version 2026-09-16T05:33:03Z` exits 1 (`binding_changed`, one item added and one removed per section), which reproduces the CI failure. `drift --profile .immutable-prd/profile.yml --ledger .immutable-prd/contract-acknowledgements.yml <44 active pitches>` exits 0. Four pitches cite the ticket and all pass: `auth/2026-11-06-signup-and-login-by-phone.md` reports two `delegates` / `literal_only` changes, and the other three report 2 `unowned` each.
+- Same day, every ticket the active pitches of both pilot spec repos cite: lounge-x-spec `main` b16e124 (15 tickets) and did-spec `main` 0ab7875 (2), legacy per-version calls against one per-pitch call each. The legacy form fails 1 ticket (#4127) and the per-pitch form fails 0. No ticket that passed the legacy form fails the per-pitch form.
+
+### Migration (consumers)
+
+- Bump the CI pin to `immutable--v0.19.0`. The single-version form still behaves as before, so nothing breaks until the call changes.
+- Replace the per-version `drift --version <v>` loop with ONE call per cited ticket, carrying the same flags as `coverage` plus `--profile` and `--ledger`, over the active pitches:
+  `drift --id <id> --tracker <tracker> [--repo <repo>] --binding … [--optional-binding …] [--fetch-command …] --profile <profile> --ledger .immutable-prd/contract-acknowledgements.yml <active pitches…>`.
+  Report `pitches[].failing[]`, `stale[]` and `errors[]` on failure, and `literal_only[]` / `version_mismatch[]` as information.
+- No profile field was added: no `profile_schema` bump and no `/immutable:migrate`.
+
 ## [0.18.0] — 2026-11-06
 
 In lounge-x-app 2.3.1 the signup pitch asked for an optional birthdate and said neither how it is entered nor what happens to a wrong value. The ticket said nothing either, and the design drew a plain text field. The app took six typed digits and stored impossible dates, or the first six digits of `19900101` (fixed downstream by xyzcorpsoftware/lounge-x-spec#71 and xyzcorpsoftware/lounge-x-app#842). The pitch looked complete: its edge-case table held one-time-code error rows. Owner decision (2026-11-06): the pitch is the single source of truth for a feature, and behavior a requirement does not define is a gap to fill in the pitch, not a default the implementer picks. Fix it in the plugin, so the spec repo picks it up by bumping its pin. A pitch-level check was measured and rejected (see Measured), so the check is per input field: the pitch declares its fields, and the validator polices what is declared.
