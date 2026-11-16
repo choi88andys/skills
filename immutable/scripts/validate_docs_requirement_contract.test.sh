@@ -562,7 +562,8 @@ rm -f "$P/2026-02-16-dead-decorated.md" "$P/2026-02-17-dead-noversion.md" \
 # C15 — the acknowledgement ledger beside config.yml (v0.15) is shape-checked
 # offline with the gate's own reader: a malformed entry is a violation naming
 # the problem, a well-formed ledger (repo omitted → config default) is clean,
-# and no ledger file is simply nothing to check.
+# and no ledger file is simply nothing to check. Since v0.19 the same holds for
+# a drift entry (`kind: meaning_unchanged`), whose versions must be quoted.
 LEDGER="$REPO/.immutable-prd/contract-acknowledgements.yml"
 write_config required
 run --type pitch
@@ -571,6 +572,7 @@ cat >"$LEDGER" <<'YML'
 schema: 1
 acknowledgements:
   - {tracker: github, id: "4431", binding: qa_checklist, group: null, in_group: 4, rule: unpinned_oracle, kind: accepted_violation, reason: 규칙 이전 pitch, decided_by: owner, date: 2026-10-02}
+  - {tracker: github, id: "4431", pitch: pitches/order/2026-02-01-x.md, binding: acceptance, group: null, in_group: 1, from_version: "2026-09-08T05:25:01Z", to_version: "2026-09-09T01:00:00Z", kind: meaning_unchanged, reason: 문장만 다듬었다, decided_by: owner, date: 2026-11-16}
 YML
 run --type pitch
 GOOD=$(count); GOOD=${GOOD:-0}
@@ -578,13 +580,15 @@ cat >"$LEDGER" <<'YML'
 schema: 1
 acknowledgements:
   - {tracker: github, id: "4431", binding: qa_checklist, group: null, in_group: 0, rule: unpinned_oracle, kind: waived, reason: "", decided_by: owner, date: "2026-13-01"}
+  - {tracker: github, id: "4431", pitch: pitches/order/2026-02-01-x.md, binding: acceptance, group: null, in_group: 1, from_version: "2026-09-08T05:25:01Z", to_version: 2026-09-09T01:00:00Z, kind: meaning_unchanged, reason: 문장만 다듬었다, decided_by: owner, date: 2026-11-16}
 YML
 run --type pitch
-if [ "$GOOD" = "$BASE" ] && [ "$RC" -eq 1 ] && [ "$(count)" = "$((BASE + 1))" ] \
+if [ "$GOOD" = "$BASE" ] && [ "$RC" -eq 1 ] && [ "$(count)" = "$((BASE + 2))" ] \
   && grep -qF 'acknowledgement ledger: acknowledgements[1]:' <<<"$OUT" \
   && grep -qF '`in_group` must be a positive integer' <<<"$OUT" && grep -qF '`kind` must be one of' <<<"$OUT" \
-  && grep -qF '`date` must be YYYY-MM-DD' <<<"$OUT"; then
-  pass "C15 acknowledgement ledger: malformed entry is a violation, well-formed ledger is clean"
+  && grep -qF '`date` must be YYYY-MM-DD' <<<"$OUT" \
+  && grep -qF 'acknowledgements[2]: `to_version` must be the version coordinate as a quoted string' <<<"$OUT"; then
+  pass "C15 acknowledgement ledger: malformed entries (wording and drift kinds) are violations, well-formed ledger is clean"
 else
   fail "C15 ledger shape" "base=$BASE good=$GOOD rc=$RC
 $OUT"

@@ -610,6 +610,26 @@ strings:
 
   prd.contract.handoff_coverage_line: "- 정산: {covered}/{total} 항목이 집합 안에서 배정됨 — 다시 확인: `{coverage_cmd}`"
 
+  # v0.19+: §1.5.2 — 같은 티켓을 인용하는 형제 pitch 밑에서 티켓이 바뀐 경우.
+  prd.contract.drift_check_failed: "{ticket_ref} 가 형제 pitch 밑에서 바뀌었는지 확인하지 못했습니다: {error} — 계속 진행합니다. 스펙 레포 CI 가 같은 검사를 돌립니다."
+
+  prd.contract.drift_clear: "티켓 {ticket_ref} 는 형제 pitch {pitch_count}개가 기록한 뒤 바뀌었지만, 그들이 맡은 항목의 내용은 바뀌지 않았습니다 (위임 항목의 문구만 바뀐 것 {literal_count}건) — 새 버전이 필요한 형제 pitch 는 없습니다."
+
+  prd.contract.drift_header: |
+    티켓 {ticket_ref} 가 형제 pitch 밑에서 바뀌었습니다: 형제 pitch 가 맡은 항목 {count}개가 고쳐졌습니다. 항목마다 뜻이 바뀌었는지 알려 주세요.
+    (a) 뜻은 그대로 — 형제 pitch 는 지금 버전을 유지하고, ledger 에 확인 기록을 남깁니다
+    (b) 뜻이 바뀜 — 형제 pitch 에 새 버전이 필요합니다
+
+  prd.contract.drift_row: |
+    {n}. {pitch} · {section} · {group} {ordinal} ({claim}, {change})
+       이전: {old_text}
+       이후: {new_text}
+       제안: {proposal}
+
+  prd.contract.handoff_drift_supersede_line: |
+    - `{pitch}` 가 맡은 항목에서 티켓이 바뀌었고 뜻도 바뀌었습니다 — 그 pitch 에 새 버전이 필요합니다 (`/immutable:prd`, update). 새 버전이 머지될 때까지 drift 검사가 실패합니다:
+    {items}
+
   # ==========================================================================
   # adr skill
   # ==========================================================================
