@@ -908,6 +908,41 @@ def resolve_declaration(
     return out
 
 
+def ledger_claims(
+    entry: dict[str, Any], index: dict[tuple[str, str | None, int], dict[str, Any]],
+    absent: dict[str, str], path: str, stale: list[str],
+) -> list[tuple[tuple[str, str | None, int], dict[str, Any]]]:
+    """Every item a pitch's ticket record claims, as (item key, claim) pairs.
+
+    The ONE reading of `covers` / `delegates`, so a second reader cannot
+    disagree with `coverage` about which pitch owns an item. `index` is the
+    parse the declarations are resolved against. A claim is `{"pitch", "kind"
+    ("covers" | "delegates"), "shared"}`, plus `to` for a delegation.
+    """
+    out: list[tuple[tuple[str, str | None, int], dict[str, Any]]] = []
+    covers = entry.get("covers") or {}
+    if not isinstance(covers, dict):
+        stale.append(f"{path}: covers must be a mapping of binding id → list")
+        covers = {}
+    for binding, decls in covers.items():
+        if not isinstance(decls, list):
+            stale.append(f"{path}: covers.{binding} must be a list")
+            continue
+        for d in decls:
+            if not isinstance(d, dict) or "group" not in d:
+                stale.append(f"{path}: covers.{binding} entry must be a mapping with `group`: {d!r}")
+                continue
+            for key in resolve_declaration(index, str(binding), d.get("group"), d.get("items"), f"{path} covers.{binding}", stale, absent):
+                out.append((key, {"pitch": path, "kind": "covers", "shared": bool(d.get("shared", False))}))
+    for d in entry.get("delegates") or []:
+        if not isinstance(d, dict) or "binding" not in d or "group" not in d or not str(d.get("to") or "").strip():
+            stale.append(f"{path}: delegates entry needs `binding`, `group`, `to`: {d!r}")
+            continue
+        for key in resolve_declaration(index, str(d["binding"]), d.get("group"), d.get("items"), f"{path} delegates", stale, absent):
+            out.append((key, {"pitch": path, "kind": "delegates", "to": str(d["to"]), "shared": bool(d.get("shared", False))}))
+    return out
+
+
 def compute_coverage(
     ticket: dict[str, Any], bindings: list[tuple[str, str, bool]], pitch_paths: list[str], args: argparse.Namespace
 ) -> dict[str, Any]:
@@ -930,27 +965,11 @@ def compute_coverage(
         if entry is None:
             continue  # cites another ticket, or none — not part of this set
         n_cov = n_del = 0
-        covers = entry.get("covers") or {}
-        if not isinstance(covers, dict):
-            stale.append(f"{path}: covers must be a mapping of binding id → list")
-            covers = {}
-        for binding, decls in covers.items():
-            if not isinstance(decls, list):
-                stale.append(f"{path}: covers.{binding} must be a list")
-                continue
-            for d in decls:
-                if not isinstance(d, dict) or "group" not in d:
-                    stale.append(f"{path}: covers.{binding} entry must be a mapping with `group`: {d!r}")
-                    continue
-                for key in resolve_declaration(index, str(binding), d.get("group"), d.get("items"), f"{path} covers.{binding}", stale, absent):
-                    claims[key].append({"pitch": path, "kind": "covers", "shared": bool(d.get("shared", False))})
-                    n_cov += 1
-        for d in entry.get("delegates") or []:
-            if not isinstance(d, dict) or "binding" not in d or "group" not in d or not str(d.get("to") or "").strip():
-                stale.append(f"{path}: delegates entry needs `binding`, `group`, `to`: {d!r}")
-                continue
-            for key in resolve_declaration(index, str(d["binding"]), d.get("group"), d.get("items"), f"{path} delegates", stale, absent):
-                claims[key].append({"pitch": path, "kind": "delegates", "to": str(d["to"]), "shared": bool(d.get("shared", False))})
+        for key, claim in ledger_claims(entry, index, absent, path, stale):
+            claims[key].append(claim)
+            if claim["kind"] == "covers":
+                n_cov += 1
+            else:
                 n_del += 1
         recorded = str(entry.get("version") or "")
         if recorded != ticket["version"]:
