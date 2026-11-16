@@ -10,13 +10,17 @@ an item is or what its text is:
   * `/immutable:prd` Stage 1.5 — fetches the Epic, judges every binding item,
     and records the ticket's identity + version coordinate in the pitch.
   * A drift check (the consuming repos' CI or tracker bot) — re-reads the
-    Epic later and compares the recorded version against the live one, item
-    by item, so a requirement cannot move underneath a pitch unnoticed.
+    Epic later and compares each pitch's recorded version against the live
+    one, item by item, so a requirement cannot move underneath a pitch
+    unnoticed — and (v0.19+) fails only the pitch that owns what moved.
 
 Subcommands
   parse     read a ticket body from a file (`-` = stdin) and emit JSON
   fetch     obtain the ticket through an adapter, then parse; adds `source`
-  drift     fetch the ticket and compare it with a recorded version coordinate
+  drift     fetch the ticket and compare it with the version each citing pitch
+            recorded, failing a pitch only for a change to an item it owns
+            (v0.19+); or, with `--version` and no pitch files, with one
+            recorded version, failing on any binding change (the v0.11 form)
   coverage  fetch the ticket and reconcile the pitches that cite it: every
             binding item must be claimed by exactly one pitch (or shared by
             agreement), via the pitches' frontmatter ledgers
@@ -109,11 +113,35 @@ Output contract (`schema: 2`) — always JSON on stdout, even on failure:
                milestone, version, created_at (null when the adapter gave
                none), fetched_at, read_at
 
-`drift` adds: `recorded_version`, `current_version`, `drift` (versions
-differ), `history_available` (the recorded body could be retrieved),
-`binding_changed` (a binding item was added or removed — false when history
-proves the change touched only non-binding text), and per binding `added[]`,
-`removed[]`, `unchanged` (item texts compared as multisets).
+`drift --version` (no pitch files) adds: `recorded_version`,
+`current_version`, `drift` (versions differ), `history_available` (the
+recorded body could be retrieved), `binding_changed` (a binding item was added
+or removed — false when history proves the change touched only non-binding
+text), and per binding `added[]`, `removed[]`, `unchanged` (item texts
+compared as multisets). This form is unchanged since v0.11.
+
+`drift PITCH.md…` (v0.19+, PyYAML needed; `--profile` and `--ledger`
+optional) judges every active pitch citing the ticket against ITS recorded
+version (`compute_pitch_drift`). The changed items (`diff_items`) are
+attributed through the same resolver `coverage` uses: a pitch fails for any
+edit to an item it `covers`, for an edit to an item it `delegates` only when
+the edit is more than a quoted literal the profile's `wording_strip` blanks
+(`literal_only` — reported, not failed), and never for an item it does not
+claim (`unowned` — coverage's `uncovered[]`). A ledger entry of kind
+`meaning_unchanged` resolves one owned change without a new version (format:
+`ledger_entries`). Output: `current_version`, `drift`, `verdict`, `pitches[]`
+(path, recorded_version, drift, history_available, verdict, `failing[]`,
+`acknowledged[]` with `by`, `literal_only[]`, `unowned` count),
+`version_mismatch[]` (every pitch whose recorded version is not the live one,
+passing or not — information), `stale[]` (drift entries that no longer stand,
+each with `why`), `profile`, `ledger` (path, found, entries, problems), plus
+`source`, `absent`, `warnings`, `errors`. A change row names the item by
+`binding`, `group`, `in_group` — as it stands now, or as it stood for a
+removal — with `change` (modified | removed | added | reassigned — the
+ticket kept the item but the pitch's claim moved off or onto it),
+`literal_only` (only a swapped QUOTED literal differs), `claim` (covers |
+delegates) and both sides as `old` / `new` {group, in_group, ordinal, text}.
+Only a `modified` change can be acknowledged.
 
 `coverage` reads the ledger each pitch keeps in its frontmatter under the
 matching `references.tickets[]` entry (PyYAML needed for this subcommand
@@ -184,7 +212,8 @@ withheld rule per ticket, with its would-be hits), `remaining[]`, `stale[]` (led
 ticket was edited, the rule changed, or no active pitch cites the ticket any
 more, so an exemption cannot outlive its cause), `resolved[]`,
 `unmatched_disagreements[]`, `ledger.problems[]`. The ledger format is
-`ledger_entries`'s docstring.
+`ledger_entries`'s docstring; its `meaning_unchanged` entries are `drift`'s,
+and the gate only evicts one whose ticket no active pitch cites.
 
 `text` is the ONE canonical form every consumer compares: NFC-normalised,
 outer whitespace stripped, inner whitespace runs collapsed to a single
@@ -196,9 +225,14 @@ Exit codes
                required binding section is missing or empty (JSON still
                emitted, so the caller renders `errors` instead of guessing) ·
                2 usage or adapter error
-  drift        0 no drift, or drift proven to touch no binding item · 1 a
-               binding item changed, or the change could not be examined
-               (no history for the recorded version) · 2 usage or adapter error
+  drift        `--version`: 0 no drift, or drift proven to touch no binding
+               item · 1 a binding item changed, or the change could not be
+               examined (no history for the recorded version) · 2 usage or
+               adapter error. Pitch files: 0 every citing pitch passes and no
+               drift entry is stale · 1 a pitch has an owned change nothing
+               acknowledges, its recorded body cannot be retrieved, a drift
+               entry is stale, or no file given cites the ticket · 2 usage,
+               adapter or profile error
   gate         off: 0, nothing fetched · warn: 0 always (stderr says what would
                fail) · on: 0 nothing unresolved · 1 a remaining hit, a stale or
                malformed acknowledgement, or a cited ticket missing a required
@@ -209,8 +243,8 @@ Exit codes
                error — a rule the profile states but the script cannot
                compile is an error, never a silently weaker lint
 
-Requires python3; `coverage`, `lint` and `gate` also need PyYAML (they read YAML —
-pitch frontmatter, the profile). The default adapter needs the `gh` CLI on
+Requires python3; `coverage`, `lint`, `gate` and `drift` with pitch files also
+need PyYAML (they read YAML — pitch frontmatter, the profile, the ledger). The default adapter needs the `gh` CLI on
 PATH, authenticated for the target repo. Line numbers are 1-based and refer
 to the body as fetched (comments are blanked, not deleted, so they stay
 stable).
@@ -221,6 +255,7 @@ from __future__ import annotations
 import argparse
 import datetime as _dt
 import json
+import posixpath
 import re
 import shlex
 import shutil
@@ -822,12 +857,12 @@ def compute_drift(
 
 def load_frontmatter_yaml(path: str) -> dict[str, Any] | None:
     """A pitch's frontmatter as a mapping, or None when absent/malformed.
-    PyYAML is imported here, not at module top, so parse/fetch/drift stay
-    dependency-free."""
+    PyYAML is imported here, not at module top, so parse, fetch and the
+    single-version drift stay dependency-free."""
     try:
         import yaml  # type: ignore
     except ImportError:
-        adapter_fail("`coverage` needs PyYAML to read pitch frontmatter (pip install pyyaml)")
+        adapter_fail("reading pitch frontmatter (`coverage`, `gate`, `drift` with pitch files) needs PyYAML (pip install pyyaml)")
     try:
         text = open(path, "rb").read().decode("utf-8")
     except (OSError, UnicodeDecodeError) as exc:
@@ -842,11 +877,17 @@ def load_frontmatter_yaml(path: str) -> dict[str, Any] | None:
     return fm if isinstance(fm, dict) else None
 
 
+def ticket_records(fm: dict[str, Any]) -> list[dict[str, Any]]:
+    """The mappings under `references.tickets`, or [] when the frontmatter
+    holds none — a malformed record (a number, a string) is the validator's
+    to refuse (invariant 9), never a traceback here."""
+    refs = fm.get("references")
+    tickets = refs.get("tickets") if isinstance(refs, dict) else None
+    return [e for e in tickets if isinstance(e, dict)] if isinstance(tickets, list) else []
+
+
 def ticket_entry_for(fm: dict[str, Any], args: argparse.Namespace) -> dict[str, Any] | None:
-    refs = fm.get("references") or {}
-    for entry in (refs.get("tickets") or []) if isinstance(refs, dict) else []:
-        if not isinstance(entry, dict):
-            continue
+    for entry in ticket_records(fm):
         if str(entry.get("id")) != args.id:
             continue
         if str(entry.get("tracker", "github")) != args.tracker:
@@ -908,6 +949,47 @@ def resolve_declaration(
     return out
 
 
+def ledger_claims(
+    entry: dict[str, Any], index: dict[tuple[str, str | None, int], dict[str, Any]],
+    absent: dict[str, str], path: str, stale: list[str],
+) -> list[tuple[tuple[str, str | None, int], dict[str, Any]]]:
+    """Every item a pitch's ticket record claims, as (item key, claim) pairs.
+
+    The ONE reading of `covers` / `delegates`: `coverage` reconciles the set
+    with it and `drift` attributes changed items with it, so the two cannot
+    disagree about which pitch owns an item. `index` is the parse the
+    declarations are resolved against — the live ticket for `coverage`, and
+    for `drift` each side of the diff. A claim is `{"pitch", "kind"
+    ("covers" | "delegates"), "shared"}`, plus `to` for a delegation.
+    """
+    out: list[tuple[tuple[str, str | None, int], dict[str, Any]]] = []
+    covers = entry.get("covers") or {}
+    if not isinstance(covers, dict):
+        stale.append(f"{path}: covers must be a mapping of binding id → list")
+        covers = {}
+    for binding, decls in covers.items():
+        if not isinstance(decls, list):
+            stale.append(f"{path}: covers.{binding} must be a list")
+            continue
+        for d in decls:
+            if not isinstance(d, dict) or "group" not in d:
+                stale.append(f"{path}: covers.{binding} entry must be a mapping with `group`: {d!r}")
+                continue
+            for key in resolve_declaration(index, str(binding), d.get("group"), d.get("items"), f"{path} covers.{binding}", stale, absent):
+                out.append((key, {"pitch": path, "kind": "covers", "shared": bool(d.get("shared", False))}))
+    delegates = entry.get("delegates") or []
+    if not isinstance(delegates, list):
+        stale.append(f"{path}: delegates must be a list")
+        delegates = []
+    for d in delegates:
+        if not isinstance(d, dict) or "binding" not in d or "group" not in d or not str(d.get("to") or "").strip():
+            stale.append(f"{path}: delegates entry needs `binding`, `group`, `to`: {d!r}")
+            continue
+        for key in resolve_declaration(index, str(d["binding"]), d.get("group"), d.get("items"), f"{path} delegates", stale, absent):
+            out.append((key, {"pitch": path, "kind": "delegates", "to": str(d["to"]), "shared": bool(d.get("shared", False))}))
+    return out
+
+
 def compute_coverage(
     ticket: dict[str, Any], bindings: list[tuple[str, str, bool]], pitch_paths: list[str], args: argparse.Namespace
 ) -> dict[str, Any]:
@@ -930,27 +1012,11 @@ def compute_coverage(
         if entry is None:
             continue  # cites another ticket, or none — not part of this set
         n_cov = n_del = 0
-        covers = entry.get("covers") or {}
-        if not isinstance(covers, dict):
-            stale.append(f"{path}: covers must be a mapping of binding id → list")
-            covers = {}
-        for binding, decls in covers.items():
-            if not isinstance(decls, list):
-                stale.append(f"{path}: covers.{binding} must be a list")
-                continue
-            for d in decls:
-                if not isinstance(d, dict) or "group" not in d:
-                    stale.append(f"{path}: covers.{binding} entry must be a mapping with `group`: {d!r}")
-                    continue
-                for key in resolve_declaration(index, str(binding), d.get("group"), d.get("items"), f"{path} covers.{binding}", stale, absent):
-                    claims[key].append({"pitch": path, "kind": "covers", "shared": bool(d.get("shared", False))})
-                    n_cov += 1
-        for d in entry.get("delegates") or []:
-            if not isinstance(d, dict) or "binding" not in d or "group" not in d or not str(d.get("to") or "").strip():
-                stale.append(f"{path}: delegates entry needs `binding`, `group`, `to`: {d!r}")
-                continue
-            for key in resolve_declaration(index, str(d["binding"]), d.get("group"), d.get("items"), f"{path} delegates", stale, absent):
-                claims[key].append({"pitch": path, "kind": "delegates", "to": str(d["to"]), "shared": bool(d.get("shared", False))})
+        for key, claim in ledger_claims(entry, index, absent, path, stale):
+            claims[key].append(claim)
+            if claim["kind"] == "covers":
+                n_cov += 1
+            else:
                 n_del += 1
         recorded = str(entry.get("version") or "")
         if recorded != ticket["version"]:
@@ -992,6 +1058,411 @@ def compute_coverage(
         "shared": shared,
         "stale": stale,
         "version_mismatch": mismatch,
+        "warnings": warnings,
+        "errors": errors,
+    }
+
+
+# --------------------------------------------------------------------------
+# drift per pitch (v0.19+) — a change fails only the pitch that owns it
+# --------------------------------------------------------------------------
+
+# Quote pairs that delimit a UI literal. Drift blanks a `wording_strip` match
+# only when it is quoted (see `quoted_literals_stripped`).
+QUOTE_PAIRS = {"「": "」", "『": "』", '"': '"', "'": "'", "`": "`", "“": "”", "‘": "’", "«": "»", "‹": "›"}
+
+
+def quoted_literals_stripped(strip: list[re.Pattern[str]], text: str) -> str:
+    """`text` with every QUOTED span a `wording_strip` pattern matches blanked,
+    and nothing else.
+
+    The literal a `delegates` declaration hands elsewhere is UI copy, which
+    tickets quote. `wording_strip` also blanks spans that are not copy — the
+    bundled provenance parenthetical 「(2026-11-14 정정 — …)」 is stripped so
+    the lint does not judge it, yet a correction added in one is a change of
+    substance. So a match counts here only when its first and last characters
+    are a quote pair. A team pattern for unquoted literals is ignored, which
+    fails closed (more edits count as substance, never fewer).
+    """
+    def blank(m: re.Match[str]) -> str:
+        span = m.group(0)
+        return " " if len(span) >= 2 and QUOTE_PAIRS.get(span[0]) == span[-1] else span
+
+    for pat in strip:
+        text = pat.sub(blank, text)
+    return norm_text(text)
+
+
+def all_items(parsed: dict[str, Any]) -> list[dict[str, Any]]:
+    """Every binding item of a parse, in document order, carrying its binding
+    and the binding's position (`_b`, a sort key that never leaves this module)."""
+    return [
+        {"binding": b["id"], "_b": bi, "group": g["label"], "in_group": it["in_group"],
+         "ordinal": it["ordinal"], "text": it["text"]}
+        for bi, b in enumerate(parsed["bindings"]) for g in b["groups"] for it in g["items"]
+    ]
+
+
+def item_identity(it: dict[str, Any]) -> tuple[str, str | None, str]:
+    """An item's identity across two versions of a ticket: its binding, its
+    group and its text. Not its number — an insertion above renumbers an item
+    without changing it — and not its text alone, because the same sentence in
+    another group is another item, possibly another pitch's."""
+    return (it["binding"], it["group"], it["text"])
+
+
+def items_minus(a: list[dict[str, Any]], b: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The items of `a`, in order, whose identity `b` does not account for
+    (a multiset difference: an identity `b` holds once covers one of `a`'s)."""
+    left = Counter(item_identity(x) for x in b)
+    out: list[dict[str, Any]] = []
+    for x in a:
+        k = item_identity(x)
+        if left[k] > 0:
+            left[k] -= 1
+        else:
+            out.append(x)
+    return out
+
+
+def item_side(it: dict[str, Any] | None) -> dict[str, Any] | None:
+    return None if it is None else {k: it[k] for k in ("group", "in_group", "ordinal", "text")}
+
+
+def change_row(change: str, old: dict[str, Any] | None, new: dict[str, Any] | None, literal_only: bool) -> dict[str, Any]:
+    """One changed item. `group` / `in_group` are the coordinate an
+    acknowledgement names: the item as it stands now, or — for a removal,
+    which has no "now" — as it stood before. When either side carries a pitch's
+    claim, `claim` says how that pitch owns it (`covers` wins)."""
+    side = new if new is not None else old
+    row: dict[str, Any] = {
+        "binding": side["binding"], "change": change, "literal_only": literal_only,
+        "group": side["group"], "in_group": side["in_group"], "old": item_side(old), "new": item_side(new),
+    }
+    claims = {x.get("claim") for x in (old, new) if x is not None} - {None}
+    if claims:
+        row["claim"] = "covers" if "covers" in claims else "delegates"
+    return row
+
+
+def row_order(row_and_items: tuple[dict[str, Any], dict[str, Any]]) -> tuple[int, int]:
+    _, it = row_and_items
+    return (it["_b"], it["ordinal"])
+
+
+def pair_changes(
+    lost: list[dict[str, Any]], gained: list[dict[str, Any]], strip: list[re.Pattern[str]],
+) -> list[tuple[dict[str, Any], dict[str, Any]]]:
+    """Items gone from one side and items new on the other → (change row, the
+    item it sorts by) pairs; callers sort with `row_order`.
+
+    Paired in two passes:
+
+      1. the same binding and group, and equal once the quoted literals are
+         blanked (`quoted_literals_stripped`) — the same sentence with only a
+         UI string swapped: `modified`, `literal_only: true`. This is what lets
+         a copy edit to an item a pitch delegated to the design pass, while
+         the same item reworded fails. Never across groups: a sentence that
+         left its group is a structural edit, and pairing it with a look-alike
+         elsewhere would pass the removal of a delegated item as a copy edit;
+      2. the same coordinate (binding, group, in_group) — the item reworded in
+         place: `modified`, `literal_only: false`.
+
+    What is left is `removed` (old side only) or `added` (new side only).
+    Without strip patterns pass 1 pairs nothing, so every edit is a change of
+    substance — the fail-closed reading.
+    """
+    lost, gained = list(lost), list(gained)
+    rows: list[tuple[dict[str, Any], dict[str, Any]]] = []
+    for literal_only, same in (
+        (True, lambda r, a: (r["binding"], r["group"]) == (a["binding"], a["group"])
+         and quoted_literals_stripped(strip, r["text"]) == quoted_literals_stripped(strip, a["text"])),
+        (False, lambda r, a: (r["binding"], r["group"], r["in_group"]) == (a["binding"], a["group"], a["in_group"])),
+    ):
+        for r in list(lost):
+            a = next((a for a in gained if same(r, a)), None)
+            if a is not None:
+                lost.remove(r)
+                gained.remove(a)
+                rows.append((change_row("modified", r, a, literal_only), a))
+    rows += [(change_row("removed", r, None, False), r) for r in lost]
+    rows += [(change_row("added", None, a, False), a) for a in gained]
+    return rows
+
+
+def diff_items(old: dict[str, Any], new: dict[str, Any], strip: list[re.Pattern[str]]) -> list[dict[str, Any]]:
+    """Every binding item that differs between two parses of one ticket.
+
+    Items are compared by identity — binding, group, text (`item_identity`) —
+    as multisets, so an item renumbered inside its group is no change, while
+    one that moved to another group is removed from the first and added to
+    the second. The rest is paired by `pair_changes`.
+    """
+    o, n = all_items(old), all_items(new)
+    return [row for row, _ in sorted(pair_changes(items_minus(o, n), items_minus(n, o), strip), key=row_order)]
+
+
+def claim_kinds(claims: list[tuple[tuple[str, str | None, int], dict[str, Any]]]) -> dict[tuple[str, str | None, int], str]:
+    """Item key → how ONE pitch claims it. `covers` wins over `delegates`: a
+    pitch that owns the literal too is held to every edit of it."""
+    out: dict[tuple[str, str | None, int], str] = {}
+    for key, claim in claims:
+        if out.get(key) != "covers":
+            out[key] = claim["kind"]
+    return out
+
+
+def owned_items(parsed: dict[str, Any], entry: dict[str, Any], path: str, stale: list[str]) -> list[dict[str, Any]]:
+    """The items of `parsed` a pitch's ticket record claims, each with `claim`."""
+    absent = {row["id"]: row["why"] for row in parsed["absent"]}
+    kinds = claim_kinds(ledger_claims(entry, item_index(parsed), absent, path, stale))
+    return [
+        {**it, "claim": kinds[(it["binding"], it["group"], it["in_group"])]}
+        for it in all_items(parsed) if (it["binding"], it["group"], it["in_group"]) in kinds
+    ]
+
+
+def owned_changes(
+    old: dict[str, Any], new: dict[str, Any], owned_old: list[dict[str, Any]], owned_new: list[dict[str, Any]],
+    strip: list[re.Pattern[str]],
+) -> list[dict[str, Any]]:
+    """What changed in the items ONE pitch owns, between its recorded version
+    (`old`, claims `owned_old`) and the live ticket (`new`, `owned_new`).
+
+    The pitch owned a set of requirements when it was written and owns a set
+    now — its claims resolved on each side, the live side being what
+    `coverage` reads. Only a difference between the two sets concerns it.
+    An item it owned that the ticket still has, unchanged in its group, but
+    that its claim no longer reaches — a numbered claim after the group was
+    reordered or renumbered — and an item its claim now reaches that the
+    ticket already had, are `reassigned`: the ticket did not change them, the
+    claim moved. The remaining differences are real edits, paired by
+    `pair_changes`.
+    """
+    old_items, new_items = all_items(old), all_items(new)
+    old_ids = Counter(item_identity(x) for x in old_items)
+    new_ids = Counter(item_identity(x) for x in new_items)
+    lost = items_minus(owned_old, owned_new)
+    gained = items_minus(owned_new, owned_old)
+    # Still on the ticket, in the same group: no occurrence of a lost item was
+    # removed, no occurrence of a gained item was added.
+    lost_kept = [x for x in lost if new_ids[item_identity(x)] >= old_ids[item_identity(x)]]
+    gained_kept = [x for x in gained if old_ids[item_identity(x)] >= new_ids[item_identity(x)]]
+
+    def found(items: list[dict[str, Any]], it: dict[str, Any]) -> dict[str, Any]:
+        return next(x for x in items if item_identity(x) == item_identity(it))
+
+    rows = [(change_row("reassigned", x, found(new_items, x), False), x) for x in lost_kept]
+    rows += [(change_row("reassigned", found(old_items, x), x, False), x) for x in gained_kept]
+    rows += pair_changes(items_minus(lost, lost_kept), items_minus(gained, gained_kept), strip)
+    return [row for row, _ in sorted(rows, key=row_order)]
+
+
+def drift_strip(profile_path: str | None) -> tuple[list[re.Pattern[str]], dict[str, Any], list[str]]:
+    """The profile's `wording_strip`, read as `lint` reads it (same compiler,
+    same bundled fallback for a profile that predates `wording_rules`)."""
+    if profile_path is None:
+        return [], {"path": None, "fallback": None}, [
+            "no --profile: wording_strip is unknown, so every change to a delegated item is judged "
+            "a change of substance"
+        ]
+    compiled, meta, _ = lint_rules(profile_path)
+    warnings: list[str] = []
+    if meta["fallback"]:
+        warnings.append(
+            f"the profile has no requirement_contract.wording_rules — its wording rules, and its "
+            f"wording_strip where it has none, are read from the bundled {Path(meta['fallback']).name}, as `lint` reads them"
+        )
+    if not compiled["strip"]:
+        warnings.append("the profile's wording_strip is empty — every change to a delegated item is judged a change of substance")
+    return compiled["strip"], {"path": profile_path, "fallback": meta["fallback"]}, warnings
+
+
+def load_ledger(path: str | None, default_repo: str | None, missing_note: str) -> tuple[list[dict[str, Any]], list[str], dict[str, Any], list[str]]:
+    """(entries, problems, info, warnings) for `--ledger`; absent flag or file = no entries."""
+    info: dict[str, Any] = {"path": path, "found": False, "entries": 0}
+    if not path:
+        return [], [], info, []
+    if not Path(path).is_file():
+        return [], [], info, [f"ledger {path} not found — {missing_note}"]
+    info["found"] = True
+    entries, problems = ledger_entries(load_yaml_file(path, "ledger"), default_repo)
+    info["entries"] = len(entries)
+    return entries, problems, info, []
+
+
+def compute_pitch_drift(
+    ticket: dict[str, Any], bindings: list[tuple[str, str, bool]], pitch_paths: list[str],
+    args: argparse.Namespace, strip: list[re.Pattern[str]], acks: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Judge every active pitch citing the ticket against ITS recorded version.
+
+    A pitch fails only for a change to an item it owns (`owned_changes`), read
+    through the same resolver `coverage` uses (`ledger_claims`): an item it
+    `covers` fails on any edit; an item it `delegates` — substance reflected,
+    literal owned elsewhere — fails only when the edit is more than a swapped
+    quoted literal (`literal_only` false); a literal-only edit is reported,
+    not failed. A `reassigned` item (its claim now reaches another item) fails
+    whatever the claim. A change to an item the pitch does not own is counted
+    as `unowned` and left to `coverage` (`uncovered[]`).
+
+    `acks` are the ledger's `meaning_unchanged` entries. One resolves an owned
+    `modified` change when it names this pitch, `from_version` is the pitch's
+    recorded version, and its coordinate at `to_version` names an item that is
+    still in that group, unchanged, on the live ticket and is the change's new
+    side. Only a modified item has a meaning to keep: an added, removed or
+    reassigned one needs a new version. An entry is stale — and fails like a
+    stale wording acknowledgement — when its pitch is not an active pitch
+    citing the ticket among the files given, when it starts from another
+    version, when the ticket moved past `to_version` and changed that item,
+    or when no change the pitch owns matches it.
+    """
+    current = parse_body(ticket["body"], bindings)
+    live = ticket["version"]
+    warnings: list[str] = list(current["warnings"]) + [
+        f"{e} — `coverage` reports it" for e in current["errors"]
+    ]
+    errors: list[str] = []
+    parsed_at: dict[str, dict[str, Any] | None] = {live: current}
+    diffs: dict[str, list[dict[str, Any]]] = {}
+
+    def parse_version(version: str) -> dict[str, Any] | None:
+        if version not in parsed_at:
+            body = next((h["body"] for h in ticket["history"] if h["version"] == version), None)
+            parsed_at[version] = None if body is None else parse_body(body, bindings)
+        return parsed_at[version]
+
+    live_ids = Counter(item_identity(x) for x in all_items(current))
+    note = " (the edit log was longer than one page)" if ticket.get("history_truncated") else ""
+
+    def new_identity(c: dict[str, Any]) -> tuple[str, str | None, str] | None:
+        return (c["binding"], c["new"]["group"], c["new"]["text"]) if c["new"] else None
+
+    rows: list[dict[str, Any]] = []
+    owned: dict[Path, dict[str, Any]] = {}  # resolved path → the pitch's row + its pending changes
+    for path in pitch_paths:
+        fm = load_frontmatter_yaml(path)
+        if fm is None:
+            warnings.append(f"{path}: no readable frontmatter; skipped")
+            continue
+        if fm.get("deprecated") is True:
+            continue  # a superseded pitch's record is a snapshot; its ticket is free to move
+        entry = ticket_entry_for(fm, args)
+        if entry is None:
+            continue
+        if Path(path).resolve() in owned:
+            continue  # the same file passed twice
+        recorded = str(entry.get("version") or "")
+        row: dict[str, Any] = {
+            "path": path, "recorded_version": recorded, "drift": recorded != live,
+            "history_available": True, "verdict": "pass",
+            "failing": [], "acknowledged": [], "literal_only": [], "unowned": 0,
+        }
+        rows.append(row)
+        state: dict[str, Any] = {"row": row, "pending": [], "recorded": recorded}
+        owned[Path(path).resolve()] = state
+        if recorded == live:
+            continue
+        old = parse_version(recorded)
+        if old is None:
+            row["history_available"] = False
+            warnings.append(
+                f"{path}: no body is available for recorded version {recorded!r}{note}; "
+                f"cannot tell which items changed — re-read the ticket"
+            )
+            continue
+        old_stale: list[str] = []
+        owned_old = owned_items(old, entry, path, old_stale)
+        owned_new = owned_items(current, entry, path, [])  # live staleness is coverage's
+        for msg in old_stale:
+            warnings.append(f"at its recorded version {recorded}: {msg} — changes to that item cannot be attributed")
+        for c in owned_changes(old, current, owned_old, owned_new, strip):
+            if c["claim"] == "delegates" and c["literal_only"]:
+                row["literal_only"].append(c)
+            else:
+                state["pending"].append(c)
+        mine = {item_identity(x) for x in owned_old + owned_new}
+        if recorded not in diffs:
+            diffs[recorded] = diff_items(old, current, strip)
+        row["unowned"] = sum(
+            1 for c in diffs[recorded]
+            if not ({(c["binding"], s["group"], s["text"]) for s in (c["old"], c["new"]) if s} & mine)
+        )
+
+    stale: list[dict[str, Any]] = []
+    for a in acks:
+        if a["tracker"] != args.tracker or a["id"] != args.id:
+            continue
+        if args.repo and a["repo"] and a["repo"] != args.repo:
+            continue
+        state = owned.get(Path(a["pitch"]).resolve())
+        why: str | None = None
+        if state is None:
+            why = "the pitch is not an active pitch citing this ticket among the files given (superseded, deprecated, or not passed)"
+        elif a["from_version"] != state["recorded"]:
+            why = f"from_version is not the version the pitch recorded ({state['recorded']})"
+        elif not state["row"]["history_available"]:
+            continue  # the pitch fails as unproven; an entry is not judged on missing data
+        else:
+            tv = parse_version(a["to_version"])
+            x = item_index(tv).get((a["binding"], a["group"], a["in_group"])) if tv is not None else None
+            ident = (a["binding"], a["group"], x["text"]) if x is not None else None
+            if tv is None:
+                why = "no body is available for to_version — what was acknowledged cannot be read"
+            elif x is None:
+                why = "the coordinate names no item at to_version"
+            elif not live_ids[ident]:
+                why = "the ticket moved past to_version and changed that item"
+            else:
+                row = state["row"]
+                named = [c for c in state["pending"] if new_identity(c) == ident]
+                modified = [c for c in named if c["change"] == "modified"]
+                if modified:
+                    state["pending"].remove(modified[0])
+                    row["acknowledged"].append({**modified[0], "by": f"acknowledgements[{a['index']}]"})
+                    continue
+                spare = [c for c in row["acknowledged"] + row["literal_only"] if new_identity(c) == ident]
+                if named:
+                    why = (
+                        f"the change it names is `{named[0]['change']}` — only a modified item keeps a meaning "
+                        f"to acknowledge; an added or reassigned one needs a new version of the pitch"
+                    )
+                elif spare:
+                    warnings.append(
+                        f"acknowledgements[{a['index']}] is redundant: "
+                        + (f"{spare[0]['by']} already acknowledges that change" if "by" in spare[0]
+                           else "a literal-only change to a delegated item passes without one")
+                    )
+                    continue
+                else:
+                    why = "no change this pitch owns matches it (the edit was reverted, or the pitch does not own the item)"
+        stale.append(ledger_row(a) | {"why": why})
+
+    for state in owned.values():
+        row = state["row"]
+        row["failing"] = state["pending"]
+        if row["failing"] or not row["history_available"]:
+            row["verdict"] = "fail"
+    if not rows:
+        errors.append(
+            f"none of the {len(pitch_paths)} pitch file(s) given is an active pitch citing this ticket — "
+            f"nothing was judged, and a drift check that judges nothing is not a pass"
+        )
+    failing = [r for r in rows if r["verdict"] == "fail"]
+    return {
+        "schema": SCHEMA,
+        "source": None,
+        "current_version": live,
+        "drift": any(r["drift"] for r in rows),
+        "verdict": "fail" if (failing or stale or errors) else "pass",
+        "pitches": rows,
+        "version_mismatch": [
+            {"pitch": r["path"], "recorded_version": r["recorded_version"], "current_version": live,
+             "owned_changes": len(r["failing"]) + len(r["acknowledged"]) + len(r["literal_only"]), "verdict": r["verdict"]}
+            for r in rows if r["drift"]
+        ],
+        "stale": stale,
+        "absent": current["absent"],
         "warnings": warnings,
         "errors": errors,
     }
@@ -1503,9 +1974,19 @@ def run_lint(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
 
 LEDGER_FILENAME = "contract-acknowledgements.yml"
 LEDGER_SCHEMA = 1
+# Wording acknowledgements: each lets ONE lint block hit stand (`gate`).
 LEDGER_KINDS = ("accepted_violation", "false_positive")
 LEDGER_KEYS = ("tracker", "repo", "id", "binding", "group", "in_group", "rule", "kind", "reason", "decided_by", "date")
 LEDGER_REQUIRED = tuple(k for k in LEDGER_KEYS if k != "repo")
+# Drift acknowledgements (v0.19+): a pitch re-read a moved ticket and ONE item
+# it owns kept its meaning (`drift` with pitch files).
+DRIFT_ACK_KIND = "meaning_unchanged"
+DRIFT_ACK_KEYS = (
+    "tracker", "repo", "id", "pitch", "binding", "group", "in_group",
+    "from_version", "to_version", "kind", "reason", "decided_by", "date",
+)
+DRIFT_ACK_REQUIRED = tuple(k for k in DRIFT_ACK_KEYS if k != "repo")
+ALL_LEDGER_KINDS = LEDGER_KINDS + (DRIFT_ACK_KIND,)
 GATE_MODES = ("off", "warn", "on")
 # `### <tracker> <repo>#<id> · <binding heading> · [<group> ]<in_group>` — the
 # disagreement entry header /immutable:prd writes; an ungrouped item has no
@@ -1529,10 +2010,22 @@ def ledger_entries(data: Any, default_repo: str | None) -> tuple[list[dict[str, 
     `reason`, `decided_by`, `date`. `repo` may be omitted for the config's
     default repository, as in a pitch's ticket record.
 
-    The ONE reader of the file: `gate` subtracts the entries from the live
-    block hits, `validate_docs.py` checks the shape offline. Strict on
-    purpose — an unknown key is a problem, because a typo in a coordinate key
-    would otherwise drop the coordinate and silently widen the exemption.
+    Since v0.19 a second kind shares the file. `kind: meaning_unchanged` says
+    that pitch P re-read the ticket at `to_version` and that ONE item P owns,
+    changed since P's recorded version (`from_version`), keeps its meaning —
+    so the edit need not cost P a new version. It carries `pitch` (the pitch
+    file's path from the repository root, relative, as the pitch set is passed
+    to `drift`) and the two versions instead of `rule`; `binding`, `group`,
+    `in_group` name the item as it stands at `to_version`. Both versions must
+    be strings: an unquoted YAML timestamp parses into a date-time that equals
+    no tracker coordinate. `drift` resolves these entries; `gate` ignores them
+    except to evict one whose ticket no active pitch cites.
+
+    The ONE reader of the file: `gate` subtracts the wording entries from the
+    live block hits, `drift` applies the drift entries, `validate_docs.py`
+    checks the shape offline. Strict on purpose — an unknown key for the
+    entry's kind is a problem, because a typo in a coordinate key would
+    otherwise drop the coordinate and silently widen the exemption.
     """
     if data is None:
         return [], []
@@ -1560,11 +2053,13 @@ def ledger_entries(data: Any, default_repo: str | None) -> tuple[list[dict[str, 
         if not isinstance(e, dict):
             problems.append(f"{where} must be a mapping")
             continue
+        drift_ack = e.get("kind") == DRIFT_ACK_KIND
+        keys, required = (DRIFT_ACK_KEYS, DRIFT_ACK_REQUIRED) if drift_ack else (LEDGER_KEYS, LEDGER_REQUIRED)
         bad: list[str] = []
-        unknown = sorted(str(k) for k in set(e) - set(LEDGER_KEYS))
+        unknown = sorted(str(k) for k in set(e) - set(keys))
         if unknown:
-            bad.append(f"unknown key(s) {unknown}")
-        missing = [k for k in LEDGER_REQUIRED if k not in e]
+            bad.append(f"unknown key(s) {unknown}" + (f" for kind {DRIFT_ACK_KIND}" if drift_ack else ""))
+        missing = [k for k in required if k not in e]
         if missing:
             bad.append(f"missing {missing}")
         if "tracker" in e and not text(e["tracker"]):
@@ -1585,8 +2080,8 @@ def ledger_entries(data: Any, default_repo: str | None) -> tuple[list[dict[str, 
         n = e.get("in_group")
         if "in_group" in e and not (isinstance(n, int) and not isinstance(n, bool) and n > 0):
             bad.append(f"`in_group` must be a positive integer, got {n!r}")
-        if "kind" in e and e["kind"] not in LEDGER_KINDS:
-            bad.append(f"`kind` must be one of {list(LEDGER_KINDS)}, got {e['kind']!r}")
+        if "kind" in e and e["kind"] not in ALL_LEDGER_KINDS:
+            bad.append(f"`kind` must be one of {list(ALL_LEDGER_KINDS)}, got {e['kind']!r}")
         for key in ("reason", "decided_by"):
             if key in e and not text(e[key]):
                 bad.append(f"`{key}` must be a non-empty string")
@@ -1596,18 +2091,43 @@ def ledger_entries(data: Any, default_repo: str | None) -> tuple[list[dict[str, 
                 date = date if isinstance(date, _dt.date) else _dt.date.fromisoformat(str(date))
             except ValueError:
                 bad.append(f"`date` must be YYYY-MM-DD, got {e['date']!r}")
+        pitch = e.get("pitch")
+        if drift_ack and "pitch" in e and not (
+            text(pitch) and not pitch.startswith("/") and ".." not in pitch.split("/") and pitch.endswith(".md")
+        ):
+            bad.append(f"`pitch` must be the pitch file's relative path from the repository root, got {pitch!r}")
+        for key in ("from_version", "to_version") if drift_ack else ():
+            if key in e and not text(e[key]):
+                bad.append(
+                    f"`{key}` must be the version coordinate as a quoted string, got {e[key]!r} — YAML reads "
+                    f"an unquoted timestamp as a date-time, which equals no tracker coordinate"
+                )
+        if drift_ack and text(e.get("from_version")) and text(e.get("to_version")) \
+                and e["from_version"].strip() == e["to_version"].strip():
+            bad.append("`from_version` and `to_version` are the same version — nothing moved between them")
         if bad:
             problems.append(f"{where}: " + "; ".join(bad))
             continue
         entry = {
             "index": i, "tracker": e["tracker"].strip(), "repo": repo or default_repo, "id": tid,
             "binding": e["binding"], "group": None if group is None else norm_text(group),
-            "in_group": n, "rule": e["rule"], "kind": e["kind"], "reason": e["reason"].strip(),
+            "in_group": n, "kind": e["kind"], "reason": e["reason"].strip(),
             "decided_by": e["decided_by"].strip(), "date": date.isoformat(),
         }
-        key = ledger_key(entry)
+        if drift_ack:
+            entry |= {
+                "pitch": posixpath.normpath(pitch.strip()),
+                "from_version": e["from_version"].strip(), "to_version": e["to_version"].strip(),
+            }
+        else:
+            entry["rule"] = e["rule"]
+        key = drift_ack_key(entry) if drift_ack else ledger_key(entry)
         if key in seen:
-            problems.append(f"{where}: same coordinate and rule as acknowledgements[{seen[key]}]")
+            problems.append(
+                f"{where}: same "
+                + ("pitch, versions and coordinate" if drift_ack else "coordinate and rule")
+                + f" as acknowledgements[{seen[key]}]"
+            )
             continue
         seen[key] = i
         entries.append(entry)
@@ -1616,6 +2136,19 @@ def ledger_entries(data: Any, default_repo: str | None) -> tuple[list[dict[str, 
 
 def ledger_key(row: dict[str, Any]) -> tuple[Any, ...]:
     return (row["tracker"], row["repo"], row["id"], row["binding"], row["group"], row["in_group"], row["rule"])
+
+
+def drift_ack_key(row: dict[str, Any]) -> tuple[Any, ...]:
+    return (
+        DRIFT_ACK_KIND, row["tracker"], row["repo"], row["id"], row["pitch"],
+        row["from_version"], row["to_version"], row["binding"], row["group"], row["in_group"],
+    )
+
+
+def ledger_row(entry: dict[str, Any]) -> dict[str, Any]:
+    """A ledger entry as `stale[]` prints it: its index plus its own kind's keys."""
+    keys = DRIFT_ACK_KEYS if entry["kind"] == DRIFT_ACK_KIND else LEDGER_KEYS
+    return {k: entry[k] for k in ("index", *keys)}
 
 
 def disagreement_titles(text: str, heading: str) -> list[str]:
@@ -1683,17 +2216,11 @@ def compute_gate(parser: argparse.ArgumentParser, args: argparse.Namespace) -> t
             "entry is read, so no block hit is resolved by one"
         )
 
-    ledger_info: dict[str, Any] = {"path": args.ledger, "found": False, "entries": 0}
-    entries: list[dict[str, Any]] = []
-    problems: list[str] = []
-    if args.ledger:
-        if Path(args.ledger).is_file():
-            ledger_info["found"] = True
-            entries, problems = ledger_entries(load_yaml_file(args.ledger, "ledger"), args.repo)
-            ledger_info["entries"] = len(entries)
-        else:
-            warnings.append(f"ledger {args.ledger} not found — no hit is acknowledged")
-    ledger = {ledger_key(e): e for e in entries}
+    entries, problems, ledger_info, ledger_warnings = load_ledger(args.ledger, args.repo, "no hit is acknowledged")
+    warnings.extend(ledger_warnings)
+    # Only wording entries resolve a block hit; a `meaning_unchanged` entry
+    # speaks about drift and is `drift`'s to apply.
+    ledger = {ledger_key(e): e for e in entries if e["kind"] in LEDGER_KINDS}
 
     # The set: active pitches (not `deprecated: true`) and the tickets they cite.
     cited: dict[tuple[str, str | None, str], list[str]] = {}
@@ -1706,10 +2233,9 @@ def compute_gate(parser: argparse.ArgumentParser, args: argparse.Namespace) -> t
             continue
         if fm.get("deprecated") is True:
             continue
-        refs = fm.get("references") or {}
         own: set[tuple[str, str | None, str]] = set()
-        for entry in (refs.get("tickets") or []) if isinstance(refs, dict) else []:
-            if not isinstance(entry, dict) or entry.get("id") is None:
+        for entry in ticket_records(fm):
+            if entry.get("id") is None:
                 continue
             tracker = str(entry.get("tracker") or "github")
             if tracker != args.tracker:
@@ -1794,19 +2320,24 @@ def compute_gate(parser: argparse.ArgumentParser, args: argparse.Namespace) -> t
                 row["remaining"] += 1
                 remaining.append({**hit, "cited_by": cited[key]})
 
-    # Eviction: an acknowledgement stands only while its hit does.
+    # Eviction: an acknowledgement stands only while its hit does. A drift
+    # entry is evicted here only for a ticket nobody cites any more — no
+    # `drift` run would ever reach it; while the ticket is cited, `drift` judges
+    # it against the pitch it names.
     stale: list[dict[str, Any]] = []
     for e in entries:
         tkey = (e["tracker"], e["repo"], e["id"])
         if tkey not in cited:
             why = "no active pitch cites that ticket"
+        elif e["kind"] == DRIFT_ACK_KIND:
+            continue
         elif tkey not in checked:
             continue  # the fetch failed; reported as an error, not judged stale
         elif ledger_key(e) not in live_block:
             why = "the live ticket has no block hit with that coordinate and rule (ticket edited, or rule changed)"
         else:
             continue
-        stale.append({k: e[k] for k in ("index", *LEDGER_KEYS)} | {"why": why})
+        stale.append(ledger_row(e) | {"why": why})
 
     failing = bool(remaining or stale or problems or errors)
     result = {
@@ -1964,9 +2495,30 @@ def run(argv: list[str] | None = None) -> int:
     add_ticket(p_fetch)
     add_common(p_fetch)
 
-    p_drift = sub.add_parser("drift", help="compare the live ticket with a recorded version coordinate")
+    p_drift = sub.add_parser(
+        "drift", help="compare the live ticket with the version each citing pitch recorded (or with one recorded version)",
+    )
     add_ticket(p_drift)
-    p_drift.add_argument("--version", required=True, metavar="RECORDED", help="the version coordinate the pitch recorded")
+    p_drift.add_argument(
+        "--version", metavar="RECORDED",
+        help="single-version form: the version coordinate a pitch recorded; any binding item added or removed "
+             "since fails. Omit it when pitch files are given",
+    )
+    p_drift.add_argument(
+        "--profile", metavar="PROFILE.yml",
+        help="with pitch files: the active profile; its wording_strip decides whether an edit to a delegated item "
+             "is literal-only (absent = every edit is substance)",
+    )
+    p_drift.add_argument(
+        "--ledger", metavar="LEDGER.yml",
+        help=f"with pitch files: the acknowledgement ledger (conventionally .immutable-prd/{LEDGER_FILENAME}); "
+             f"its {DRIFT_ACK_KIND} entries resolve owned changes",
+    )
+    p_drift.add_argument(
+        "pitches", nargs="*", metavar="PITCH.md",
+        help="pitch files: every active one citing the ticket is judged against its own recorded version, "
+             "on the items it covers or delegates",
+    )
     add_common(p_drift)
 
     p_cov = sub.add_parser("coverage", help="reconcile the pitches citing the ticket against its binding items")
@@ -2036,8 +2588,46 @@ def run(argv: list[str] | None = None) -> int:
         emit(result, args.compact)
         return 1 if result["errors"] else 0
 
+    pitch_drift: dict[str, Any] | None = None
+    if args.command == "drift":
+        # Usage first, then the profile and ledger: neither a malformed call nor
+        # an untrustworthy rule set gets as far as fetching.
+        if args.pitches:
+            if args.version is not None:
+                parser.error(
+                    "--version is the single-version form; with pitch files each pitch's own recorded "
+                    "version is compared — drop one of them"
+                )
+            strip, profile_meta, drift_warnings = drift_strip(args.profile)
+            entries, problems, ledger_info, ledger_warnings = load_ledger(args.ledger, args.repo, "no change is acknowledged")
+            pitch_drift = {
+                "strip": strip, "profile": profile_meta,
+                "acks": [e for e in entries if e["kind"] == DRIFT_ACK_KIND],
+                "ledger": {**ledger_info, "problems": problems},
+                "warnings": drift_warnings + ledger_warnings + (
+                    [f"{len(problems)} ledger problem(s): an entry with a problem acknowledges nothing here "
+                     f"(`gate` and the validator report them)"] if problems else []
+                ),
+            }
+        else:
+            if args.version is None:
+                parser.error("drift needs --version RECORDED, or the pitch files whose recorded versions to compare")
+            if args.profile is not None or args.ledger is not None:
+                parser.error("--profile / --ledger go with pitch files")
+            if not args.version.strip():
+                parser.error("--version must not be empty")
+
     validate_ticket_args(parser, args)
     ticket = obtain_ticket(args)
+
+    if pitch_drift is not None:
+        result = compute_pitch_drift(ticket, bindings, args.pitches, args, pitch_drift["strip"], pitch_drift["acks"])
+        result["source"] = source_block(args, ticket)
+        result["profile"] = pitch_drift["profile"]
+        result["ledger"] = pitch_drift["ledger"]
+        result["warnings"] = pitch_drift["warnings"] + result["warnings"]
+        emit(result, args.compact)
+        return 1 if result["verdict"] == "fail" else 0
 
     if args.command == "fetch":
         result = parse_body(ticket["body"], bindings)
@@ -2052,8 +2642,6 @@ def run(argv: list[str] | None = None) -> int:
         return 1 if (result["uncovered"] or result["overlaps"] or result["stale"] or result["errors"]) else 0
 
     recorded = args.version.strip()
-    if not recorded:
-        parser.error("--version must not be empty")
     result = compute_drift(ticket, recorded, bindings)
     result["source"] = source_block(args, ticket)
     emit(result, args.compact)

@@ -584,6 +584,26 @@ strings:
 
   prd.contract.handoff_coverage_line: "- Accounting: {covered}/{total} items owned within the set — re-check: `{coverage_cmd}`"
 
+  # v0.19+: §1.5.2 — the ticket moved under sibling pitches that cite it.
+  prd.contract.drift_check_failed: "Could not check whether {ticket_ref} moved under its sibling pitches: {error} — continuing; the spec repo's CI runs the same check."
+
+  prd.contract.drift_clear: "Ticket {ticket_ref} moved since {pitch_count} sibling pitch(es) recorded it, but nothing they own moved in substance ({literal_count} literal-only edit(s) to delegated items) — no sibling needs a new version."
+
+  prd.contract.drift_header: |
+    Ticket {ticket_ref} moved under sibling pitches: {count} edited item(s) a sibling owns. For each, say whether its meaning changed.
+    (a) unchanged — the sibling keeps its version; an acknowledgement is recorded in the ledger
+    (b) changed — the sibling needs a new version
+
+  prd.contract.drift_row: |
+    {n}. {pitch} · {section} · {group} {ordinal} ({claim}, {change})
+       before: {old_text}
+       after: {new_text}
+       proposal: {proposal}
+
+  prd.contract.handoff_drift_supersede_line: |
+    - The ticket moved under `{pitch}` in what it owns, and the meaning changed — that pitch needs a new version (`/immutable:prd`, update). The drift check fails until it merges:
+    {items}
+
   # ==========================================================================
   # adr skill
   # ==========================================================================

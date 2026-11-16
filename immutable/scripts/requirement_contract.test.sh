@@ -20,9 +20,10 @@
 #
 # Usage:  bash immutable/scripts/requirement_contract.test.sh
 # Exit:   0 all cases passed · 1 a case failed · 2 the test could not run.
-# Needs:  python3 only — no PyYAML, no git, no network (`fetch` and `drift`
-#         are exercised through a stub `gh` placed first on PATH, and through
-#         a custom --fetch-command adapter).
+# Needs:  python3, plus PyYAML for the cases that read pitch frontmatter or a
+#         profile (`coverage`, and `drift` with pitch files). No git, no
+#         network (`fetch` and `drift` are exercised through a stub `gh`
+#         placed first on PATH, and through a custom --fetch-command adapter).
 
 set -euo pipefail
 
@@ -594,6 +595,438 @@ if [ "$RC" -eq 0 ] \
   pass "C30 drift: absent[] carried, required flag on every binding row, exit 0"
 else
   fail "C30 drift absent" "rc=$RC $(q '(d["drift"], d["absent"], d["bindings"])')"
+fi
+
+# ---- drift per pitch (v0.19): a change fails only the pitch that owns it ----
+# The incident: a designer swapped one quoted UI string in two items of an Epic
+# four active pitches cite. The one pitch owning those items had delegated them
+# to Figma; the other three own neither. The single-version form failed the
+# ticket for all four, and clearing it meant superseding all four. With pitch
+# files, drift judges each pitch against its own recorded version on the items
+# it covers or delegates, and a `meaning_unchanged` ledger entry lets an owned
+# edit stand without a new version. Fixture shape only; the text is synthetic.
+PROFILE="$SCRIPT_DIR/../examples/_profiles/default-ko.yml"
+DP="$RIG/dp"
+mkdir -p "$DP/pitches"
+V1="2026-09-16T05:33:03Z"; V2="2026-11-13T07:26:00Z"; V3="2026-11-14T01:00:00Z"
+V4="2026-11-14T02:00:00Z"; V5="2026-11-15T01:00:00Z"; V6="2026-11-15T02:00:00Z"
+cat >"$DP/v1.md" <<'MD'
+### 완료 조건
+
+**가입**
+
+- [ ] 휴대폰 번호로 인증번호를 받는다
+- [ ] 인증번호 6자리를 입력하면 가입이 완료된다
+
+**오류·재발급**
+
+- [ ] 인증번호가 틀리면 "올바르게 다시 입력해주세요"가 안내되고 입력 화면이 유지된다
+- [ ] 재발급은 30초 뒤에 할 수 있다
+
+**결제 잠금**
+
+- [ ] 결제 전 본인 확인을 한 번 더 한다
+
+**내 정보**
+
+- [ ] 이름과 생년월일을 고칠 수 있다
+
+**첫 진입**
+
+- [ ] 첫 진입 시 안내 화면이 한 번 보인다
+
+### QA 통과 리스트
+
+**인증 오류·재발급**
+
+- [ ] 틀린 인증번호를 넣는다 → "올바르게 다시 입력해주세요"가 보이고 입력 화면이 유지된다
+- [ ] 30초 전에 재발급을 누른다 → 버튼이 비활성이다
+
+**첫 진입**
+
+- [ ] 처음 연다 → 안내 화면이 보인다
+MD
+# dp_body <out> <base> <old>=<new>...  — a version of the body with whole substrings replaced
+dp_body() {
+  python3 - "$@" <<'PYX'
+import sys
+out, base = sys.argv[1], open(sys.argv[2], encoding="utf-8").read()
+for spec in sys.argv[3:]:
+    old, _, new = spec.partition("=>")
+    assert old in base, old
+    base = base.replace(old, new)
+open(out, "w", encoding="utf-8").write(base)
+PYX
+}
+# dp_ticket <current version> <version>=<body file>...  — the adapter's JSON, history included
+dp_ticket() {
+  python3 - "$DP/ticket.json" "$@" <<'PYX'
+import json, sys
+out, current = sys.argv[1], sys.argv[2]
+hist = [{"version": v, "body": open(p, encoding="utf-8").read()} for v, _, p in (s.partition("=") for s in sys.argv[3:])]
+json.dump({"id": "4127", "title": "t", "url": "https://example.invalid/4127", "version": current,
+           "body": next(h["body"] for h in hist if h["version"] == current), "history": hist},
+          open(out, "w", encoding="utf-8"), ensure_ascii=False)
+PYX
+}
+dp_pitch() {  # dp_pitch <file> <recorded version> <deprecated> <ticket-record ledger lines...>
+  local f="$DP/pitches/$1" v="$2" dep="$3"; shift 3
+  { echo '---'; echo 'domain: auth'; echo 'supersedes: null'; echo "deprecated: $dep"; echo 'references:'; echo '  tickets:'
+    echo '    - tracker: github'; echo '      repo: acme/tracker'; echo '      id: "4127"'; echo "      version: \"$v\""
+    printf '%s\n' "$@"; echo '---'; echo; echo '# body'; } >"$f"
+}
+dp_ledger() {  # dp_ledger <file> <entry lines...>
+  local f="$DP/$1"; shift
+  { echo 'schema: 1'; echo 'acknowledgements:'; printf '%s\n' "$@"; } >"$f"
+}
+# dp <drift args...> — run from $DP so a ledger's relative `pitch` resolves as in a repo root
+dp() {
+  OUT=$(cd "$DP" && python3 "$SUT" drift --repo acme/tracker --id 4127 --fetch-command "cat $DP/ticket.json" \
+    --binding "$B_ACC" --binding "$B_QA" "$@" 2>"$RIG/stderr.txt") && RC=0 || RC=$?
+  ERR=$(cat "$RIG/stderr.txt")
+  printf '%s' "$OUT" >"$RIG/out.json"
+}
+ROWS='[(p["path"].split("/")[-1], p["verdict"], len(p["failing"]), len(p["acknowledged"]), len(p["literal_only"]), p["unowned"]) for p in d["pitches"]]'
+CH='[(c["binding"], c["group"], c["in_group"], c["claim"], c["change"], c["literal_only"]) for p in d["pitches"] for c in p[KEY]]'
+chq() { q "${CH/KEY/\"$1\"}"; }
+dp_pitch signup.md "$V1" false '      covers:' '        acceptance:' '          - group: 가입' '          - group: 오류·재발급' '            items: [2]' \
+  '        qa_checklist:' '          - group: 인증 오류·재발급' '            items: [2]' \
+  '      delegates:' '        - binding: acceptance' '          group: 오류·재발급' '          items: [1]' '          to: Figma' \
+  '          why: 오류 안내 문구는 시안이 진실 소스 — 동작은 본 Pitch 가 정한다' \
+  '        - binding: qa_checklist' '          group: 인증 오류·재발급' '          items: [1]' '          to: Figma'
+dp_pitch lock.md "$V1" false '      covers:' '        acceptance:' '          - group: 결제 잠금'
+dp_pitch myinfo.md "$V1" false '      covers:' '        acceptance:' '          - group: 내 정보'
+dp_pitch onboarding.md "$V1" false '      covers:' '        acceptance:' '          - group: 첫 진입' '        qa_checklist:' '          - group: 첫 진입'
+ALL4="pitches/signup.md pitches/lock.md pitches/myinfo.md pitches/onboarding.md"
+COPY_EDIT=('"올바르게 다시 입력해주세요"=>"올바른 인증번호를 입력해주세요"')
+dp_body "$DP/v2.md" "$DP/v1.md" "${COPY_EDIT[@]}"
+
+# D1 — the incident's shape: a copy edit to two items one pitch delegated to
+# Figma. Every citing pitch passes with zero pitch changes: the delegating one
+# reports two literal-only changes, the other three own neither item (2
+# unowned each), and all four are listed in version_mismatch as information.
+dp_ticket "$V2" "$V1=$DP/v1.md" "$V2=$DP/v2.md"
+# shellcheck disable=SC2086
+dp --profile "$PROFILE" $ALL4
+if [ "$RC" -eq 0 ] && [ "$(q 'd["verdict"]')" = "pass" ] \
+  && [ "$(q "$ROWS")" = "[('signup.md', 'pass', 0, 0, 2, 0), ('lock.md', 'pass', 0, 0, 0, 2), ('myinfo.md', 'pass', 0, 0, 0, 2), ('onboarding.md', 'pass', 0, 0, 0, 2)]" ] \
+  && [ "$(chq literal_only)" = "[('acceptance', '오류·재발급', 1, 'delegates', 'modified', True), ('qa_checklist', '인증 오류·재발급', 1, 'delegates', 'modified', True)]" ] \
+  && [ "$(q '[(m["pitch"].split("/")[-1], m["owned_changes"]) for m in d["version_mismatch"]]')" = "[('signup.md', 2), ('lock.md', 0), ('myinfo.md', 0), ('onboarding.md', 0)]" ]; then
+  pass "D1 #4127 shape: delegated literal-only edit → all four citing pitches pass, nothing superseded"
+else
+  fail "D1 delegated literal-only" "rc=$RC $(q "$ROWS") literal=$(chq literal_only) err=$ERR"
+fi
+
+# D2 — the same swap plus a behaviour change ("입력 화면이 유지된다" →
+# "처음으로 돌아간다"): the substance moved, so the delegating pitch fails,
+# and only it. Delegation hands over the literal, not the substance.
+dp_body "$DP/v3.md" "$DP/v1.md" '"올바르게 다시 입력해주세요"가 안내되고 입력 화면이 유지된다=>"올바른 인증번호를 입력해주세요"가 안내되고 처음으로 돌아간다'
+dp_ticket "$V3" "$V1=$DP/v1.md" "$V3=$DP/v3.md"
+# shellcheck disable=SC2086
+dp --profile "$PROFILE" $ALL4
+D2_RC=$RC; D2_ROWS="$(q "$ROWS")"; D2_FAIL="$(chq failing)"; D2_NEW="$(q 'd["pitches"][0]["failing"][0]["new"]["text"].endswith("처음으로 돌아간다")')"
+# … and the delegated item moved out of its group with the swap (to a group
+# nobody claims) is a removal for the delegating pitch, not a copy edit: the
+# literal-only pairing never crosses groups.
+dp_body "$DP/v3b.md" "$DP/v1.md" \
+  '- [ ] 인증번호가 틀리면 "올바르게 다시 입력해주세요"가 안내되고 입력 화면이 유지된다
+=>' \
+  '**결제 잠금**=>**기타**
+
+- [ ] 인증번호가 틀리면 "올바른 인증번호를 입력해주세요"가 안내되고 입력 화면이 유지된다
+
+**결제 잠금**'
+dp_ticket "$V3" "$V1=$DP/v1.md" "$V3=$DP/v3b.md"
+dp --profile "$PROFILE" pitches/signup.md
+if [ "$D2_RC" -eq 1 ] \
+  && [ "$D2_ROWS" = "[('signup.md', 'fail', 1, 0, 0, 0), ('lock.md', 'pass', 0, 0, 0, 1), ('myinfo.md', 'pass', 0, 0, 0, 1), ('onboarding.md', 'pass', 0, 0, 0, 1)]" ] \
+  && [ "$D2_FAIL" = "[('acceptance', '오류·재발급', 1, 'delegates', 'modified', False)]" ] && [ "$D2_NEW" = "True" ] \
+  && [ "$RC" -eq 1 ] && [ "$(chq failing)" = "[('acceptance', '오류·재발급', 1, 'delegates', 'removed', False)]" ]; then
+  pass "D2 delegated substance change (or a move out of its group) → fails the delegating pitch only"
+else
+  fail "D2 delegated substance" "rc=$D2_RC rows=$D2_ROWS failing=$D2_FAIL | moved rc=$RC $(chq failing)"
+fi
+
+# D3 — a covered item reworded fails its owner only; and a pitch that COVERS
+# (not delegates) the copy-edited item fails on the literal-only edit too:
+# covering owns the literal as well as the substance.
+dp_body "$DP/v4.md" "$DP/v1.md" '결제 전 본인 확인을 한 번 더 한다=>결제 전 본인 확인을 두 번 한다'
+dp_ticket "$V4" "$V1=$DP/v1.md" "$V4=$DP/v4.md"
+# shellcheck disable=SC2086
+dp --profile "$PROFILE" $ALL4
+D3_ROWS="$(q "$ROWS")"; D3_FAIL="$(chq failing)"; D3_RC=$RC
+dp_pitch signup-covers.md "$V1" false '      covers:' '        acceptance:' '          - group: 오류·재발급'
+dp_ticket "$V2" "$V1=$DP/v1.md" "$V2=$DP/v2.md"
+dp --profile "$PROFILE" pitches/signup-covers.md
+if [ "$D3_RC" -eq 1 ] \
+  && [ "$D3_ROWS" = "[('signup.md', 'pass', 0, 0, 0, 1), ('lock.md', 'fail', 1, 0, 0, 0), ('myinfo.md', 'pass', 0, 0, 0, 1), ('onboarding.md', 'pass', 0, 0, 0, 1)]" ] \
+  && [ "$D3_FAIL" = "[('acceptance', '결제 잠금', 1, 'covers', 'modified', False)]" ] \
+  && [ "$RC" -eq 1 ] && [ "$(chq failing)" = "[('acceptance', '오류·재발급', 1, 'covers', 'modified', True)]" ]; then
+  pass "D3 covered change → fails only its owner; a covered literal-only edit fails too"
+else
+  fail "D3 covered change" "rc=$D3_RC rows=$D3_ROWS failing=$D3_FAIL | covers-literal rc=$RC $(chq failing)"
+fi
+
+# D4 — ownership of an ADDED item follows the live ticket, as coverage reads
+# it: an item added to a group a pitch claims whole is that pitch's, an item
+# in a group nobody claims is `unowned` everywhere (coverage's uncovered[]),
+# and a non-owner whose recorded version is stale passes and is reported.
+dp_body "$DP/v5.md" "$DP/v1.md" \
+  '- [ ] 인증번호 6자리를 입력하면 가입이 완료된다=>- [ ] 인증번호 6자리를 입력하면 가입이 완료된다
+- [ ] 가입 직후 환영 알림이 온다' \
+  '**결제 잠금**=>**알림**
+
+- [ ] 마케팅 알림은 동의한 사람에게만 보낸다
+
+**결제 잠금**'
+dp_ticket "$V5" "$V1=$DP/v1.md" "$V5=$DP/v5.md"
+# shellcheck disable=SC2086
+dp --profile "$PROFILE" $ALL4
+if [ "$RC" -eq 1 ] \
+  && [ "$(q "$ROWS")" = "[('signup.md', 'fail', 1, 0, 0, 1), ('lock.md', 'pass', 0, 0, 0, 2), ('myinfo.md', 'pass', 0, 0, 0, 2), ('onboarding.md', 'pass', 0, 0, 0, 2)]" ] \
+  && [ "$(chq failing)" = "[('acceptance', '가입', 3, 'covers', 'added', False)]" ] \
+  && [ "$(q '[(m["pitch"].split("/")[-1], m["verdict"], m["owned_changes"]) for m in d["version_mismatch"]][-1]')" = "('onboarding.md', 'pass', 0)" ]; then
+  pass "D4 added items: whole-group claim owns it, unclaimed group is unowned; stale non-owner passes and is reported"
+else
+  fail "D4 added items" "rc=$RC $(q "$ROWS") failing=$(chq failing) mismatch=$(q 'd["version_mismatch"]')"
+fi
+
+# D5 — an acknowledgement resolves the owned change: lock.md re-read the
+# ticket at V4 and its reworded item kept its meaning. Exit 0, no new version.
+# The entry's relative `pitch` matches an ABSOLUTE pitch argument too — the
+# form `validate_docs.py --list-active --json` hands a consumer.
+ACK_LOCK="  - {tracker: github, repo: acme/tracker, id: \"4127\", pitch: pitches/lock.md, binding: acceptance, group: 결제 잠금, in_group: 1, from_version: \"$V1\", to_version: \"$V4\", kind: meaning_unchanged, reason: 횟수 표현만 다듬었다 — 결제 전 추가 확인이라는 요구는 같다, decided_by: owner, date: 2026-11-16}"
+dp_ledger ack.yml "$ACK_LOCK"
+dp_ticket "$V4" "$V1=$DP/v1.md" "$V4=$DP/v4.md"
+dp --profile "$PROFILE" --ledger ack.yml "$DP/pitches/lock.md" "$DP/pitches/signup.md"
+ABS="$(q '(d["verdict"], [len(p["acknowledged"]) for p in d["pitches"]])')"
+# shellcheck disable=SC2086
+dp --profile "$PROFILE" --ledger ack.yml $ALL4
+if [ "$RC" -eq 0 ] && [ "$(q 'd["verdict"]')" = "pass" ] && [ "$(q 'd["stale"]')" = "[]" ] \
+  && [ "$ABS" = "('pass', [1, 0])" ] \
+  && [ "$(q '[(c["group"], c["in_group"], c["by"]) for p in d["pitches"] for c in p["acknowledged"]]')" = "[('결제 잠금', 1, 'acknowledgements[1]')]" ] \
+  && [ "$(q '(d["ledger"]["found"], d["ledger"]["entries"], d["ledger"]["problems"])')" = "(True, 1, [])" ]; then
+  pass "D5 meaning_unchanged entry resolves the owned change → pass without superseding"
+else
+  fail "D5 acknowledgement" "rc=$RC $(q "$ROWS") stale=$(q 'd["stale"]') ledger=$(q 'd["ledger"]')"
+fi
+
+# D6 — the entry goes stale when the ticket moves past to_version AND touches
+# that item (the change is unacknowledged again, and the entry is named stale);
+# an edit elsewhere leaves it standing.
+dp_body "$DP/v6.md" "$DP/v4.md" '결제 전 본인 확인을 두 번 한다=>결제 전 본인 확인을 세 번 한다'
+dp_ticket "$V6" "$V1=$DP/v1.md" "$V4=$DP/v4.md" "$V6=$DP/v6.md"
+# shellcheck disable=SC2086
+dp --profile "$PROFILE" --ledger ack.yml $ALL4
+D6_RC=$RC; D6_ROWS="$(q "$ROWS")"; D6_STALE="$(q '[(s["index"], s["pitch"], s["why"]) for s in d["stale"]]')"
+dp_body "$DP/v6b.md" "$DP/v4.md" '이름과 생년월일을 고칠 수 있다=>이름과 생년월일과 이메일을 고칠 수 있다'
+dp_ticket "$V6" "$V1=$DP/v1.md" "$V4=$DP/v4.md" "$V6=$DP/v6b.md"
+# shellcheck disable=SC2086
+dp --profile "$PROFILE" --ledger ack.yml $ALL4
+if [ "$D6_RC" -eq 1 ] \
+  && [ "$D6_ROWS" = "[('signup.md', 'pass', 0, 0, 0, 1), ('lock.md', 'fail', 1, 0, 0, 0), ('myinfo.md', 'pass', 0, 0, 0, 1), ('onboarding.md', 'pass', 0, 0, 0, 1)]" ] \
+  && [ "$D6_STALE" = "[(1, 'pitches/lock.md', 'the ticket moved past to_version and changed that item')]" ] \
+  && [ "$RC" -eq 1 ] && [ "$(q 'd["stale"]')" = "[]" ] \
+  && [ "$(q "$ROWS")" = "[('signup.md', 'pass', 0, 0, 0, 2), ('lock.md', 'pass', 0, 1, 0, 1), ('myinfo.md', 'fail', 1, 0, 0, 1), ('onboarding.md', 'pass', 0, 0, 0, 2)]" ]; then
+  pass "D6 acknowledgement stale after a further edit to the same item; an edit elsewhere leaves it standing"
+else
+  fail "D6 stale on re-edit" "same item: rc=$D6_RC rows=$D6_ROWS stale=$D6_STALE | elsewhere: rc=$RC $(q "$ROWS") stale=$(q 'd["stale"]')"
+fi
+
+# D7 — an acknowledgement for a superseded pitch is stale, whether the
+# deprecated file is passed or left out (the consumer passes active pitches
+# only); the successor, which recorded the live version, passes on its own.
+dp_pitch lock.md "$V1" true '      covers:' '        acceptance:' '          - group: 결제 잠금'
+dp_pitch lock2.md "$V4" false '      covers:' '        acceptance:' '          - group: 결제 잠금'
+dp_ticket "$V4" "$V1=$DP/v1.md" "$V4=$DP/v4.md"
+dp --profile "$PROFILE" --ledger ack.yml pitches/lock.md pitches/lock2.md pitches/signup.md
+D7_RC=$RC; D7="$(q '([p["path"].split("/")[-1] for p in d["pitches"]], [(s["index"], s["why"].split(" (")[0]) for s in d["stale"]])')"
+dp --profile "$PROFILE" --ledger ack.yml pitches/lock2.md pitches/signup.md
+if [ "$D7_RC" -eq 1 ] && [ "$D7" = "(['lock2.md', 'signup.md'], [(1, 'the pitch is not an active pitch citing this ticket among the files given')])" ] \
+  && [ "$RC" -eq 1 ] && [ "$(q 'len(d["stale"]), d["pitches"][0]["verdict"]')" = "(1, 'pass')" ]; then
+  pass "D7 acknowledgement for a superseded pitch → stale (deprecated file passed or not)"
+else
+  fail "D7 superseded pitch" "rc=$D7_RC $D7 | active-only rc=$RC stale=$(q 'd["stale"]')"
+fi
+dp_pitch lock.md "$V1" false '      covers:' '        acceptance:' '          - group: 결제 잠금'
+
+# D8 — the single-version form is untouched: no pitch files, `--version`
+# given → the v0.18 output shape and verdict (the incident's copy edit still
+# fails it, exit 1). Mixing the forms, or `--profile`/`--ledger` without
+# pitch files, or neither form, is a usage error (exit 2) before any fetch.
+dp_ticket "$V2" "$V1=$DP/v1.md" "$V2=$DP/v2.md"
+dp --version "$V1"
+L_RC=$RC; L_KEYS="$(q 'sorted(d)')"; L_STATE="$(q '(d["binding_changed"], [(b["id"], len(b["added"]), len(b["removed"])) for b in d["bindings"]])')"
+dp --version "$V1" pitches/lock.md; U1=$RC; E1=$ERR
+dp --version "$V1" --profile "$PROFILE"; U2=$RC; E2=$ERR
+dp; U3=$RC; E3=$ERR
+if [ "$L_RC" -eq 1 ] \
+  && [ "$L_KEYS" = "['absent', 'binding_changed', 'bindings', 'current_version', 'drift', 'errors', 'history_available', 'recorded_version', 'schema', 'source', 'warnings']" ] \
+  && [ "$L_STATE" = "(True, [('acceptance', 1, 1), ('qa_checklist', 1, 1)])" ] \
+  && [ "$U1$U2$U3" = "222" ] && grep -qF -- '--version is the single-version form' <<<"$E1" \
+  && grep -qF -- '--profile / --ledger go with pitch files' <<<"$E2" && grep -qF 'drift needs --version RECORDED' <<<"$E3" \
+  && ! grep -qF Traceback <<<"$E1$E2$E3"; then
+  pass "D8 legacy drift --version without pitches unchanged; mixed or empty forms → exit 2"
+else
+  fail "D8 legacy form" "rc=$L_RC keys=$L_KEYS state=$L_STATE usage=$U1$U2$U3 $E1 | $E2 | $E3"
+fi
+
+# D9 — fail closed: pitch files none of which cites the ticket judge nothing
+# (exit 1, said in errors); a recorded version the edit log cannot produce is
+# unproven (fail, history_available false); no --profile means no
+# wording_strip, so the D1 copy edit fails its delegating pitch, with a warning.
+dp_pitch other.md "$V1" false '      covers: {}'; sed -i '' 's/id: "4127"/id: "9999"/' "$DP/pitches/other.md"
+dp_pitch ancient.md "2026-01-01T00:00:00Z" false '      covers:' '        acceptance:' '          - group: 가입'
+dp --profile "$PROFILE" pitches/other.md; N_RC=$RC; N_ERR="$(q 'd["errors"]')"
+dp --profile "$PROFILE" pitches/ancient.md; H_RC=$RC; H="$(q '[(p["verdict"], p["history_available"]) for p in d["pitches"]]')"
+# shellcheck disable=SC2086
+dp $ALL4
+if [ "$N_RC" -eq 1 ] && grep -qF 'none of the 1 pitch file(s) given' <<<"$N_ERR" \
+  && [ "$H_RC" -eq 1 ] && [ "$H" = "[('fail', False)]" ] \
+  && [ "$RC" -eq 1 ] && [ "$(chq failing)" = "[('acceptance', '오류·재발급', 1, 'delegates', 'modified', False), ('qa_checklist', '인증 오류·재발급', 1, 'delegates', 'modified', False)]" ] \
+  && [ "$(q 'any(w.startswith("no --profile") for w in d["warnings"])')" = "True" ]; then
+  pass "D9 fail closed: nothing cited, unproven history, no --profile → exit 1, each named"
+else
+  fail "D9 fail closed" "none=$N_RC $N_ERR | history=$H_RC $H | no-profile rc=$RC $(chq failing)"
+fi
+
+# D10 — the new entry kind is read as strictly as the wording kind: an
+# unquoted version (YAML makes it a date-time), a wording key (`rule`), an
+# absolute pitch path and from = to (padding aside) are problems, and an entry with a problem
+# acknowledges nothing — the valid ACK_LOCK beside them still resolves.
+dp_ticket "$V4" "$V1=$DP/v1.md" "$V4=$DP/v4.md"
+dp_ledger bad.yml "$ACK_LOCK" \
+  "  - {tracker: github, id: \"4127\", pitch: pitches/myinfo.md, binding: acceptance, group: 내 정보, in_group: 1, from_version: \"$V1\", to_version: $V4, kind: meaning_unchanged, reason: x, decided_by: owner, date: 2026-11-16}" \
+  "  - {tracker: github, id: \"4127\", pitch: pitches/myinfo.md, binding: acceptance, group: 내 정보, in_group: 1, rule: deferral, from_version: \"$V1\", to_version: \"$V4\", kind: meaning_unchanged, reason: x, decided_by: owner, date: 2026-11-16}" \
+  "  - {tracker: github, id: \"4127\", pitch: $DP/pitches/myinfo.md, binding: acceptance, group: 내 정보, in_group: 1, from_version: \"$V1\", to_version: \"$V4\", kind: meaning_unchanged, reason: x, decided_by: owner, date: 2026-11-16}" \
+  "  - {tracker: github, id: \"4127\", pitch: pitches/myinfo.md, binding: acceptance, group: 내 정보, in_group: 1, from_version: \"$V4\", to_version: \"$V4\", kind: meaning_unchanged, reason: x, decided_by: owner, date: 2026-11-16}" \
+  "  - {tracker: github, id: \"4127\", pitch: pitches/myinfo.md, binding: acceptance, group: 내 정보, in_group: 1, from_version: \"$V4 \", to_version: \"$V4\", kind: meaning_unchanged, reason: x, decided_by: owner, date: 2026-11-16}"
+# shellcheck disable=SC2086
+dp --profile "$PROFILE" --ledger bad.yml $ALL4
+P="$(q 'd["ledger"]["problems"]')"
+if [ "$RC" -eq 0 ] && [ "$(q 'len(d["ledger"]["problems"]), d["ledger"]["entries"]')" = "(5, 1)" ] \
+  && grep -qF 'acknowledgements[6]: `from_version` and `to_version` are the same version' <<<"$P" \
+  && grep -qF 'acknowledgements[2]: `to_version` must be the version coordinate as a quoted string' <<<"$P" \
+  && grep -qF "acknowledgements[3]: unknown key(s) ['rule'] for kind meaning_unchanged" <<<"$P" \
+  && grep -qF 'acknowledgements[4]: `pitch` must be the pitch file' <<<"$P" \
+  && grep -qF 'acknowledgements[5]: `from_version` and `to_version` are the same version' <<<"$P" \
+  && [ "$(q 'd["pitches"][1]["acknowledged"][0]["by"]')" = "acknowledgements[1]" ]; then
+  pass "D10 meaning_unchanged entries read strictly (unquoted version, wording key, absolute path, from = to)"
+else
+  fail "D10 ledger shape" "rc=$RC problems=$P"
+fi
+
+# D11–D15 pin what an independent review of the first draft reproduced as
+# fail-open or crashing; each case failed on that draft.
+
+# D11 — an acknowledgement names ONE item: a pitch covering two groups, an
+# entry for 내 정보 1 at Va (where it read "T"), and a live ticket that put
+# 내 정보 1 back and wrote "T" into 첫 진입 1 instead. The entry is stale (that
+# item changed after to_version) and the 첫 진입 edit fails — matching on the
+# text alone let the entry resolve the other group's change.
+VA="2026-11-14T03:00:00Z"; VB="2026-11-14T04:00:00Z"
+dp_body "$DP/va.md" "$DP/v1.md" '이름과 생년월일을 고칠 수 있다=>이름과 생년월일을 바로 고칠 수 있다'
+dp_body "$DP/vb.md" "$DP/v1.md" '첫 진입 시 안내 화면이 한 번 보인다=>이름과 생년월일을 바로 고칠 수 있다'
+dp_pitch two.md "$V1" false '      covers:' '        acceptance:' '          - group: 내 정보' '          - group: 첫 진입'
+dp_ledger two.yml "  - {tracker: github, id: \"4127\", pitch: pitches/two.md, binding: acceptance, group: 내 정보, in_group: 1, from_version: \"$V1\", to_version: \"$VA\", kind: meaning_unchanged, reason: x, decided_by: owner, date: 2026-11-16}"
+dp_ticket "$VB" "$V1=$DP/v1.md" "$VA=$DP/va.md" "$VB=$DP/vb.md"
+dp --profile "$PROFILE" --ledger two.yml pitches/two.md
+if [ "$RC" -eq 1 ] && [ "$(q '[(s["index"], s["why"]) for s in d["stale"]]')" = "[(1, 'the ticket moved past to_version and changed that item')]" ] \
+  && [ "$(chq failing)" = "[('acceptance', '첫 진입', 1, 'covers', 'modified', False)]" ] && [ "$(chq acknowledged)" = "[]" ]; then
+  pass "D11 an acknowledgement resolves only the item at its coordinate, never a look-alike elsewhere"
+else
+  fail "D11 ack coordinate" "rc=$RC stale=$(q 'd["stale"]') failing=$(chq failing) ack=$(chq acknowledged)"
+fi
+
+# D12 — ownership moves are changes: (a) an item moved verbatim into another
+# pitch's group is removed for one and added for the other; (b) two items a
+# group's numbered claims point at swap places — each claim now reaches the
+# other pitch's requirement (`reassigned`, coverage cannot see it); (c) a
+# sentence two groups both hold leaves one of them — the owner of THAT group
+# fails, not the owner of the copy that stayed.
+VC="2026-11-14T05:00:00Z"; VD="2026-11-14T06:00:00Z"
+dp_body "$DP/vc.md" "$DP/v1.md" \
+  '- [ ] 결제 전 본인 확인을 한 번 더 한다
+=>' \
+  '- [ ] 이름과 생년월일을 고칠 수 있다=>- [ ] 이름과 생년월일을 고칠 수 있다
+- [ ] 결제 전 본인 확인을 한 번 더 한다'
+dp_ticket "$VC" "$V1=$DP/v1.md" "$VC=$DP/vc.md"
+dp --profile "$PROFILE" pitches/lock.md pitches/myinfo.md
+D12A="$(q '[(p["path"].split("/")[-1], [(c["change"], c["group"], c["in_group"]) for c in p["failing"]]) for p in d["pitches"]]')"; D12A_RC=$RC
+dp_pitch n1.md "$V1" false '      covers:' '        acceptance:' '          - group: 가입' '            items: [1]'
+dp_pitch n2.md "$V1" false '      covers:' '        acceptance:' '          - group: 가입' '            items: [2]'
+dp_body "$DP/vd.md" "$DP/v1.md" \
+  '- [ ] 휴대폰 번호로 인증번호를 받는다
+- [ ] 인증번호 6자리를 입력하면 가입이 완료된다=>- [ ] 인증번호 6자리를 입력하면 가입이 완료된다
+- [ ] 휴대폰 번호로 인증번호를 받는다'
+dp_ticket "$VD" "$V1=$DP/v1.md" "$VD=$DP/vd.md"
+dp --profile "$PROFILE" pitches/n1.md pitches/n2.md
+D12B="$(q '[(p["path"].split("/")[-1], sorted({c["change"] for c in p["failing"]}), len(p["failing"])) for p in d["pitches"]]')"; D12B_RC=$RC
+dp_body "$DP/vdup1.md" "$DP/v1.md" \
+  '- [ ] 이름과 생년월일을 고칠 수 있다=>- [ ] 이름과 생년월일을 고칠 수 있다
+- [ ] 바꾼 내용은 바로 저장된다' \
+  '- [ ] 첫 진입 시 안내 화면이 한 번 보인다=>- [ ] 첫 진입 시 안내 화면이 한 번 보인다
+- [ ] 바꾼 내용은 바로 저장된다'
+dp_body "$DP/vdup2.md" "$DP/vdup1.md" \
+  '- [ ] 첫 진입 시 안내 화면이 한 번 보인다
+- [ ] 바꾼 내용은 바로 저장된다=>- [ ] 첫 진입 시 안내 화면이 한 번 보인다'
+dp_pitch dmy.md "$VC" false '      covers:' '        acceptance:' '          - group: 내 정보'
+dp_pitch dfirst.md "$VC" false '      covers:' '        acceptance:' '          - group: 첫 진입'
+dp_ticket "$VD" "$VC=$DP/vdup1.md" "$VD=$DP/vdup2.md"
+dp --profile "$PROFILE" pitches/dmy.md pitches/dfirst.md
+if [ "$D12A_RC" -eq 1 ] && [ "$D12A" = "[('lock.md', [('removed', '결제 잠금', 1)]), ('myinfo.md', [('added', '내 정보', 2)])]" ] \
+  && [ "$D12B_RC" -eq 1 ] && [ "$D12B" = "[('n1.md', ['reassigned'], 2), ('n2.md', ['reassigned'], 2)]" ] \
+  && [ "$RC" -eq 1 ] && [ "$(q "$ROWS")" = "[('dmy.md', 'pass', 0, 0, 0, 1), ('dfirst.md', 'fail', 1, 0, 0, 0)]" ] \
+  && [ "$(chq failing)" = "[('acceptance', '첫 진입', 2, 'covers', 'removed', False)]" ]; then
+  pass "D12 ownership moves fail the pitches they touch: cross-group move, reordered numbered claims, a duplicate leaving one group"
+else
+  fail "D12 ownership moves" "move rc=$D12A_RC $D12A | reorder rc=$D12B_RC $D12B | dup rc=$RC $(q "$ROWS") $(chq failing)"
+fi
+
+# D13 — the literal a delegation hands over is QUOTED copy. The bundled
+# wording_strip also blanks a provenance parenthetical for the lint's sake, but
+# a correction written into one — 「(2026-11-14 정정 — 세 번 틀리면 처음 화면으로
+# 돌아간다)」 — changes the substance, so the delegating pitch fails.
+dp_body "$DP/ve.md" "$DP/v1.md" '"가 안내되고 입력 화면이 유지된다=>"가 안내되고 입력 화면이 유지된다 (2026-11-14 정정 — 세 번 틀리면 처음 화면으로 돌아간다)'
+dp_ticket "$VD" "$V1=$DP/v1.md" "$VD=$DP/ve.md"
+dp --profile "$PROFILE" pitches/signup.md
+if [ "$RC" -eq 1 ] && [ "$(chq failing)" = "[('acceptance', '오류·재발급', 1, 'delegates', 'modified', False)]" ] && [ "$(chq literal_only)" = "[]" ]; then
+  pass "D13 a correction added in a stripped parenthetical is substance, not a literal-only edit"
+else
+  fail "D13 parenthetical" "rc=$RC failing=$(chq failing) literal=$(chq literal_only)"
+fi
+
+# D14 — only a modified item keeps a meaning to acknowledge: an entry naming
+# an item ADDED to a group the pitch covers is stale and says why, and the
+# addition still fails the pitch.
+dp_ledger add.yml "  - {tracker: github, id: \"4127\", pitch: pitches/signup.md, binding: acceptance, group: 가입, in_group: 3, from_version: \"$V1\", to_version: \"$V5\", kind: meaning_unchanged, reason: x, decided_by: owner, date: 2026-11-16}"
+dp_ticket "$V5" "$V1=$DP/v1.md" "$V5=$DP/v5.md"
+dp --profile "$PROFILE" --ledger add.yml pitches/signup.md
+if [ "$RC" -eq 1 ] && [ "$(q '[s["why"].split(" —")[0] for s in d["stale"]]')" = "['the change it names is \`added\`']" ] \
+  && [ "$(chq failing)" = "[('acceptance', '가입', 3, 'covers', 'added', False)]" ]; then
+  pass "D14 an acknowledgement for an added item is stale; the addition still fails"
+else
+  fail "D14 ack on added" "rc=$RC stale=$(q 'd["stale"]') failing=$(chq failing)"
+fi
+
+# D15 — a malformed ticket record (`delegates: 5`, `tickets: 5`) is the
+# validator's to refuse; drift, coverage and gate read past it with no traceback.
+# A crash must show as this case failing, not abort the run, hence the `||`.
+dp_pitch bad-del.md "$V1" false '      delegates: 5'
+{ echo '---'; echo 'domain: auth'; echo 'supersedes: null'; echo 'deprecated: false'; echo 'references:'; echo '  tickets: 5'; echo '---'; echo; echo '# x'; } >"$DP/pitches/bad-tickets.md"
+dp_ticket "$V2" "$V1=$DP/v1.md" "$V2=$DP/v2.md"
+dp --profile "$PROFILE" pitches/signup.md pitches/bad-del.md pitches/bad-tickets.md
+DR_RC=$RC; DR_ERR=$ERR; DR="$(q "$ROWS" 2>/dev/null || echo unparsable)"
+(cd "$DP" && python3 "$SUT" coverage --repo acme/tracker --id 4127 --fetch-command "cat $DP/ticket.json" --binding "$B_ACC" --binding "$B_QA" pitches/bad-del.md pitches/bad-tickets.md) >"$RIG/out.json" 2>"$RIG/stderr.txt" && CV_RC=0 || CV_RC=$?
+CV_ERR=$(cat "$RIG/stderr.txt"); CV="$(q 'any("delegates must be a list" in s for s in d["stale"])' 2>/dev/null || echo unparsable)"
+(cd "$DP" && python3 "$SUT" gate --mode on --profile "$PROFILE" --repo acme/tracker --fetch-command "cat $DP/ticket.json" --binding "$B_ACC" --binding "$B_QA" pitches/bad-tickets.md) >"$RIG/out.json" 2>"$RIG/stderr.txt" && GT_RC=0 || GT_RC=$?
+GT_ERR=$(cat "$RIG/stderr.txt")
+if [ "$DR_RC" -eq 0 ] && [ "$DR" = "[('signup.md', 'pass', 0, 0, 2, 0), ('bad-del.md', 'pass', 0, 0, 0, 2)]" ] \
+  && [ "$CV_RC" -eq 1 ] && [ "$CV" = "True" ] && [ "$GT_RC" -eq 0 ] && [ "$(q 'd["tickets"]' 2>/dev/null || echo unparsable)" = "[]" ] \
+  && ! grep -qF Traceback <<<"$DR_ERR$CV_ERR$GT_ERR"; then
+  pass "D15 malformed ticket records: drift, coverage and gate read past them, no traceback"
+else
+  fail "D15 malformed records" "drift rc=$DR_RC $DR $DR_ERR | coverage rc=$CV_RC $CV $CV_ERR | gate rc=$GT_RC $GT_ERR"
 fi
 
 echo

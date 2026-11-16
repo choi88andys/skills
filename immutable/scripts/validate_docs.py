@@ -76,8 +76,9 @@ Coverage (matches SCHEMA.md "Validation invariants"):
      compiler cannot trust is a violation, as `lint` refuses it. The
      acknowledgement ledger beside config.yml
      (`contract-acknowledgements.yml`, v0.15+), when present, must have the
-     shape `requirement_contract.py`'s `ledger_entries` reads — the gate's
-     own reader; always on once the repo opts into the contract.
+     shape `requirement_contract.py`'s `ledger_entries` reads — the reader
+     `gate` and `drift` use, `meaning_unchanged` entries (v0.19+) included;
+     always on once the repo opts into the contract.
 
  10. Cross-pitch references (v0.17+) — under `--strict-body` within the
      `--strict-since` scope, for an ACTIVE pitch: no body line names another
