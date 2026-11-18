@@ -150,6 +150,30 @@ class ReadTests(unittest.TestCase):
         (self.root / ".gitignore").write_text(".archive/\n")
         self.assertIsNone(self.hook("rg --hidden rule ."))
 
+    def test_parent_relative_scope(self):
+        with tempfile.TemporaryDirectory(dir=self.root.parent) as sibling:
+            plain = Path(sibling)
+            outside = plain / "other.md"
+            outside.write_text(f"---\ndeprecated: true\n---\n{secrets.token_hex(16)}\n")
+            relative = "../" + plain.name + "/other.md"
+            self.assertIsNone(self.hook(shlex.join(["cat", relative])))
+            self.assertIsNone(self.hook(shlex.join(["rg", "rule", "../" + plain.name])))
+            self.assertEqual(self.output([*READER, "--", relative]), outside.read_text())
+
+            # A symlink before '..' changes which parent the kernel reaches.
+            (plain / "child").mkdir()
+            (self.root / "through").symlink_to(plain / "child", target_is_directory=True)
+            (self.root / "other.md").write_text("different file\n")
+            self.assertIsNone(self.hook("cat through/../other.md"))
+            self.assertEqual(self.output([*READER, "--", "through/../other.md"]), outside.read_text())
+
+            # A Markdown alias inside the marker still gets checked after '..'.
+            (self.root / "alias.md").symlink_to(outside)
+            retry = self.hook("cat 'order specs/../alias.md'")
+            result = self.output(["sh", "-c", retry])
+            self.assertIn("Body withheld.", result)
+            self.assertNotIn(outside.read_text().splitlines()[-1], result)
+
     def test_nested_scope_and_symlink(self):
         link = self.root.parent / (self.root.name + " alias")
         link.symlink_to(self.old)

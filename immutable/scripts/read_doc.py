@@ -79,7 +79,13 @@ def claude_result(path, content):
 def document_scope(path):
     """Return the document spelling and nearest marker used to classify it."""
     path = path.absolute()
-    for candidate in (path.resolve(), path):
+    physical = path.resolve()
+    alias = Path(os.path.normpath(path))
+    if alias != path and alias.resolve() != physical:
+        # ".." crossed a directory symlink. The kernel followed its target
+        # before ascending; a purely lexical collapse could name another file.
+        alias = path.parent.resolve() / path.name
+    for candidate in (physical, alias):
         if candidate.suffix == ".md":
             root = next((p for p in candidate.parents if (p / ".immutable-prd").is_dir()), None)
             if root:
