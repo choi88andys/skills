@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Install into a temporary Codex home. --e2e also checks a real model's tool results."""
 import argparse
+import ast
 import json
 import os
 from pathlib import Path
@@ -15,43 +16,98 @@ import tempfile
 PLUGIN = Path(__file__).resolve().parents[1]
 
 
-def test_reads(codex, home, consumer, installed, model):
-    (consumer / ".immutable-prd").mkdir()
-    tokens = {}
-    for name in ("dead", "live"):
-        tokens[name] = secrets.token_hex(16)
-        (consumer / (name + ".md")).write_text(
-            f"---\ndeprecated: {str(name == 'dead').lower()}\n"
-            f"supersedes: {'dead.md' if name == 'live' else 'null'}\n---\n{tokens[name]}\n"
-        )
-    reader = shlex.join([sys.executable, "-B", str(installed / "scripts/read_doc.py"), "--"])
-    prompt = (
-        "Client integration test in a synthetic repo. Run these three shell commands "
-        "separately, in order, waiting for each result. Use no other file read.\n"
-        f"1. {reader} dead.md\n2. {reader} live.md\n3. cat dead.md\n"
-        "The third command is the intentional raw audit. Report the three outcomes."
-    )
+def tool_results(codex, home, prompt, model, sandbox):
     flags = ["--model", model] if model else []
+    # The hook source under test is the checkout just copied to this temporary
+    # home. This invocation-only trust setting creates no user trust record.
     events = [json.loads(line) for line in codex(
-        "exec", "--skip-git-repo-check", "--sandbox", "read-only", "--json", *flags, prompt
+        "exec", "--skip-git-repo-check", "--sandbox", sandbox,
+        "--dangerously-bypass-hook-trust", "--json", *flags, prompt
     ).splitlines()]
     thread = next(e["thread_id"] for e in events if e["type"] == "thread.started")
     rollout, = (home / "sessions").rglob("*" + thread + ".jsonl")
-    # Inspect actual response items. exec_command can return partial output,
-    # with the rest delivered later by write_stdin. Ignore the model's prose.
+    transcript = rollout.read_text()
     outputs = []
-    for line in rollout.read_text().splitlines():
+    for line in transcript.splitlines():
         item = json.loads(line)
         payload = item["payload"]
+        # Keep ALL delivered outputs in order, including partial exec output,
+        # later write_stdin polls and nested code-mode tool results.
         if item["type"] == "response_item" and payload["type"] in (
             "function_call_output", "custom_tool_call_output"
         ):
             outputs.append(str(payload["output"]))
-    banner = next(i for i, out in enumerate(outputs) if "Body withheld." in out and "live.md" in out)
-    active = next(i for i, out in enumerate(outputs) if tokens["live"] in out)
-    audit = next(i for i, out in enumerate(outputs) if tokens["dead"] in out)
-    assert banner < active < audit, "unexpected model-visible deprecation, active or audit result"
-    print("PASS: reader withheld the body, active read and deliberate raw audit delivered their tokens")
+    assert outputs, "client delivered no tool results"
+    return outputs, transcript
+
+
+def test_reads(codex, home, consumer, installed, model):
+    subprocess.run(["git", "init", "--quiet"], cwd=consumer, check=True)
+    (consumer / ".immutable-prd").mkdir()
+    (consumer / ".immutable-prd/config.yml").write_text(
+        "version: 3\nrepo_mode: single-repo\nteam_language: en\npitches_path: pitches/\nadr_path: adr/\n"
+    )
+    docs = consumer / "pitches/order specs"
+    docs.mkdir(parents=True)
+    dead, live = secrets.token_hex(16), secrets.token_hex(16)
+    old, current = docs / "checkout.md", docs / "current.md"
+    old.write_text(f"---\ndeprecated: true\n---\nSet CHECKOUT_RULE to {dead}.\n")
+    current.write_text(f"---\nsupersedes: checkout.md\n---\nSet CHECKOUT_RULE to {live}.\n")
+    source = consumer / "checkout.py"
+    source.write_text('CHECKOUT_RULE = "pending"\n')
+
+    # Normal implementation task, no skill invocation and no reader suggested.
+    # Pin an ordinary first read so a voluntary reader choice cannot pass.
+    output, trace = tool_results(codex, home, (
+        "Update CHECKOUT_RULE in checkout.py to the value required by the checkout pitch. "
+        "Start with the repository's reference command: cat -- 'pitches/order specs/checkout.md'. "
+        "Then finish the source change using the current requirements."
+    ), model, "workspace-write")
+    assert dead not in trace, "obsolete token reached the implementation session"
+    denial = next(i for i, out in enumerate(output) if "Retry this read separately" in out
+                  and str(installed / "scripts/read_doc.py") in out)
+    notice = next(i for i, out in enumerate(output) if "Body withheld." in out
+                  and "pitches/order specs/current.md" in out)
+    successor = next(i for i, out in enumerate(output) if live in out)
+    assert denial < notice <= successor, "expected denial, protected retry and successor"
+    expected = ast.parse(f"CHECKOUT_RULE = {live!r}").body[0]
+    assert any(ast.dump(stmt) == ast.dump(expected) for stmt in ast.parse(source.read_text()).body), (
+        "implementation did not set CHECKOUT_RULE to the current requirement"
+    )
+    print("PASS: ordinary coding task recovered from the installed hook denial and implemented the successor",
+          flush=True)
+
+    # Independent session exercising line and directory search retries. The
+    # pattern and line target body text, not the frontmatter or banner.
+    output, trace = tool_results(codex, home, (
+        "Check two checkout documentation lookups, separately and in order. "
+        "First run sed -n '4,4p' 'pitches/order specs/checkout.md'. "
+        "Then run cd 'pitches/order specs' && rg -ni -g '*.md' 'CHECKOUT_RULE' . "
+        "If a lookup is intercepted, follow its retry before starting the next one. "
+        "Report what the two lookups returned."
+    ), model, "read-only")
+    assert dead not in trace, "obsolete token reached the range/search session"
+    for script in ("read_doc.py", "search_docs.py"):
+        assert any("Retry this read separately" in out and str(installed / "scripts" / script) in out
+                   for out in output), f"missing installed denial for {script}"
+    assert sum("Body withheld." in out and "current.md" in out for out in output) >= 2
+    assert any(live in out for out in output), "directory retry lost active matches"
+    print("PASS: installed line-range and recursive search retries withheld the obsolete body", flush=True)
+
+    # Historical review gets its own session. Force an early yield so at least
+    # one real run also exercises result delivery after the initial tool return.
+    audit = shlex.join(["python3", "-B", str(installed / "scripts/read_doc.py"), "--audit", "--", str(old)])
+    output, _ = tool_results(codex, home, (
+        "Historical supersede review of a synthetic fixture. Run exactly this shell command "
+        "with yield_time_ms=100. Return the initial partial output before making a separate poll. "
+        "Keep its historical context visible in the tool output.\n" + "echo AUDIT_STARTING && sleep 2 && " + audit
+    ), model, "read-only")
+    first = next(i for i, out in enumerate(output) if "AUDIT_STARTING" in out and re.search(r"session ID|session_id", out, re.I))
+    delivered = "\n".join(output[first + 1:])
+    assert dead not in "\n".join(output[:first + 1]), "expected the audit body in a later result"
+    start = delivered.index("[IMMUTABLE HISTORICAL AUDIT]")
+    assert start < delivered.index(dead) < delivered.index("[END IMMUTABLE HISTORICAL AUDIT]")
+    print("PASS: separate historical review delivered the raw token with audit markers on a later poll")
 
 
 def main():
@@ -60,15 +116,19 @@ def main():
     parser.add_argument("--model", help="model for --e2e")
     args = parser.parse_args()
     with tempfile.TemporaryDirectory(prefix="immutable-test-") as tmp:
-        home = Path(tmp) / "codex"
+        home = Path(tmp) / "codex home"
         consumer = Path(tmp) / "consumer"
         home.mkdir()
         consumer.mkdir()
 
+        env = {**os.environ, "CODEX_HOME": str(home)}
+        if args.e2e and os.environ.get("OPENAI_API_KEY"):
+            env.setdefault("CODEX_API_KEY", os.environ["OPENAI_API_KEY"])
+
         def codex(*args):
             return subprocess.check_output(
-                ["codex", *args], cwd=consumer, env={**os.environ, "CODEX_HOME": str(home)},
-                stdin=subprocess.DEVNULL, text=True, timeout=240,
+                ["codex", *args], cwd=consumer, env=env,
+                stdin=subprocess.DEVNULL, text=True, timeout=300,
             )
 
         manifest = json.loads((PLUGIN / ".claude-plugin/plugin.json").read_text())
@@ -100,6 +160,10 @@ def main():
                               "examples/_profiles/default-en.yml", "adr/TEMPLATE.md"):
                     assert (root / asset).read_bytes() == (PLUGIN / asset).read_bytes()
         print("PASS: installed inventory and assets for " + ", ".join(sorted(expected)))
+        # Exercise every supported shell form and its exact retry from the
+        # installed copy, including paths with spaces and filename-only searches.
+        subprocess.run([sys.executable, "-B", installed / "scripts/codex_read_guard.test.py"],
+                       cwd=consumer, check=True)
         if args.e2e:
             test_reads(codex, home, consumer, installed, args.model)
 

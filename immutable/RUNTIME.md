@@ -23,18 +23,22 @@ dots). Run the workflow's Bash snippets with Bash.
 | --- | --- | --- |
 | Invoke or suggest `/immutable:<name>` | Use the slash command | Mention `$immutable:<name>` or select it in `/skills`. Translate invocations in rendered catalog strings and handoffs too. |
 | Ask or confirm, including `AskUserQuestion` | Use the question tool when available | Use the question tool offered in the current mode, e.g. `request_user_input` in Plan mode. |
-| Read a consumer pitch, ADR or other Markdown document | Use Read (including partial reads) | Run `python3 -B "$IMMUTABLE_ROOT/scripts/read_doc.py" -- "$path"`. Apply line ranges and searches to its **output**. |
+| Read a consumer pitch, ADR or other Markdown document | Use Read (including partial reads) | Run `python3 -B "$IMMUTABLE_ROOT/scripts/read_doc.py" -- "$path"`. For line ranges use `--lines 10,30` before `--`. For content searches use the bundled `search_docs.py` as described below. |
 | Read a bundled asset or other ordinary text file | Use Read | Read it with the shell. Page long instructions and templates until you have the complete relevant stage. |
 | Glob, Grep | Use the named tools | List paths with `rg --files` (include hidden configuration when needed). Use `rg` for source searches. |
 | Write, Edit | Use the named tools | Use the workspace editor or `apply_patch`. Verify the destination and existing text before editing. |
 | Bash, WebFetch, WebSearch | Use the named tools when available | Use the shell or available web tools for the same operation. Follow the stage's fallback when a capability is unavailable. |
 
-When searching a consumer repository, enumerate filenames first. Read candidate Markdown
-through the protected path above, including previously unseen files and snippets in mixed
-code/document searches. A raw shell read is reserved for an intentional audit or a
-supersede review that needs the old wording. Keep that material separate from active
-requirements. The reader enforces withholding on its own stdout. Other shell commands and
-other tools can read the filesystem directly.
+In Codex a trusted plugin hook checks ordinary shell reads even during implementation.
+When it denies a command, run the quoted retry in its tool result. The original command
+has not run. Handle other parts of a compound command separately. A retry needs no
+owner decision. For example, `python3 -B "$IMMUTABLE_ROOT/scripts/search_docs.py" -ni -g '*.md' 'checkout' pitches`
+searches active text and displays the full notice for deprecated candidates.
+
+Use `rg --files` to list names. For reads beyond the [supported shell forms](README.md#codex-shell-coverage),
+enumerate candidates and pass their literal paths to the reader. For an intentional
+historical audit or supersede review, use `python3 -B "$IMMUTABLE_ROOT/scripts/read_doc.py" --audit -- "$path"`.
+Only use the text between the historical-audit markers to review prior wording.
 
 For an interview question or approval, present the same prompt, choices and recommendation
 as the procedure. If the tool is absent, restricted, or unable to express the question,

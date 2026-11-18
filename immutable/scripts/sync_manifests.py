@@ -22,8 +22,11 @@ def main():
     # This Codex format accepts explicit skill roots. Both clients open the
     # same nine files, including when their installer copies the package.
     codex = {k: manifest[k] for k in ("name", "version", "description", "skills", "keywords")}
-    # An explicit inline hook map opts out of Codex auto-loading Claude's Read hook.
-    codex["hooks"] = {"hooks": {}}
+    # An explicit hook map replaces default discovery of Claude's native Read hook.
+    codex["hooks"] = {"hooks": {"PreToolUse": [{
+        "matcher": "^Bash$",
+        "hooks": [{"type": "command", "command": 'python3 -B "${PLUGIN_ROOT}/scripts/codex_read_guard.py"'}],
+    }]}}
     catalog = {
         "name": market["name"],
         "plugins": [{

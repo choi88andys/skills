@@ -269,7 +269,7 @@ Stand-alone validator (`scripts/validate_docs.py`, requires PyYAML) enforces the
 
 Whether a red run actually **blocks** a merge is a setting in the consuming repo, not something the plugin can ship: without a branch-protection rule making this check required, GitHub reports the failure and still allows the merge.
 
-Since v0.10.0 the plugin also carries a **read-time** layer, orthogonal to both: a PostToolUse hook (`hooks/hooks.json` + `scripts/deprecated_read_guard.sh`) that withholds the body of a `deprecated: true` doc when it is read through the Read tool, replacing it with a banner naming the successor(s). It guards the one class no write-time check can see — implementing *from* a dead spec, where every artifact is individually valid and the defect is which document was read. Details, deliberate escapes, and the off switch: plugin `README.md`, "Deprecated-doc read gate".
+Read-time protection also covers a failure that leaves no invalid artifact: implementing from a deprecated requirement. Claude Code's native Read hook and the protected Codex reader withhold the deprecated body and name its successors. Codex checks supported shell commands before execution and supplies a protected retry. [Client coverage and historical review](README.md#deprecated-document-reads)
 
 ---
 

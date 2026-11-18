@@ -104,23 +104,59 @@ paths parse YAML frontmatter. If `deprecated` is boolean true, they deliver the
 frontmatter, a withholding banner and any same-directory successors. Active documents
 remain readable. Both paths share the reader and the validator's frontmatter parser.
 
-| Client | Protected path | Raw body access |
+| Client | Ordinary reads | Intentional historical review |
 | --- | --- | --- |
-| Claude Code | The plugin's `PostToolUse` hook rewrites the native `Read` result, including offset reads. Its replacement has the shape of a Claude text-file result. | Shell commands such as `cat` and `git show` are the intentional audit path. Other tools fall outside the Read hook. |
-| Codex CLI | Skills use `python3 -B "$IMMUTABLE_ROOT/scripts/read_doc.py" -- "$path"`. The reader classifies and filters the same snapshot before writing to stdout. Pipe its output into searches or line-range commands. | Direct `cat`, `sed`, `rg`, `git show`, and other filesystem tools can return original text. Choosing the protected command is part of the skill procedure. |
+| Claude Code | The plugin's `PostToolUse` hook replaces deprecated native `Read` results, including offset reads. | Use the banner's audit command. Claude's Bash `cat` and `git show` paths also remain available. |
+| Codex CLI | The enabled, trusted plugin's `PreToolUse` hook denies supported raw reads before the shell starts. Its reason gives a shell-quoted retry using the installed package. This applies in ordinary coding sessions, including before a skill is selected. | Run the banner's `read_doc.py --audit -- FILE` command for a supersede or history review. It prints the raw snapshot between historical-audit markers. Use the successor for implementation. |
 
-Codex reports `exec_command` to hooks as `Bash`, with `tool_input.command`.
-In a local 0.169.1 probe the shell's `tool_response` was a string. There was
-no file-path field identifying all documents read by the process. Copying the
-Claude `Read` matcher or returning an extra warning cannot enforce withholding
-for arbitrary shell programs. Direct shell reads in Codex carry **no automatic
-deprecation protection**. See the [Codex hook reference](https://developers.openai.com/codex/hooks#tool-coverage).
+### Codex shell coverage
 
-The Claude hook needs jq, Bash and Python with PyYAML. Missing PyYAML leaves
-Claude Read open with a diagnostic. The dedicated reader exits with an error
-and releases no in-scope body when PyYAML is missing.
-`IMMUTABLE_DEPRECATED_GUARD_DISABLE=1` disables the Claude hook.
-`IMMUTABLE_DEPRECATED_GUARD_LOG=<path>` records decisions from either reader.
+Paths are literal absolute or relative names, including shell-quoted spaces. A file
+is in scope when its Markdown path or resolved target ends in `.md` and has a
+`.immutable-prd/` ancestor. The hook checks the call's working directory and
+operands. A file mentioned in a message, search expression or another program's
+arguments does not by itself trigger a denial.
+
+| Shell form | What the retry delivers |
+| --- | --- |
+| `cat [--] FILE...` | Concatenated snapshots in operand order, with a notice for each deprecated file. |
+| `sed -n [-e] 'Np' [--] FILE`, also `'N,Mp'` and `'N,$p'` | The selected lines of one active file, or the complete withholding notice even for a body-only range. Line numbers start at 1. |
+| `rg [OPTIONS] PATTERN [FILE_OR_DIR...]`, also `-e PATTERN` | One expression over explicit files, recursive directories, or the current directory when omitted. Active matches carry paths. Deprecated candidates produce their notices even if there are no active matches. Mixed searches include source matches. |
+| Flat commands separated by `&&`, `||`, `;`, a newline or a pipe, including a literal leading `cd [--] DIR &&` | The entire call is denied when a supported read is found. The retry runs the first such read on its own. Run any remaining steps separately. A piped `rg PATTERN` with no targets consumes stdin. |
+
+Search options include `-n`, `-i`, `-S`, `-F`, `-w` (including combinations and
+their long forms), `--hidden`, repeated `-g GLOB` / `--glob GLOB` / `--glob=GLOB`,
+and `--`. Quote glob patterns. Directory discovery uses `rg --files -0` with the
+same glob and hidden options and normal ignore rules. The hook only enumerates
+names. The retry classifies the same Markdown snapshot that it filters or searches.
+Filename enumeration, e.g. `rg --files | rg pitch`, and source-only reads pass.
+
+Examples from a consumer repository:
+
+```sh
+cat -- 'pitches/order/old pitch.md'
+sed -n '20,60p' 'pitches/order/old pitch.md'
+cd 'pitches/order' && rg -ni -g '*.md' 'checkout' .
+```
+
+If denied, execute the exact command in the reason. The ordinary retry applies
+the range or search to active inputs. Only an explicit historical review uses
+`python3 -B "$IMMUTABLE_ROOT/scripts/read_doc.py" --audit -- "$path"`.
+
+This check covers the listed forms with the standard utilities on PATH. Shell
+expansion (variables, wildcards in file operands, substitutions), redirects,
+nested shells, loops, aliases, wrappers, other utility options, custom ripgrep
+configuration, and commands that change the file tree or working directory
+conditionally can fall outside it. Interactive shell input, `git show`, other
+programs such as `head` or Python, and other tools can still read raw files.
+Trust and enable the installed hook in Codex (`/hooks`). Disabled, untrusted,
+failed or timed-out hooks can leave reads unprotected. [Codex hook reference](https://developers.openai.com/codex/hooks#tool-coverage)
+
+Both clients need Python with PyYAML. The Codex search path also needs ripgrep.
+The Claude hook additionally uses jq and Bash. Missing PyYAML leaves Claude Read
+open with a diagnostic. The protected reader exits before releasing an in-scope
+body when PyYAML is missing. `IMMUTABLE_DEPRECATED_GUARD_DISABLE=1` disables the
+Claude hook. `IMMUTABLE_DEPRECATED_GUARD_LOG=<path>` records reader decisions.
 
 ## Maintenance
 
@@ -148,8 +184,10 @@ requires a schema bump in both default profiles. [Official packaging guide](http
 
 From the checkout, these checks load the package in both clients and exercise
 consumer-shaped repositories. The Codex script creates a temporary `CODEX_HOME`.
-Its default discovery and asset checks run without a model. Its optional model
-test uses `CODEX_API_KEY` from the environment and accepts `--model <name>`.
+The default run checks discovery, assets, command coverage and the exact retries
+against the installed copy without a model. The optional live test accepts
+`--model <name>` and uses `CODEX_API_KEY` or `OPENAI_API_KEY` from the environment.
+It permits the checkout's hook to run for that invocation in the temporary home.
 
 ```sh
 claude --plugin-dir "$PWD/immutable" plugin details immutable
@@ -159,10 +197,19 @@ bash immutable/scripts/deprecated_read_guard.test.sh --e2e
 python3 immutable/scripts/codex_plugin.test.py --e2e
 ```
 
-The two end-to-end guard tests inspect **client-delivered tool results** for the
-banner, the active document's token and the explicit raw audit's token. Unit
-tests separately check Claude's JSON shape, folded and split successors, YAML
-booleans, CRLF and the reader's behavior without PyYAML.
+The Codex live test starts a coding session with an ordinary `cat` reference.
+It checks the delivered denial and installed retry path, the withholding notice,
+the successor's token, and the modified source. A second session checks a
+body-only `sed` range and a recursive `cd … && rg` search. Both scan the entire
+session record for the obsolete token. A separate historical review forces an
+early shell yield and checks that a later result delivers the token between
+audit markers. The Claude test checks native Read results and the Bash audit
+control. The fixtures contain synthetic requirements.
+
+On 2026-11-18 these guard tests passed with Codex CLI 0.169.1 (temporary local
+marketplace install) and Claude Code 2.1.327 (`--plugin-dir`). The shell coverage
+suite ran from both source and cache. Additional checks covered manifest freshness,
+English/Korean catalog parity, reader behavior without PyYAML and successor resolution.
 
 On 2026-11-18, Claude Code 2.1.327 (`--plugin-dir`) and Codex CLI 0.169.1
 (isolated marketplace install) each exposed nine skills. An isolated Claude marketplace
