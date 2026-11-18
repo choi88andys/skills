@@ -1,0 +1,42 @@
+{
+  "name": "immutable",
+  "version": "0.19.0",
+  "description": "Append-only spec-driven development for Claude Code and Codex. Bootstrap a repository, interview the author, review the pitch and engineering plan, record architecture decisions, and prepare a pull request. Pitch and ADR authoring use multi-perspective review and a 90% completeness gate. Shared validators check supersede chains and optional tracker requirement contracts.",
+  "skills": [
+    "./init",
+    "./prd",
+    "./adr",
+    "./migrate",
+    "./office-hours",
+    "./design",
+    "./plan-review-ceo",
+    "./plan-review-eng",
+    "./ship"
+  ],
+  "keywords": [
+    "sdd",
+    "prd",
+    "pitch",
+    "adr",
+    "architecture-decision",
+    "append-only",
+    "interview",
+    "immutable",
+    "init",
+    "bootstrap",
+    "starter",
+    "migrate",
+    "profile",
+    "office-hours",
+    "design",
+    "plan-review",
+    "ship",
+    "spec-driven-development",
+    "requirement-contract",
+    "ticket",
+    "drift"
+  ],
+  "hooks": {
+    "hooks": {}
+  }
+}
