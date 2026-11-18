@@ -37,6 +37,18 @@
     "drift"
   ],
   "hooks": {
-    "hooks": {}
+    "hooks": {
+      "PreToolUse": [
+        {
+          "matcher": "^Bash$",
+          "hooks": [
+            {
+              "type": "command",
+              "command": "python3 -B \"${PLUGIN_ROOT}/scripts/codex_read_guard.py\""
+            }
+          ]
+        }
+      ]
+    }
   }
 }

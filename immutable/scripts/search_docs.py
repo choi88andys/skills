@@ -55,10 +55,10 @@ class Search:
             pattern = operands.pop(0)
         if "-" in operands:
             raise ValueError("stdin is outside the file search")
-        return cls(flags, discovery, pattern, operands or ["."])
+        return cls(flags, discovery, pattern, operands)
 
-    def files(self, cwd):
-        for target in self.targets:
+    def files(self, cwd, *, markdown_only=False):
+        for target in self.targets or ["."]:
             path = cwd / target
             if not path.is_dir():
                 yield path
@@ -72,7 +72,9 @@ class Search:
             if result.returncode not in (0, 1):
                 raise OSError(f"could not enumerate search directory {target!r}")
             for name in result.stdout.split(b"\0"):
-                if name:
+                # Directory walks skip symlinks by default. Explicit operands
+                # above still go through the reader's resolved-target check.
+                if name and (not markdown_only or name.endswith(b".md")):
                     yield cwd / os.fsdecode(name)
 
 
