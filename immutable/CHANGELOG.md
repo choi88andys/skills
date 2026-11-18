@@ -2,7 +2,9 @@
 
 All notable changes to the `immutable` plugin are documented in this file. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Version is canonically declared in `.claude-plugin/plugin.json`.
 
-## Unreleased
+## [0.20.0] — 2026-11-18
+
+### Added
 
 - Codex CLI can install all nine immutable skills from the repository marketplace. Both clients share procedures, validators, profiles, catalogs and working notes.
 - Codex skills read consumer documents through a dedicated reader that withholds deprecated bodies before printing. Claude Code's native Read hook uses the same parser and successor lookup. Direct shell commands retain raw access for audits.
