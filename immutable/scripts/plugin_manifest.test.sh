@@ -89,6 +89,12 @@ else
   fail "C4 plugin.json version" "got [$(get version)]"
 fi
 
+if python3 "$SCRIPT_DIR/sync_manifests.py" --check; then
+  pass "Generated Codex manifests and Claude marketplace are current"
+else
+  fail "Generated manifests" "refresh them with sync_manifests.py"
+fi
+
 # C5 — strings catalogs: en ↔ ko key parity, ja deliberately empty (v0.7.4 bug).
 if python3 -c 'import yaml' 2>/dev/null; then
   PAR="$(python3 - "$PLUGIN/strings" <<'PYX'

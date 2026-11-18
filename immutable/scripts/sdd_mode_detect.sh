@@ -6,7 +6,7 @@
 # USAGE
 #   This script is intended to be SOURCED by a SKILL.md bash block, not executed
 #   directly:
-#       source "${CLAUDE_PLUGIN_ROOT}/scripts/sdd_mode_detect.sh"
+#       source "${IMMUTABLE_ROOT}/scripts/sdd_mode_detect.sh"
 #   After sourcing, the variables below are set in the caller's shell.
 #
 # EXPORTED VARIABLES

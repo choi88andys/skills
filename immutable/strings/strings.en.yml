@@ -65,7 +65,7 @@ strings:
 
   init.stage4.repo_local_hint: "You can edit the profile file directly to customize sections / personas / gate threshold."
 
-  init.stage4.skip_hint: "To switch to (2) later: run `cp ${CLAUDE_PLUGIN_ROOT}/examples/_profiles/default-{lang}.yml .immutable-prd/profile.yml`, then uncomment the `profile:` line in config.yml."
+  init.stage4.skip_hint: "To switch to (2) later: run `cp ${IMMUTABLE_ROOT}/examples/_profiles/default-{lang}.yml .immutable-prd/profile.yml`, then uncomment the `profile:` line in config.yml."
 
   init.stage5.copy_report: |
     Copied ({copied_count}):
@@ -673,7 +673,7 @@ strings:
     Either someone deleted profile.yml or the `profile:` line in config.yml points elsewhere. Recover by either:
 
     ```bash
-    cp ${CLAUDE_PLUGIN_ROOT}/examples/_profiles/default-{team_language}.yml {profile_dest_path}
+    cp ${IMMUTABLE_ROOT}/examples/_profiles/default-{team_language}.yml {profile_dest_path}
     ```
 
     Or re-run `/immutable:init` (existing files are preserved).
@@ -788,8 +788,8 @@ strings:
 
     Skill could not find expected text or it was not unique. The user may have reformatted or hand-edited the profile. Resolve by either:
 
-    1. Manual merge: copy the `{field_path}` block from `${CLAUDE_PLUGIN_ROOT}/examples/_profiles/default-{team_language}.yml` directly into the team profile.
-    2. Full profile replacement (loses overrides): `cp ${CLAUDE_PLUGIN_ROOT}/examples/_profiles/default-{team_language}.yml {profile_dest_path}` — existing customizations are gone.
+    1. Manual merge: copy the `{field_path}` block from `${IMMUTABLE_ROOT}/examples/_profiles/default-{team_language}.yml` directly into the team profile.
+    2. Full profile replacement (loses overrides): `cp ${IMMUTABLE_ROOT}/examples/_profiles/default-{team_language}.yml {profile_dest_path}` — existing customizations are gone.
 
     Aborting Stage 5. Other stage changes are commit-safe (Stage 5 is not atomic).
 
@@ -977,7 +977,7 @@ strings:
     explicitly with a reason — never fake a third option.
 
     The Phase 3 authoring guide (what each slot means, common failures, worked
-    examples) lives at `${{CLAUDE_PLUGIN_ROOT}}/office-hours/premise-rubric.md`.
+    examples) lives at `${{IMMUTABLE_ROOT}}/office-hours/premise-rubric.md`.
     Read it now before proceeding.
 
   oh.phase3.approach_template: |

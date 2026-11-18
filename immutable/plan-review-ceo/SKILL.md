@@ -7,6 +7,8 @@ license: MIT
 
 # /immutable:plan-review-ceo — Scope challenge + 11-section review
 
+Before Stage 1, read [the runtime instructions](../RUNTIME.md) beside the physical skill directory (resolve the supplied `SKILL.md` path through symlinks first). Use them for all bundled paths, tools, questions and skill references.
+
 This is the heavier of the two plan-review skills. It runs scope challenge
 first (Phase 0), then walks 11 review sections that catch silent failures,
 weak rollout posture, and architectural debt before code lands.
@@ -39,7 +41,7 @@ ADR-authoring candidates).
 
 ## Strings catalog & locale
 
-User-facing prompts come from `${CLAUDE_PLUGIN_ROOT}/strings/strings.<team_language>.yml`.
+User-facing prompts come from `${IMMUTABLE_ROOT}/strings/strings.<team_language>.yml`.
 `team_language` is read from `.immutable-prd/config.yml` (default: `ko`).
 
 Per-string fallback: primary catalog → `strings.en.yml` (with
@@ -86,7 +88,7 @@ Per-string fallback: primary catalog → `strings.en.yml` (with
 ## SDD mode detection
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/scripts/sdd_mode_detect.sh"
+source "${IMMUTABLE_ROOT}/scripts/sdd_mode_detect.sh"
 ```
 
 Refuse with `common.refuse_legacy_mode` if `SDD_MODE != immutable-prd`.
@@ -145,7 +147,7 @@ List the active pitches with the bundled resolver — never a text grep
 (`deprecated: True` spelling variants and fenced example lines both fool one):
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/validate_docs.py" \
+python3 "${IMMUTABLE_ROOT}/scripts/validate_docs.py" \
   --config "$IMMUTABLE_PRD_SPEC_CONFIG" --type pitch --list-active
 ```
 
@@ -161,7 +163,7 @@ silent-skip; NOT hard-refused).** Compute the canonical path and check
 existence:
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/scripts/feature_slug.sh"
+source "${IMMUTABLE_ROOT}/scripts/feature_slug.sh"
 DESIGN_NOTE=".claude/immutable/design/${FEATURE_SLUG}.md"
 echo "DESIGN_NOTE=$DESIGN_NOTE"
 ```
@@ -295,13 +297,13 @@ Between sections, pause for user feedback before proceeding to the next.
 
 **Section 1 — required pre-read**: before producing any architecture
 diagram for Section 1, **use the Read tool to fetch
-`${CLAUDE_PLUGIN_ROOT}/plan-review-ceo/templates/data-flow-diagram.md`
+`${IMMUTABLE_ROOT}/plan-review-ceo/templates/data-flow-diagram.md`
 now**. The four-path (happy / nil / empty / error) ASCII convention and
 worked example there are the required output schema.
 
 **Section 2 — required pre-read**: before populating the rescue map for
 Section 2, **use the Read tool to fetch
-`${CLAUDE_PLUGIN_ROOT}/plan-review-ceo/templates/error-rescue-map.md`
+`${IMMUTABLE_ROOT}/plan-review-ceo/templates/error-rescue-map.md`
 now**. The two-table format (failure-mode table + rescue table with GAP
 markers) and worked example there are the required output schema.
 
@@ -393,7 +395,7 @@ Render via AskUserQuestion using `prc.phase4.verdict_question`:
 
 ```bash
 mkdir -p .claude/immutable/plan-review
-source "${CLAUDE_PLUGIN_ROOT}/scripts/feature_slug.sh"
+source "${IMMUTABLE_ROOT}/scripts/feature_slug.sh"
 OUT=".claude/immutable/plan-review/${FEATURE_SLUG}-ceo.md"
 echo "OUTPUT_PATH: $OUT"
 ```
@@ -518,12 +520,12 @@ Render via `prc.phase4.handoff_to_plan_review_eng`:
 
 ## Log learning to project memory (mandatory final step)
 
-Before returning control to the user (any verdict **or** abort), append one learning entry to the project store. Best-effort — if `${CLAUDE_PLUGIN_ROOT}/scripts/learnings.sh` is unavailable, the guard exits silently and never blocks the flow.
+Before returning control to the user (any verdict **or** abort), append one learning entry to the project store. Best-effort — if `${IMMUTABLE_ROOT}/scripts/learnings.sh` is unavailable, the guard exits silently and never blocks the flow.
 
 Pick ONE branch below based on verdict/outcome and substitute the placeholders (`<pitch-basename>`, `<N>`, `<reason>`, etc.) with concrete values before running. For refactor mode (no pitch), use the literal `internal` for `<pitch-basename>` so the KEY remains grep-stable.
 
 ```bash
-LH="${CLAUDE_PLUGIN_ROOT}/scripts/learnings.sh"
+LH="${IMMUTABLE_ROOT}/scripts/learnings.sh"
 [ -x "$LH" ] || exit 0
 SLUG=$("$LH" slug)
 
@@ -589,4 +591,4 @@ Plus shared `common.*` keys.
 - **`templates/data-flow-diagram.md`** — Section 1 ASCII diagram template
   with happy / nil / empty / error paths.
 
-All plugin-bundled at `${CLAUDE_PLUGIN_ROOT}/plan-review-ceo/`.
+All plugin-bundled at `${IMMUTABLE_ROOT}/plan-review-ceo/`.

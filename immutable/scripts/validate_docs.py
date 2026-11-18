@@ -738,21 +738,22 @@ def _bullet_head_normative_re(tokens: list[str]) -> re.Pattern[str]:
     return re.compile(rf"^\s*[-*]\s+[\*_]{{0,3}}\[(?:{alternation})\]")
 
 
-def load_frontmatter(md_path: Path) -> dict[str, Any] | None:
-    text = md_path.read_text(encoding="utf-8")
+def split_frontmatter(text: str) -> tuple[dict[str, Any] | None, str]:
+    """Parse the header and retain its source for the deprecated-document reader."""
     match = FRONTMATTER_RE.match(text)
     if not match:
-        return None
+        return None, ""
     try:
         fm = yaml.safe_load(match.group(1)) or {}
     except yaml.YAMLError:
-        return None
-    # Scalar/list frontmatter (`---\njust text\n---`) parses fine but has no
-    # `.keys()`/`.get()` — letting it through crashed check_frontmatter with an
-    # AttributeError instead of reporting a violation. Not-a-mapping ≙ malformed.
+        return None, ""
     if not isinstance(fm, dict):
-        return None
-    return fm
+        return None, ""
+    return fm, match.group(0)
+
+
+def load_frontmatter(md_path: Path) -> dict[str, Any] | None:
+    return split_frontmatter(md_path.read_text(encoding="utf-8"))[0]
 
 
 def resolve_dirs(config: dict[str, Any], repo_root: Path) -> dict[str, Path | None]:

@@ -7,6 +7,8 @@ license: MIT
 
 # /immutable:migrate — Config + Profile Schema Migration
 
+Before Stage 1, read [the runtime instructions](../RUNTIME.md) beside the physical skill directory (resolve the supplied `SKILL.md` path through symlinks first). Use them for all bundled paths, tools, questions and skill references.
+
 Two responsibilities (added in v0.5.7):
 
 1. **Config migration** (`.immutable-prd/config.yml` v2 → v3) — bumps `version`, seeds `.immutable-prd/profile.yml` from bundled default, uncomments `profile:` pointer.
@@ -18,7 +20,7 @@ Never runs git. Never writes outside the repo. Never modifies pitches, ADRs, REA
 
 ## Strings catalog & locale (v0.5 / S3+)
 
-All user-facing prompts are sourced from `${CLAUDE_PLUGIN_ROOT}/strings/strings.<locale>.yml` — not embedded inline. SKILL.md refers to catalog keys via the pattern ``render `<key>` `` with single-brace `{placeholder}` substitution performed by the skill.
+All user-facing prompts are sourced from `${IMMUTABLE_ROOT}/strings/strings.<locale>.yml` — not embedded inline. SKILL.md refers to catalog keys via the pattern ``render `<key>` `` with single-brace `{placeholder}` substitution performed by the skill.
 
 **Locale resolution**:
 - Stage 1 reads `team_language` from the existing config.yml. That becomes the primary locale for all subsequent stages.
@@ -35,7 +37,6 @@ See `../SCHEMA.md#strings-catalog-v05-s3` for the schema, responsibility split, 
 
 - Current working directory is inside (or is the root of) an immutable SDD repo.
 - `.immutable-prd/config.yml` exists, reachable via walk-up from CWD.
-- `${CLAUDE_PLUGIN_ROOT}` is set by Claude Code when invoking plugin skills. If unset (rare), fall back to walking up from the skill's own location.
 
 ## Invocation
 
@@ -79,7 +80,7 @@ Stage 6: Final verify + handoff — show result, suggest commit
 Walk up from CWD until `.immutable-prd/config.yml` is found or the `.git` boundary is reached:
 
 ```bash
-CONFIG_PATH="$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/find_config.sh")" && echo "$CONFIG_PATH" || echo "NOT_FOUND"
+CONFIG_PATH="$(bash "${IMMUTABLE_ROOT}/scripts/find_config.sh")" && echo "$CONFIG_PATH" || echo "NOT_FOUND"
 ```
 
 If the walk-up returns `NOT_FOUND`, STOP by rendering `migrate.stage1.not_initialized` (no substitutions). Do not proceed.
@@ -109,7 +110,7 @@ After parsing config.yml, determine the team profile state:
    - When config version is 3 → STOP by rendering `migrate.stage1.profile_missing` with `{profile_dest_path}` and the suggested one-liner. The repo is in an inconsistent state (config was migrated but profile was deleted).
 3. If team profile file exists:
    - Read it. Extract `profile_schema:` (integer; default to `1` if missing).
-   - Read bundled default profile (`${CLAUDE_PLUGIN_ROOT}/examples/_profiles/default-<team_language>.yml`). Extract its `profile_schema:` (integer).
+   - Read bundled default profile (`${IMMUTABLE_ROOT}/examples/_profiles/default-<team_language>.yml`). Extract its `profile_schema:` (integer).
    - Cache both values for Stages 2 and 5: `team_profile_schema`, `bundled_profile_schema`.
 
 ### 1.4 Already-migrated routing
@@ -140,7 +141,7 @@ Render a combined plan covering both config migration (when needed) and profile 
 
 - `{current_version}` — config version parsed in Stage 1.2.
 - `{target_version}` — literal `3` (always, when config migration is in scope).
-- `{profile_source_path}` — `${CLAUDE_PLUGIN_ROOT}/examples/_profiles/default-<team_language>.yml`. Render with the expanded absolute path when available; otherwise render the `${CLAUDE_PLUGIN_ROOT}/…` form verbatim.
+- `{profile_source_path}` — `${IMMUTABLE_ROOT}/examples/_profiles/default-<team_language>.yml`. Render the resolved absolute path.
 - `{profile_dest_path}` — `<repo_root>/.immutable-prd/profile.yml`.
 - `{team_profile_schema}` / `{bundled_profile_schema}` — from Stage 1.3 (when team profile.yml exists).
 - `{profile_field_diff}` — populated by 2.2 below when Stage 5 will run.
@@ -196,7 +197,7 @@ Perform the three changes in order. Each step is idempotent — if the target st
 
 ### 3.1 Copy bundled profile → repo
 
-1. Source: `${CLAUDE_PLUGIN_ROOT}/examples/_profiles/default-<team_language>.yml`
+1. Source: `${IMMUTABLE_ROOT}/examples/_profiles/default-<team_language>.yml`
 2. Destination: `<repo_root>/.immutable-prd/profile.yml`
 
 If destination exists with non-empty content:
@@ -354,7 +355,7 @@ Every dated rule added is named in the handoff (`migrate.stage6.note_dated_rules
 
 #### 5.2.7 Retired fields (v0.17+, profile_schema 8)
 
-profile_schema 8 retired the pitch size caps: a pitch is one user-facing feature area, and length alone is no reason to split it. The bundled defaults no longer carry the caps, so 5.2.1 never re-adds them — but a copy left in a team profile reads as a live knob while no skill reads it, and a `concern_scope` criterion left in `gate.criteria` would skew the gate's count. So, only when `team_profile_schema < 8 <= bundled_profile_schema`, apply `${CLAUDE_PLUGIN_ROOT}/migrate/retired_v8.yml`:
+profile_schema 8 retired the pitch size caps: a pitch is one user-facing feature area, and length alone is no reason to split it. The bundled defaults no longer carry the caps, so 5.2.1 never re-adds them — but a copy left in a team profile reads as a live knob while no skill reads it, and a `concern_scope` criterion left in `gate.criteria` would skew the gate's count. So, only when `team_profile_schema < 8 <= bundled_profile_schema`, apply `${IMMUTABLE_ROOT}/migrate/retired_v8.yml`:
 
 1. **`remove`** — delete each listed path that is present: the top-level `anti_monolith` block, `max_items` under `sections[id=user_stories]`, and the `gate.criteria` entry with `id: concern_scope`. Also delete the comment block immediately above a removed key when it is the bundled stock comment (same heuristic as 5.2.5); a comment the team wrote stays. The ADR block `adr.anti_monolith` is not retired — leave it.
 2. **Gate counts** — when step 1 removed `concern_scope`, lower `gate.total` and `gate.pass_threshold` by one each (8/7 → 7/6, a customised 9/8 → 8/7), so the team keeps its own tolerance. When the team's list held no `concern_scope`, leave both.
@@ -364,7 +365,7 @@ Every removal and replacement appears in the Stage 2 plan (`-` / `~` lines) and 
 
 #### 5.2.8 The input contract (v0.18+, profile_schema 9)
 
-profile_schema 9 makes a pitch declare every value the user enters — how it is entered, what is accepted, what happens to an invalid value — in a `sections[id=input_contract]` table (SCHEMA.md "Input contract"). The universal diff adds the section entry, `input_markers` and `gate.criteria[id=input_contract]`; `${CLAUDE_PLUGIN_ROOT}/migrate/schema_v9.yml` says what it cannot. Only when `team_profile_schema < 9 <= bundled_profile_schema`:
+profile_schema 9 makes a pitch declare every value the user enters — how it is entered, what is accepted, what happens to an invalid value — in a `sections[id=input_contract]` table (SCHEMA.md "Input contract"). The universal diff adds the section entry, `input_markers` and `gate.criteria[id=input_contract]`; `${IMMUTABLE_ROOT}/migrate/schema_v9.yml` says what it cannot. Only when `team_profile_schema < 9 <= bundled_profile_schema`:
 
 1. **`insert_after`** — insert the `sections[id=input_contract]` entry, with the bundled comment block above it, right after the team's `sections[id=user_stories]` entry (at the end of `sections` when the team has none). `sections` is the pitch's render order.
 2. **`dated`** — its `since` is the day after the migration (5.2.6).
@@ -391,7 +392,7 @@ For each addition from 5.2's diff list:
 
 Then apply the 5.2.7 retirements the plan listed, then the 5.2.8 gate counts and stock replacement, one Edit per removal or replacement, with the same defensive re-check (a path already gone is a SKIP, never an error).
 
-If any Edit fails (old_string not found or not unique), abort the stage with `migrate.stage5.edit_failure` pointing at the specific addition and suggesting manual merge from `${CLAUDE_PLUGIN_ROOT}/examples/_profiles/default-<lang>.yml`. Do NOT continue with further additions — leave the profile in a consistent partial state and let the user inspect.
+If any Edit fails (old_string not found or not unique), abort the stage with `migrate.stage5.edit_failure` pointing at the specific addition and suggesting manual merge from `${IMMUTABLE_ROOT}/examples/_profiles/default-<lang>.yml`. Do NOT continue with further additions — leave the profile in a consistent partial state and let the user inspect.
 
 ### 5.5 Bump schema and verify
 
