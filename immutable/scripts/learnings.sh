@@ -24,16 +24,20 @@ GSTACK_HOME="${GSTACK_HOME:-$HOME/.gstack}"
 # basename for non-SDD invocations.
 get_slug() {
   local spec_root=""
+  local detector="${CLAUDE_PLUGIN_ROOT:-}/scripts/sdd_mode_detect.sh"
+  if [ -z "${CLAUDE_PLUGIN_ROOT:-}" ] || [ ! -f "$detector" ]; then
+    detector="$(dirname "${BASH_SOURCE[0]}")/sdd_mode_detect.sh"
+  fi
 
   if [ -n "${IMMUTABLE_PRD_SPEC_CONFIG:-}" ] && [ -f "$IMMUTABLE_PRD_SPEC_CONFIG" ]; then
     spec_root=$(dirname "$(dirname "$IMMUTABLE_PRD_SPEC_CONFIG")")
-  elif [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "${CLAUDE_PLUGIN_ROOT}/scripts/sdd_mode_detect.sh" ]; then
+  elif [ -f "$detector" ]; then
     # Source under relaxed shell options in a subshell — extracts the var
     # only, sdd_mode_detect.sh stdout (diagnostic echoes) is suppressed.
     spec_root=$(
       set +eu
       # shellcheck disable=SC1091
-      . "${CLAUDE_PLUGIN_ROOT}/scripts/sdd_mode_detect.sh" >/dev/null 2>&1
+      . "$detector" >/dev/null 2>&1
       if [ -n "${IMMUTABLE_PRD_SPEC_CONFIG:-}" ] && [ -f "$IMMUTABLE_PRD_SPEC_CONFIG" ]; then
         dirname "$(dirname "$IMMUTABLE_PRD_SPEC_CONFIG")"
       fi

@@ -7,6 +7,8 @@ license: MIT
 
 # /immutable:design — Pitch confirmation + app-side context capture
 
+Before Stage 1, read [the runtime instructions](../RUNTIME.md) beside the physical skill directory (resolve the supplied `SKILL.md` path through symlinks first). Use them for all bundled paths, tools, questions and skill references.
+
 In immutable-prd mode the pitch (in the spec repo, or in a `pitches/` subtree
 for single-repo) is the canonical design artifact. This skill is the
 **lightweight bridge** between pitch authoring and review:
@@ -23,7 +25,7 @@ would create drift. Phase 4 of this skill writes only one transient note at
 
 ## Strings catalog & locale
 
-All user-facing prompts are sourced from `${CLAUDE_PLUGIN_ROOT}/strings/strings.<team_language>.yml`.
+All user-facing prompts are sourced from `${IMMUTABLE_ROOT}/strings/strings.<team_language>.yml`.
 `team_language` comes from `.immutable-prd/config.yml` (default: `ko`).
 
 Per-string fallback:
@@ -54,7 +56,7 @@ Per-string fallback:
 ## SDD mode detection
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/scripts/sdd_mode_detect.sh"
+source "${IMMUTABLE_ROOT}/scripts/sdd_mode_detect.sh"
 ```
 
 Refuse with `common.refuse_legacy_mode` if `SDD_MODE != immutable-prd`.
@@ -117,7 +119,7 @@ If `PITCHES_DIR` does not exist or contains no `*.md` files, render
 # (A grep for '^deprecated: true' is wrong in both directions: `deprecated: True`
 # and `deprecated:  true` are live YAML it reads as active, and a fenced example
 # line inside a body reads as deprecated.)
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/validate_docs.py" \
+python3 "${IMMUTABLE_ROOT}/scripts/validate_docs.py" \
   --config "$IMMUTABLE_PRD_SPEC_CONFIG" --type pitch --list-active
 ```
 
@@ -215,7 +217,7 @@ should be **delta-only** — context that is not in the pitch.
 
 ```bash
 mkdir -p .claude/immutable/design
-source "${CLAUDE_PLUGIN_ROOT}/scripts/feature_slug.sh"
+source "${IMMUTABLE_ROOT}/scripts/feature_slug.sh"
 OUT=".claude/immutable/design/${FEATURE_SLUG}.md"
 echo "OUTPUT_PATH: $OUT"
 ```
@@ -288,12 +290,12 @@ Plus shared `common.*` keys: `common.refuse_legacy_mode`,
 
 ## Log learning to project memory (mandatory final step)
 
-Before returning control to the user (success **or** abort), append one learning entry to the project store. Best-effort — if `${CLAUDE_PLUGIN_ROOT}/scripts/learnings.sh` is unavailable, the guard exits silently and never blocks the flow.
+Before returning control to the user (success **or** abort), append one learning entry to the project store. Best-effort — if `${IMMUTABLE_ROOT}/scripts/learnings.sh` is unavailable, the guard exits silently and never blocks the flow.
 
 Pick ONE branch below based on outcome and substitute the placeholders (`<pitch-basename>`, `<N>`, `<reason>`, etc.) with concrete values before running. For refactor mode (no pitch), use the literal `internal` for `<pitch-basename>` so the KEY remains grep-stable.
 
 ```bash
-LH="${CLAUDE_PLUGIN_ROOT}/scripts/learnings.sh"
+LH="${IMMUTABLE_ROOT}/scripts/learnings.sh"
 [ -x "$LH" ] || exit 0
 SLUG=$("$LH" slug)
 
@@ -335,4 +337,4 @@ FILES='[".claude/immutable/design/<feature-slug>.md"]'
 
 - **`handoff-template.md`** — markdown template for Step 4 transient note.
 
-Plugin-bundled at `${CLAUDE_PLUGIN_ROOT}/design/`.
+Plugin-bundled at `${IMMUTABLE_ROOT}/design/`.

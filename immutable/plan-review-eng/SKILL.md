@@ -7,6 +7,8 @@ license: MIT
 
 # /immutable:plan-review-eng — Engineering review (4 sections)
 
+Before Stage 1, read [the runtime instructions](../RUNTIME.md) beside the physical skill directory (resolve the supplied `SKILL.md` path through symlinks first). Use them for all bundled paths, tools, questions and skill references.
+
 This skill applies engineering rigor — architecture, code quality, test
 coverage, performance, parallelization — to the implementation plan. It
 runs in two modes:
@@ -35,7 +37,7 @@ mode, verdict, and any ADR-authoring triggers.
 
 ## Strings catalog & locale
 
-User-facing prompts come from `${CLAUDE_PLUGIN_ROOT}/strings/strings.<team_language>.yml`.
+User-facing prompts come from `${IMMUTABLE_ROOT}/strings/strings.<team_language>.yml`.
 `team_language` is read from `.immutable-prd/config.yml` (default: `ko`).
 
 Per-string fallback: primary catalog → `strings.en.yml` (with
@@ -72,7 +74,7 @@ Per-string fallback: primary catalog → `strings.en.yml` (with
 ## SDD mode detection
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/scripts/sdd_mode_detect.sh"
+source "${IMMUTABLE_ROOT}/scripts/sdd_mode_detect.sh"
 ```
 
 Refuse with `common.refuse_legacy_mode` if `SDD_MODE != immutable-prd`.
@@ -112,7 +114,7 @@ Phase 4: Verdict + Handoff       — APPROVE / REJECT / REVISE; recommend
 ### 0.1 Mode routing
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/scripts/feature_slug.sh"
+source "${IMMUTABLE_ROOT}/scripts/feature_slug.sh"
 CEO_NOTE=".claude/immutable/plan-review/${FEATURE_SLUG}-ceo.md"
 
 REVIEW_MODE=""
@@ -275,7 +277,7 @@ has nothing — but always evaluate.
 
 **Section 3 — required pre-read**: before building the Test Coverage
 Diagram, **use the Read tool to fetch
-`${CLAUDE_PLUGIN_ROOT}/plan-review-eng/templates/test-coverage-diagram.md`
+`${IMMUTABLE_ROOT}/plan-review-eng/templates/test-coverage-diagram.md`
 now**. The 6-category structure (NEW UX FLOWS / NEW DATA FLOWS / NEW
 CODEPATHS / NEW BACKGROUND JOBS / NEW INTEGRATIONS / NEW ERROR/RESCUE
 PATHS), the per-item table schema, and the worked example there are the
@@ -424,7 +426,7 @@ Render via AskUserQuestion using `pre.phase4.verdict_question`:
 
 ```bash
 mkdir -p .claude/immutable/plan-review
-source "${CLAUDE_PLUGIN_ROOT}/scripts/feature_slug.sh"
+source "${IMMUTABLE_ROOT}/scripts/feature_slug.sh"
 OUT=".claude/immutable/plan-review/${FEATURE_SLUG}-eng.md"
 echo "OUTPUT_PATH: $OUT"
 ```
@@ -572,12 +574,12 @@ For REVISE / REJECT:
 
 ## Log learning to project memory (mandatory final step)
 
-Before returning control to the user (any verdict **or** abort), append one learning entry to the project store. Best-effort — if `${CLAUDE_PLUGIN_ROOT}/scripts/learnings.sh` is unavailable, the guard exits silently and never blocks the flow.
+Before returning control to the user (any verdict **or** abort), append one learning entry to the project store. Best-effort — if `${IMMUTABLE_ROOT}/scripts/learnings.sh` is unavailable, the guard exits silently and never blocks the flow.
 
 Pick ONE branch below based on verdict/outcome and substitute the placeholders (`<pitch-basename>`, `<N>`, `<reason>`, etc.) with concrete values before running. For refactor mode (no pitch), use the literal `internal` for `<pitch-basename>` so the KEY remains grep-stable.
 
 ```bash
-LH="${CLAUDE_PLUGIN_ROOT}/scripts/learnings.sh"
+LH="${IMMUTABLE_ROOT}/scripts/learnings.sh"
 [ -x "$LH" ] || exit 0
 SLUG=$("$LH" slug)
 
@@ -642,4 +644,4 @@ Plus shared `common.*` keys.
   with NEW UX FLOWS / NEW DATA FLOWS / NEW CODEPATHS / NEW BACKGROUND JOBS /
   NEW INTEGRATIONS / NEW ERROR / RESCUE PATHS rows.
 
-All plugin-bundled at `${CLAUDE_PLUGIN_ROOT}/plan-review-eng/`.
+All plugin-bundled at `${IMMUTABLE_ROOT}/plan-review-eng/`.

@@ -7,13 +7,15 @@ license: MIT
 
 # /immutable:adr — Guided Immutable ADR Authoring
 
+Before Stage 1, read [the runtime instructions](../RUNTIME.md) beside the physical skill directory (resolve the supplied `SKILL.md` path through symlinks first). Use them for all bundled paths, tools, questions and skill references.
+
 Interactively author an append-only Architecture Decision Record. Shares the append-only mechanics of `/immutable:prd` (supersede chain, `deprecated` flag, 90% gate) but with an ADR-specific interview shape (Nygard template) and review personas tuned for technical decisions.
 
 > **Schema reference**: see [`../SCHEMA.md`](../SCHEMA.md) for shared frontmatter, reference policy, and directory conventions.
 
 ## Strings catalog & locale (v0.5 / S3)
 
-All user-facing prompts are sourced from `${CLAUDE_PLUGIN_ROOT}/strings/strings.<team_language>.yml` — not embedded inline. SKILL.md refers to catalog keys via the pattern ``render `<key>` `` with single-brace `{placeholder}` substitution performed by the skill.
+All user-facing prompts are sourced from `${IMMUTABLE_ROOT}/strings/strings.<team_language>.yml` — not embedded inline. SKILL.md refers to catalog keys via the pattern ``render `<key>` `` with single-brace `{placeholder}` substitution performed by the skill.
 
 **Locale resolution**: `team_language` comes from `.immutable-prd/config.yml` (default: `ko`). Per-string fallback:
 
@@ -30,7 +32,7 @@ The skill is **profile-aware** in v0.5. ADR-specific tunables — body sections,
 ### Resolution order
 
 1. If `.immutable-prd/config.yml` declares `profile: <path>` (v3 configs only) AND the file exists → load it.
-2. Else load the bundled default matching `team_language` from `${CLAUDE_PLUGIN_ROOT}/examples/_profiles/default-<lang>.yml`.
+2. Else load the bundled default matching `team_language` from `${IMMUTABLE_ROOT}/examples/_profiles/default-<lang>.yml`.
 3. If no matching locale profile exists → fall back to `default-en.yml` with a one-line warning.
 
 ### Backward compatibility (zero-action migration)
@@ -99,7 +101,7 @@ If the user passed no argument, ask once using `adr.stage1.intent_question` (no 
 - Read `.immutable-prd/config.yml` → resolve ADR directory, pitches path, team language.
 - **Load profile** per the resolution order in **Profile Resolution** above. Cache `profile.adr.*` for the rest of the session.
 - **Profile schema mismatch detection** (added v0.5.7): when the loaded profile is a TEAM profile, read its `profile_schema:` and the bundled default's `profile_schema:`. If team < bundled, render `adr.stage1.profile_schema_mismatch` with `{team_schema}` / `{bundled_schema}` / list of missing top-level fields (e.g., `adr.anti_monolith`). Recommend `/immutable:migrate`. For this run, fetch missing fields from the bundled default with source annotation in any tier output. Mirror behavior of `/immutable:prd` §1.bis — same rationale, same fallback chain.
-- **Enumerate active ADRs** (v0.10.0 — the ad-hoc Glob+frontmatter scan became a resolver call, mirroring `/immutable:prd`'s Stage 1.2 item 4). Run `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/validate_docs.py" --type adr --list-active` (config auto-detected by walk-up from CWD) — deprecation judged by a real YAML frontmatter parse rather than a text grep. The resolver replaces the **deprecation filter** only, not the frontmatter read: its output is one `<absolute path>` TAB `<domain>` line per active ADR and carries no `supersedes:` field, so read the frontmatter of each listed file to build the supersede chain index the next bullet operates on.
+- **Enumerate active ADRs** (v0.10.0 — the ad-hoc Glob+frontmatter scan became a resolver call, mirroring `/immutable:prd`'s Stage 1.2 item 4). Run `python3 "${IMMUTABLE_ROOT}/scripts/validate_docs.py" --type adr --list-active` (config auto-detected by walk-up from CWD) — deprecation judged by a real YAML frontmatter parse rather than a text grep. The resolver replaces the **deprecation filter** only, not the frontmatter read: its output is one `<absolute path>` TAB `<domain>` line per active ADR and carries no `supersedes:` field, so read the frontmatter of each listed file to build the supersede chain index the next bullet operates on.
 - **Enumerate active ADRs per (domain, supersede chain)** (changed v0.5.6 — was: implicit "the active ADR per domain"). Multiple active ADRs may coexist in the same domain (notably in `_global`) provided each is on its own supersede chain. Cross-check the user's request against every active chain — `update` targets exactly one specific chain; `new` opens a separate chain.
 - If the user's intent mentions a specific domain or feature, cross-reference with active pitches in that domain.
 
@@ -380,12 +382,12 @@ Emit commit instructions (GitHub GUI / CLI), do NOT commit.
 
 ## Log learning to project memory (mandatory final step)
 
-Before returning control to the user (success **or** abort), append one learning entry to the project store. Best-effort — if `${CLAUDE_PLUGIN_ROOT}/scripts/learnings.sh` is unavailable, the guard exits silently and never blocks the flow.
+Before returning control to the user (success **or** abort), append one learning entry to the project store. Best-effort — if `${IMMUTABLE_ROOT}/scripts/learnings.sh` is unavailable, the guard exits silently and never blocks the flow.
 
 Pick ONE branch below based on outcome and substitute the placeholders (`<adr-filename-stem>`, `<N>`, `<reason>`, etc.) with concrete values before running. The success-path `INSIGHT` **must inline the revisit trigger** so future "what triggers re-visiting X?" queries surface it via substring match — use the same wording from the ADR's Consequences / Revisit triggers branch, condensed.
 
 ```bash
-LH="${CLAUDE_PLUGIN_ROOT}/scripts/learnings.sh"
+LH="${IMMUTABLE_ROOT}/scripts/learnings.sh"
 [ -x "$LH" ] || exit 0
 SLUG=$("$LH" slug)
 
