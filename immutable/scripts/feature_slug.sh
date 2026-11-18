@@ -9,7 +9,7 @@
 # USAGE
 #   This script is intended to be SOURCED by a SKILL.md bash block, not executed
 #   directly:
-#       source "${CLAUDE_PLUGIN_ROOT}/scripts/feature_slug.sh"
+#       source "${IMMUTABLE_ROOT}/scripts/feature_slug.sh"
 #   After sourcing, FEATURE_SLUG is set in the caller's shell. Each fenced bash
 #   block in a SKILL.md is a SEPARATE tool call with a fresh shell, so this must
 #   be re-sourced at the top of every block that reads FEATURE_SLUG — sourcing

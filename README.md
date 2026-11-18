@@ -1,6 +1,6 @@
 # skills
 
-A collection of Claude Code skills and plugins for Spec-Driven Development (SDD).
+A collection of Claude Code and Codex skills and plugins for Spec-Driven Development (SDD).
 
 The flagship plugin is [`immutable`](immutable/) — an append-only SDD toolkit covering the full 7-step flow (problem framing → pitch → app-side design → CEO-style scope review → engineering review → ADR → PR creation) using only the plugin; no external harness required.
 
@@ -11,6 +11,16 @@ The flagship plugin is [`immutable`](immutable/) — an append-only SDD toolkit 
 | [`immutable`](immutable/) | `/immutable:init`, `/immutable:office-hours`, `/immutable:prd`, `/immutable:design`, `/immutable:plan-review-ceo`, `/immutable:plan-review-eng`, `/immutable:adr`, `/immutable:ship`, `/immutable:migrate` | Append-only SDD — bootstrap starters, run the 7-step flow from problem framing through PR creation, and migrate v0.4 repos to the v0.5 profile system. Single plugin install. |
 
 ## Quick start
+
+In Codex CLI, install the marketplace and plugin from a revision that contains the Codex catalog:
+
+```sh
+codex plugin marketplace add choi88andys/skills --ref main
+codex plugin add immutable@skills
+```
+
+Open a new session in the consumer repo and type `$immutable:init`. The flow below uses Claude Code spelling. Each `/immutable:<name>` is available in Codex as `$immutable:<name>`. The Codex skills use a dedicated reader for deprecated documents. Direct shell reads can return their bodies. [Installation, updates and read coverage](immutable/README.md#installation)
+
 ```sh
 # 1. Install (once per Claude Code workspace)
 claude plugin marketplace add choi88andys/skills
@@ -195,7 +205,7 @@ python3 immutable/scripts/validate_docs.py --supersede-diff --base "$BASE_SHA"  
 
 ## Local install
 
-Clone the repo and reference the plugin directory directly, or copy `immutable/` into your Claude Code skills path. The plugin auto-resolves bundled assets (profiles, strings catalogs, starters) via `${CLAUDE_PLUGIN_ROOT}`.
+From a checkout, launch `claude --plugin-dir "$PWD/immutable"` or run `python3 immutable/scripts/codex_plugin.test.py` for an isolated Codex marketplace install and discovery check. [Developer verification](immutable/README.md#verification)
 
 ## Versioning
 

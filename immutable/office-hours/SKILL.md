@@ -7,6 +7,8 @@ license: MIT
 
 # /immutable:office-hours — Premise challenge + 3 alternatives
 
+Before Stage 1, read [the runtime instructions](../RUNTIME.md) beside the physical skill directory (resolve the supplied `SKILL.md` path through symlinks first). Use them for all bundled paths, tools, questions and skill references.
+
 This is the heaviest context-gather skill in the SDD flow. It produces a transient
 design-doc note that the next skill (`/immutable:prd`) consumes during Stage 1.5
 Context Intake. Use it when the request is fuzzy enough that picking the first
@@ -19,7 +21,7 @@ and remind them to finish the alternatives step first.
 
 ## Strings catalog & locale (v0.5 / S3)
 
-All user-facing prompts are sourced from `${CLAUDE_PLUGIN_ROOT}/strings/strings.<team_language>.yml` —
+All user-facing prompts are sourced from `${IMMUTABLE_ROOT}/strings/strings.<team_language>.yml` —
 not embedded inline. SKILL.md refers to catalog keys via the pattern
 ``render `<key>` `` with single-brace `{placeholder}` substitution performed by
 the skill.
@@ -53,7 +55,7 @@ Apply throughout:
 
 1. `.immutable-prd/config.yml` exists and is reachable via walk-up from `$PWD`.
    If absent, render `common.refuse_legacy_mode` and abort.
-2. `${CLAUDE_PLUGIN_ROOT}` is set by Claude Code when invoking plugin skills.
+2. `${IMMUTABLE_ROOT}` is set by Claude Code when invoking plugin skills.
    If unset (rare), fall back to walking up from this skill's own location.
 3. The skill writes to `.claude/immutable/office-hours/{slug}.md` only. It
    never commits, pushes, or modifies anything outside that path.
@@ -63,7 +65,7 @@ Apply throughout:
 Run this once at the start of the skill, before any phase logic:
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/scripts/sdd_mode_detect.sh"
+source "${IMMUTABLE_ROOT}/scripts/sdd_mode_detect.sh"
 ```
 
 The script exports `SDD_MODE`, `IMMUTABLE_PRD_CONFIG`, `IMMUTABLE_PRD_SPEC_CONFIG`,
@@ -251,7 +253,7 @@ Do NOT proceed to Phase 4 without explicit user approval.
 mkdir -p .claude/immutable/office-hours
 # Prefer a user-provided feature slug (asked early in Phase 1 if relevant);
 # otherwise derive from the branch name.
-source "${CLAUDE_PLUGIN_ROOT}/scripts/feature_slug.sh"
+source "${IMMUTABLE_ROOT}/scripts/feature_slug.sh"
 OUT=".claude/immutable/office-hours/${FEATURE_SLUG}.md"
 echo "OUTPUT_PATH: $OUT"
 ```
@@ -370,4 +372,4 @@ Plus shared `common.*` keys: `common.refuse_legacy_mode`,
   (what each slot is asking for, common pitfalls, worked examples).
   Read it just before generating alternatives in Phase 3.
 
-Both files are plugin-bundled at `${CLAUDE_PLUGIN_ROOT}/office-hours/`.
+Both files are plugin-bundled at `${IMMUTABLE_ROOT}/office-hours/`.

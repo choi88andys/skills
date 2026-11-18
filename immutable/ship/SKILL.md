@@ -7,6 +7,8 @@ license: MIT
 
 # /immutable:ship — Pre-ship + PR creation (minimum-viable)
 
+Before Stage 1, read [the runtime instructions](../RUNTIME.md) beside the physical skill directory (resolve the supplied `SKILL.md` path through symlinks first). Use them for all bundled paths, tools, questions and skill references.
+
 This is the final skill in the 7-step immutable SDD flow. By the time it
 runs, the implementation should be complete and tests should be green.
 This skill verifies that, composes a PR body grounded in the pitch + linked
@@ -45,7 +47,7 @@ Output: a GitHub PR. The PR body includes:
 
 ## Strings catalog & locale
 
-User-facing prompts come from `${CLAUDE_PLUGIN_ROOT}/strings/strings.<team_language>.yml`.
+User-facing prompts come from `${IMMUTABLE_ROOT}/strings/strings.<team_language>.yml`.
 `team_language` from `.immutable-prd/config.yml` (default: `ko`).
 
 Per-string fallback: primary catalog → `strings.en.yml` (with
@@ -75,7 +77,7 @@ Per-string fallback: primary catalog → `strings.en.yml` (with
 ## SDD mode detection
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/scripts/sdd_mode_detect.sh"
+source "${IMMUTABLE_ROOT}/scripts/sdd_mode_detect.sh"
 ```
 
 Refuse with `common.refuse_legacy_mode` if `SDD_MODE != immutable-prd`.
@@ -151,7 +153,7 @@ The skill does NOT run interactive git operations on behalf of the user.
 # every upstream skill in the 7-step flow). Each Bash invocation is a fresh
 # shell — variables don't persist across blocks, so this derivation repeats
 # in every block that needs the slug.
-source "${CLAUDE_PLUGIN_ROOT}/scripts/feature_slug.sh"
+source "${IMMUTABLE_ROOT}/scripts/feature_slug.sh"
 
 DESIGN_NOTE=".claude/immutable/design/${FEATURE_SLUG}.md"
 CEO_NOTE=".claude/immutable/plan-review/${FEATURE_SLUG}-ceo.md"
@@ -241,7 +243,7 @@ directory. Read it now and render with captured values:
 ```bash
 # Re-derive slug + design-note path (this is a fresh Bash invocation; vars
 # from Step 3 don't persist).
-source "${CLAUDE_PLUGIN_ROOT}/scripts/feature_slug.sh"
+source "${IMMUTABLE_ROOT}/scripts/feature_slug.sh"
 DESIGN_NOTE=".claude/immutable/design/${FEATURE_SLUG}.md"
 
 PITCHES_REL="$(sed -n 's/^pitches_path:[[:space:]]*\([^[:space:]]*\).*/\1/p' \
@@ -349,12 +351,12 @@ Plus shared `common.*` keys.
 
 ## Log learning to project memory (mandatory final step)
 
-Before returning control to the user (success **or** abort), append one learning entry to the project store. Best-effort — if `${CLAUDE_PLUGIN_ROOT}/scripts/learnings.sh` is unavailable, the guard exits silently and never blocks the flow.
+Before returning control to the user (success **or** abort), append one learning entry to the project store. Best-effort — if `${IMMUTABLE_ROOT}/scripts/learnings.sh` is unavailable, the guard exits silently and never blocks the flow.
 
 Pick ONE branch below based on outcome and substitute the placeholders (`<pitch-basename>`, `<N>`, `<reason>`, etc.) with concrete values before running. The branch name (`$BRANCH`) keys the success entry — it is stable across the cycle and known before `gh pr create` runs.
 
 ```bash
-LH="${CLAUDE_PLUGIN_ROOT}/scripts/learnings.sh"
+LH="${IMMUTABLE_ROOT}/scripts/learnings.sh"
 [ -x "$LH" ] || exit 0
 SLUG=$("$LH" slug)
 BRANCH=$(git branch --show-current 2>/dev/null || echo "unknown")
@@ -394,4 +396,4 @@ FILES='[]'   # PR lives on GitHub; no local-file artifact for prune to track
 - **`pr-body-template.md`** — markdown template for Step 5 PR body
   composition.
 
-Plugin-bundled at `${CLAUDE_PLUGIN_ROOT}/ship/`.
+Plugin-bundled at `${IMMUTABLE_ROOT}/ship/`.

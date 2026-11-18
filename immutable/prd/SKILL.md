@@ -6,11 +6,13 @@ allowed-tools: Read, Write, Edit, Bash, Glob, Grep, WebFetch
 
 # /immutable:prd — Guided Immutable PRD Authoring
 
+Before Stage 1, read [the runtime instructions](../RUNTIME.md) beside the physical skill directory (resolve the supplied `SKILL.md` path through symlinks first). Use them for all bundled paths, tools, questions and skill references.
+
 Interactively author an append-only pitch-style PRD file. Enforces format, structure, scope, and domain language. Generates the file only when the answer set passes a 90% completeness gate.
 
 ## Strings catalog & locale (v0.5 / S3)
 
-All user-facing prompts are sourced from `${CLAUDE_PLUGIN_ROOT}/strings/strings.<team_language>.yml` — not embedded inline. SKILL.md refers to catalog keys via the pattern ``render `<key>` `` with single-brace `{placeholder}` substitution performed by the skill.
+All user-facing prompts are sourced from `${IMMUTABLE_ROOT}/strings/strings.<team_language>.yml` — not embedded inline. SKILL.md refers to catalog keys via the pattern ``render `<key>` `` with single-brace `{placeholder}` substitution performed by the skill.
 
 **Locale resolution**: `team_language` comes from `.immutable-prd/config.yml` (default: `ko`). Every render follows this fallback:
 
@@ -27,7 +29,7 @@ The skill is **profile-aware** in v0.5: section headings, the gate threshold, pe
 ### Resolution order
 
 1. If `.immutable-prd/config.yml` declares `profile: <path>` (v3 configs only) AND the file exists → load it.
-2. Else load the bundled default matching `team_language` from `${CLAUDE_PLUGIN_ROOT}/examples/_profiles/default-<lang>.yml`.
+2. Else load the bundled default matching `team_language` from `${IMMUTABLE_ROOT}/examples/_profiles/default-<lang>.yml`.
 3. If no matching locale profile exists → fall back to `default-en.yml` with a one-line warning.
 
 ### Backward compatibility (zero-action migration)
@@ -146,7 +148,7 @@ Use Bash + Glob + Read to collect:
    - **Retired fields** (profile_schema 8): a team profile below 8 may still carry `anti_monolith`, `sections[user_stories].max_items` and `gate.criteria[concern_scope]`. Ignore all three — never classify by tier, never count `concern_scope`, and judge the gate against the remaining criteria with `gate.total` and `gate.pass_threshold` each lowered by one when the team's list still holds `concern_scope`. Name them in the mismatch message as retired; `/immutable:migrate` removes them.
 2. Confirm `pitches/` exists in CWD (or at the configured `pitches_path`). If not, stop by rendering `prd.stage1.no_pitches_dir` (no substitutions).
 3. Read `pitches/README.md` — extract domain allowlist from the allowed-domains table (rows matching `` | `<name>` | ``). Use `profile.domain_allowlist.source` if it differs from the default `pitches/README.md`.
-4. **Enumerate active pitches per domain** (changed v0.5.6 — was: "find the active pitch", singular; v0.10.0 — the ad-hoc frontmatter scan became a resolver call). Run `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/validate_docs.py" --type pitch --list-active` (config auto-detected by walk-up from CWD) and group its output by the domain column — one `<absolute path>` TAB `<domain>` line per active pitch, `README.md`/`TEMPLATE.md` already excluded, deprecation judged by a real YAML frontmatter parse rather than a text grep. A domain may host multiple active PRDs, each on its own supersede chain. None is privileged as "the" baseline for the domain.
+4. **Enumerate active pitches per domain** (changed v0.5.6 — was: "find the active pitch", singular; v0.10.0 — the ad-hoc frontmatter scan became a resolver call). Run `python3 "${IMMUTABLE_ROOT}/scripts/validate_docs.py" --type pitch --list-active` (config auto-detected by walk-up from CWD) and group its output by the domain column — one `<absolute path>` TAB `<domain>` line per active pitch, `README.md`/`TEMPLATE.md` already excluded, deprecation judged by a real YAML frontmatter parse rather than a text grep. A domain may host multiple active PRDs, each on its own supersede chain. None is privileged as "the" baseline for the domain.
 
 ### 1.2.1 Ownership pre-check (v0.17+ — replaces the v0.5.6 anti-monolith tiers)
 
@@ -267,7 +269,7 @@ Skip the standard Stage 5 gate (this is a refactor, not new content). Run instea
 - Every original edge case row appears in at least one split file
 - Every original no-go appears in at least one split file
 
-Then run `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/validate_docs.py" --supersede-diff <every split file>` (all of them in one call, so they are judged as one group). It must report no undeclared change and no stale declaration.
+Then run `python3 "${IMMUTABLE_ROOT}/scripts/validate_docs.py" --supersede-diff <every split file>` (all of them in one call, so they are judged as one group). It must report no undeclared change and no stale declaration.
 
 On any failure: delete the copies (nothing else was changed yet), report the missing/duplicated items or the diff's violations, return to §1.7.2 for re-mapping.
 
@@ -300,7 +302,7 @@ Folds N active PRDs of **one domain** that describe one user-facing feature area
 1. **Pick the set.** From §1.2.1, the PRDs the feature area spans. Confirm the list with the user. Sum their sizes: a fold whose result would exceed `profile.max_bytes` is two feature areas, not one — fold fewer.
 2. **Resolve every prose override first.** Where one member outranks another's clause, the folded text states the clause as the outranking member decided, once; the overridden wording goes. Each such resolution is a declared `modify` of that section. Ask the user to confirm each one — it is a reading of the members, not a mechanical step.
 3. **Copy, then move.** `cp` the member that owns the most content to the new path; set `supersedes:` to the list of every member's filename and `deprecated: false`; merge the members' `references.tickets` records (one record per ticket — union their `covers`). Then move each other member's `### ` sub-sections, edge-case rows and no-gos into the copy with Edit, lines copied verbatim (read them with `cat`, never retype from memory). Merge the backgrounds into one and retitle: the background is a declared `modify`. Drop the sentences that only existed to point at a sibling member — they are now one file; that is a `modify` of their section.
-4. **Prove it.** `changes` lists exactly the sections steps 2-3 changed. Run `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/validate_docs.py" --supersede-diff <new file>`: it diffs the copy against the union of the members and must report no undeclared change. On failure delete the copy and loop.
+4. **Prove it.** `changes` lists exactly the sections steps 2-3 changed. Run `python3 "${IMMUTABLE_ROOT}/scripts/validate_docs.py" --supersede-diff <new file>`: it diffs the copy against the union of the members and must report no undeclared change. On failure delete the copy and loop.
 5. **Flip.** Each member's `deprecated: false` → `true` (single-line edits). Run the validator with `--strict-body` — its cross-pitch reference rules must pass for the new file.
 6. **Handoff.** Render `prd.fold.handoff`. Citations of the members elsewhere need no edit: a citation names a supersede chain, and every member's chain now ends in the fold.
 
@@ -323,7 +325,7 @@ Runs only when the config declares `requirement_contract:` (§1.2). It comes **b
 3. Otherwise fetch through the parser — one `--binding` per `profile.requirement_contract.ticket_sections[]` entry, plus one `--optional-binding <id>` for every entry whose `required` is `false` (v0.12+; a missing `required` key means `true`, so a profile predating the field passes no `--optional-binding` at all and behaves exactly as before):
 
    ```bash
-   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/requirement_contract.py" fetch \
+   python3 "${IMMUTABLE_ROOT}/scripts/requirement_contract.py" fetch \
      --repo "<repo>" --id "<id>" --tracker "<requirement_contract.tracker>" \
      --binding "<ticket_sections[0].id>=<ticket_sections[0].heading>" \
      --binding "<ticket_sections[1].id>=<ticket_sections[1].heading>" \
@@ -346,7 +348,7 @@ The JSON's `sections[]` carries the ticket's non-binding text (notes, open-quest
 Runs after §1.5.1 exits `0`. Other active pitches may already cite this ticket at an older version. When the ticket has since moved in an item one of them owns, the spec repo's drift check fails on that pitch — and this run, whose author has just read the ticket, is where it gets settled. Run the check over every active pitch §1.2 enumerated, with the same binding flags and adapter as §1.5.1:
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/requirement_contract.py" drift \
+python3 "${IMMUTABLE_ROOT}/scripts/requirement_contract.py" drift \
   --repo "<repo>" --id "<id>" --tracker "<requirement_contract.tracker>" \
   --binding "<…as §1.5.1…>" [--optional-binding "<…>"] [--fetch-command "<…>"] \
   --profile "<active profile path>" --ledger ".immutable-prd/contract-acknowledgements.yml" \
@@ -409,10 +411,10 @@ Runs only when §1.5.1 bound a ticket. Purpose: find the binding items the pitch
 
 ### 1.6.0 Wording lint (v0.13+)
 
-Run the deterministic lint over the JSON §1.5.1 kept — the exact text the author read, no second fetch — with the active profile (the team profile `config.yml` points at, else the bundled `${CLAUDE_PLUGIN_ROOT}/examples/_profiles/default-<team_language>.yml`):
+Run the deterministic lint over the JSON §1.5.1 kept — the exact text the author read, no second fetch — with the active profile (the team profile `config.yml` points at, else the bundled `${IMMUTABLE_ROOT}/examples/_profiles/default-<team_language>.yml`):
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/requirement_contract.py" lint \
+python3 "${IMMUTABLE_ROOT}/scripts/requirement_contract.py" lint \
   --profile "<active profile path>" --from-json "<scratch>/contract-<id>.json" \
   > "<scratch>/lint-<id>.json"; echo "exit=$?"
 ```
@@ -433,7 +435,7 @@ What the hits become:
 A design is a presentation reference, not an authority above the ticket or the pitch: it governs what the binding items leave open (copy, layout, tokens), and where it differs from them on **what is shown, when, or in what order**, the binding item wins and the design gets fixed. A pinned design that silently disagrees with the items is still worth finding before the pitch is written — on the case that drove this, the pinned design lacked a notice two binding items required on one toggle and stacked the home toasts in another order, and only a manual REST diff caught it. So read the designs the ticket itself pins, and only those:
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/figma_pin_texts.py" \
+python3 "${IMMUTABLE_ROOT}/scripts/figma_pin_texts.py" \
   --from-json "<scratch>/contract-<id>.json" --section "<the ticket's design heading>" \
   > "<scratch>/design-<id>.json"; echo "exit=$?"
 ```
@@ -489,7 +491,7 @@ For every accepted finding, create one disagreement entry (Stage 6 renders it):
 **The correction is a decision, not a question.** It is the complete sentence the pitch follows from now on, and it becomes the requirement if the ticket stays silent past the response window — that is the protocol's default path, and a sentence that defers ("확인 필요", "협의", "확정한다", "TBD") cannot be confirmed by silence. Before accepting a correction, run it through the same rules the merge gate uses — never match them by hand:
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/requirement_contract.py" lint \
+python3 "${IMMUTABLE_ROOT}/scripts/requirement_contract.py" lint \
   --profile "<active profile path>" --created-at "<source.created_at>" \
   --correction "<the drafted sentence>"; echo "exit=$?"
 ```
@@ -499,7 +501,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/requirement_contract.py" lint \
 Then render `prd.contract.correction_request` with `{ticket_ref}`, `{request_date}` (today), `{response_window_line}` (render `prd.contract.response_window_line` with `{response_window}` = `requirement_contract.response_window` from the config, or an empty string when the config does not set it — the plugin keeps no calendar), and `{entries}` = one `prd.contract.correction_entry` per accepted finding (`{n}`, `{section}`, `{group}`, `{ordinal}` — `in_group`, as in 1.6.2 — `{category}`, `{original}`, `{correction}`, `{reason}`). **Also write the same rendered text to a file** so it survives the conversation and can be pasted as-is:
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/scripts/feature_slug.sh"
+source "${IMMUTABLE_ROOT}/scripts/feature_slug.sh"
 mkdir -p .claude/immutable/contract
 # path: .claude/immutable/contract/${FEATURE_SLUG}-<tracker>-<ticket id>.md  (transient namespace, gitignored by the starters)
 ```
@@ -817,7 +819,7 @@ A new version is never written whole. Supersedes that said they inherited text u
 1. `cp <predecessor> <new path>`.
 2. Edit the copy's frontmatter: `supersedes`, `deprecated: false`, `changes` (the agreed list), and the ticket record when a ticket is bound.
 3. Edit only the sections in `changes`, one Edit per hunk, rendering new content per "Body assembly" below. Never Write the file, never re-type an unchanged line.
-4. Run the guards below, then `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/validate_docs.py" --supersede-diff <new path>`. Any undeclared change or stale declaration → render `prd.stage6.supersede_diff_failure` (`{base_files}`, `{violations}` = the tool's output), undo or confirm, and re-run. Only a clean diff lets step 5 happen.
+4. Run the guards below, then `python3 "${IMMUTABLE_ROOT}/scripts/validate_docs.py" --supersede-diff <new path>`. Any undeclared change or stale declaration → render `prd.stage6.supersede_diff_failure` (`{base_files}`, `{violations}` = the tool's output), undo or confirm, and re-run. Only a clean diff lets step 5 happen.
 5. Flip the predecessor's `deprecated`.
 
 A `new` / `new-domain` pitch has no predecessor and is assembled from the template as below.
@@ -978,7 +980,7 @@ After writing, emit a handoff message by rendering `prd.stage6.handoff` with:
 - **Supersede diff** (v0.17+) — for `update`, add one line with the clean `--supersede-diff` command so the reviewer can re-run it, and the same command with `--base <PR base>` for CI or a pre-push hook
 - `{github_web_steps}` — render `common.handoff.github_web_steps`
 - `{cli_steps}` — render `common.handoff.cli_steps`
-- **Requirement contract (v0.11+)** — when a ticket was bound, append `prd.contract.handoff_addendum` with `{ticket_ref}`, `{version}`, `{validator_cmd}` (`python3 "${CLAUDE_PLUGIN_ROOT}/scripts/validate_docs.py" --type pitch --strict-body`) and `{drift_cmd}` (the `requirement_contract.py drift` line for this ticket over `pitches/**/*.md` with `--profile` and `--ledger` as §1.5.2 ran it, and the same `--binding` / `--optional-binding` flags as §1.5.1); when §1.5.2 left (b) rows on a sibling this run does not supersede, `prd.contract.handoff_drift_supersede_line` per sibling; when ≥1 disagreement entry exists, also `prd.contract.handoff_disagreement_line` with `{disagreement_count}`, `{provisional}` and `{terminal_joined}` (the `outcome_terminal` tokens joined with `common.separator.or`) and `prd.contract.handoff_request_file` with `{path}` = the file §1.6.3 wrote; always `prd.contract.handoff_coverage_line` with `{covered}`, `{total}` and `{coverage_cmd}` (the `requirement_contract.py coverage` line over `pitches/**/*.md`, with the same flags); when the report left `uncovered` items, `prd.contract.handoff_gap_line` with `{gaps}` = one `<binding> · <group> <item> — <text>` line each — the Epic's items no pitch in the set owns yet. When §1.6.0b left (a) "item stands" differences, also `prd.contract.handoff_design_fix_line` (v0.16+) with `{fixes}` = one `<pin label> · <screen> — <aspect>: <design fact> → <item text>` line each, for the author to hand to the design team.
+- **Requirement contract (v0.11+)** — when a ticket was bound, append `prd.contract.handoff_addendum` with `{ticket_ref}`, `{version}`, `{validator_cmd}` (`python3 "${IMMUTABLE_ROOT}/scripts/validate_docs.py" --type pitch --strict-body`) and `{drift_cmd}` (the `requirement_contract.py drift` line for this ticket over `pitches/**/*.md` with `--profile` and `--ledger` as §1.5.2 ran it, and the same `--binding` / `--optional-binding` flags as §1.5.1); when §1.5.2 left (b) rows on a sibling this run does not supersede, `prd.contract.handoff_drift_supersede_line` per sibling; when ≥1 disagreement entry exists, also `prd.contract.handoff_disagreement_line` with `{disagreement_count}`, `{provisional}` and `{terminal_joined}` (the `outcome_terminal` tokens joined with `common.separator.or`) and `prd.contract.handoff_request_file` with `{path}` = the file §1.6.3 wrote; always `prd.contract.handoff_coverage_line` with `{covered}`, `{total}` and `{coverage_cmd}` (the `requirement_contract.py coverage` line over `pitches/**/*.md`, with the same flags); when the report left `uncovered` items, `prd.contract.handoff_gap_line` with `{gaps}` = one `<binding> · <group> <item> — <text>` line each — the Epic's items no pitch in the set owns yet. When §1.6.0b left (a) "item stands" differences, also `prd.contract.handoff_design_fix_line` (v0.16+) with `{fixes}` = one `<pin label> · <screen> — <aspect>: <design fact> → <item text>` line each, for the author to hand to the design team.
 
 The rendered `prd.stage6.handoff` includes a **Next step** block pointing to `/immutable:design <slug>` plus a one-paragraph clarifier stating that ADR authoring is reactive (surfaced by `/immutable:plan-review-eng` Phase 3 as an OUTPUT, not authored upfront after the pitch). This anchor exists because the canonical pitch → design transition has no orchestrator-level enforcement — without it, callers reading only nearby signals (init handoffs that surface ADR as a peer entry point, CHANGELOG mentions of standalone ADR usage) tend to infer prd → adr as the next step. v0.6.5 already corrected the receiving end (`/immutable:plan-review-ceo` description); v0.7.3 closes the emitting end by adding the next-step anchor here.
 
@@ -988,12 +990,12 @@ Do NOT commit or push — the user owns the commit decision.
 
 ## Log learning to project memory (mandatory final step)
 
-Before returning control to the user (success **or** abort), append one learning entry to the project store. Best-effort — if `${CLAUDE_PLUGIN_ROOT}/scripts/learnings.sh` is unavailable, the guard exits silently and never blocks the flow.
+Before returning control to the user (success **or** abort), append one learning entry to the project store. Best-effort — if `${IMMUTABLE_ROOT}/scripts/learnings.sh` is unavailable, the guard exits silently and never blocks the flow.
 
 Pick ONE branch below based on outcome and substitute the placeholders (`<intent>`, `<target-filename-stem>`, `<N>`, `<reason>`, etc.) with concrete values before running.
 
 ```bash
-LH="${CLAUDE_PLUGIN_ROOT}/scripts/learnings.sh"
+LH="${IMMUTABLE_ROOT}/scripts/learnings.sh"
 [ -x "$LH" ] || exit 0
 SLUG=$("$LH" slug)
 

@@ -7,11 +7,13 @@ license: MIT
 
 # /immutable:init — Bootstrap an Immutable SDD Repo
 
+Before Stage 1, read [the runtime instructions](../RUNTIME.md) beside the physical skill directory (resolve the supplied `SKILL.md` path through symlinks first). Use them for all bundled paths, tools, questions and skill references.
+
 Copies one of six bundled starters into the current directory and emits handoff commands. Never overwrites existing files. Never runs git operations.
 
 ## Strings catalog & locale (v0.5 / S3)
 
-All user-facing prompts are sourced from `${CLAUDE_PLUGIN_ROOT}/strings/strings.<locale>.yml` — not embedded inline. SKILL.md refers to catalog keys via the pattern ``render `<key>` `` with single-brace `{placeholder}` substitution performed by the skill.
+All user-facing prompts are sourced from `${IMMUTABLE_ROOT}/strings/strings.<locale>.yml` — not embedded inline. SKILL.md refers to catalog keys via the pattern ``render `<key>` `` with single-brace `{placeholder}` substitution performed by the skill.
 
 **Locale resolution**:
 - Stages 1–2 run BEFORE `team_language` is selected. Default to `ko` unless the free-text invocation argument contains `english` / `en` / `English` (case-insensitive) — in which case default to `en`.
@@ -27,7 +29,7 @@ See `../SCHEMA.md#strings-catalog-v05-s3` for the schema, responsibility split, 
 ## Preconditions
 
 - Current working directory is where the user wants the repo bootstrapped (do NOT `cd` elsewhere).
-- Plugin starter files are accessible via `${CLAUDE_PLUGIN_ROOT}/examples/starter/<mode>-<lang>/`. Claude Code sets `CLAUDE_PLUGIN_ROOT` when invoking plugin skills. If unset (rare), fall back to walking up from the skill's own location.
+- Plugin starter files are accessible via `${IMMUTABLE_ROOT}/examples/starter/<mode>-<lang>/`.
 
 ## Invocation
 
@@ -134,20 +136,20 @@ Render `init.stage4.profile_question` (no substitutions).
 ### Branch handling
 
 - **(1) bundled default**: leave config.yml's `profile:` line as a comment (it's already commented in the starter). No additional file copy.
-- **(2) repo-local copy**: copy `${CLAUDE_PLUGIN_ROOT}/examples/_profiles/default-<lang>.yml` → `<CWD>/.immutable-prd/profile.yml`, then edit the copied config.yml to uncomment the `profile: .immutable-prd/profile.yml` line. After the copy, render `init.stage4.repo_local_hint` (no substitutions).
+- **(2) repo-local copy**: copy `${IMMUTABLE_ROOT}/examples/_profiles/default-<lang>.yml` → `<CWD>/.immutable-prd/profile.yml`, then edit the copied config.yml to uncomment the `profile: .immutable-prd/profile.yml` line. After the copy, render `init.stage4.repo_local_hint` (no substitutions).
 - **(3) skip**: identical to (1) for v0.5 (the comment stays as documentation). After confirming, render `init.stage4.skip_hint` with `{lang}` = `team_language`.
 
 ---
 
 ## Stage 5 — File Copy
 
-Source: `${CLAUDE_PLUGIN_ROOT}/examples/starter/<mode>-<lang>/`
+Source: `${IMMUTABLE_ROOT}/examples/starter/<mode>-<lang>/`
 Destination: CWD (always — never `cd` elsewhere)
 
 ### 5.1 Enumerate source files
 
 ```bash
-src="${CLAUDE_PLUGIN_ROOT}/examples/starter/<mode>-<lang>"
+src="${IMMUTABLE_ROOT}/examples/starter/<mode>-<lang>"
 [ -d "$src" ] || { echo "starter not found at $src"; exit 1; }
 find "$src" -type f
 ```
@@ -168,7 +170,7 @@ For each source file:
 
 After 5.2, additionally:
 
-1. Read `${CLAUDE_PLUGIN_ROOT}/examples/_profiles/default-<lang>.yml`
+1. Read `${IMMUTABLE_ROOT}/examples/_profiles/default-<lang>.yml`
 2. Write to `<CWD>/.immutable-prd/profile.yml` (skip if exists)
 3. Edit `<CWD>/.immutable-prd/config.yml`:
    - Find the line `# profile: .immutable-prd/profile.yml`
