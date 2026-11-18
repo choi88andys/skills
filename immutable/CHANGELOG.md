@@ -2,6 +2,11 @@
 
 All notable changes to the `immutable` plugin are documented in this file. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Version is canonically declared in `.claude-plugin/plugin.json`.
 
+## Unreleased
+
+- Codex CLI can install all nine immutable skills from the repository marketplace. Both clients share procedures, validators, profiles, catalogs and working notes.
+- Codex skills read consumer documents through a dedicated reader that withholds deprecated bodies before printing. Claude Code's native Read hook uses the same parser and successor lookup. Direct shell commands retain raw access for audits.
+
 ## [0.19.0] — 2026-11-16
 
 On 2026-11-13 a designer edited xyzcorpsoftware/task-management#4127, an Epic four active lounge-x-spec pitches cite. Two items changed, and in both only a quoted UI string was swapped (「올바르게 다시 입력해주세요」 → 「올바른 인증번호를 입력해주세요」). The one pitch owning those items had delegated them to Figma (`delegates`, "the design is the source of truth for the copy, the pitch fixes the behaviour"), and the app already showed the new string. Even so, `drift` failed the ticket on every spec PR and main push (xyzcorpsoftware/lounge-x-spec#83). Clearing it meant superseding all four pitches, three of which own neither item. `drift` diffed every binding item and read no pitch, so it could not see who owns what. Fan-out makes this recur: several tickets there are cited by 4 to 6 active pitches. Scope was decided in the lounge-x-app session's handoff of 2026-11-16 (all of it in one minor release; the shortcut "skip delegated items" was refused because it would also pass a delegated change of substance).

@@ -178,6 +178,27 @@ expect_pass P4-non-md       "$D/notes.txt"
 expect_pass P5-nonexistent  "$D/ghost.md"
 expect_pass P6-relative-path "pitches/order/a-dead.md"
 
+echo "===== Standalone protected reader ====="
+reader="$SCRIPT_DIR/read_doc.py"
+ln -s "$D/a-dead.md" "$ROOT/outside/linked note.md"
+for doc in "$D/a-dead.md" "$ROOT/outside/linked note.md"; do
+  body=$(python3 -B "$reader" "$doc")
+  if [[ "$body" == *"Body withheld."* && "$body" == *"b-live.md"* && "$body" != *CANARY-DEAD-ALPHA* ]]; then
+    ok "reader withholds $doc"
+  else
+    bad "reader withholds $doc" "missing banner or successor, or body escaped"
+  fi
+done
+python3 -B "$reader" "$D/b-live.md" > "$ROOT/result"
+if cmp -s "$ROOT/result" "$D/b-live.md"; then ok reader-active-verbatim; else bad reader-active-verbatim "changed bytes"; fi
+if python3 -S "$reader" "$D/a-dead.md" > "$ROOT/result" 2>&1; then
+  bad reader-requires-parser "succeeded without PyYAML"
+elif grep -q 'PyYAML' "$ROOT/result" && ! grep -q CANARY-DEAD-ALPHA "$ROOT/result"; then
+  ok reader-missing-parser-withheld
+else
+  bad reader-missing-parser-withheld "missing diagnostic or leaked body"
+fi
+
 echo "===== kill switch ====="
 OUT=$(jq -nc --arg p "$D/a-dead.md" '{tool_name:"Read",tool_input:{file_path:$p}}' \
   | IMMUTABLE_DEPRECATED_GUARD_DISABLE=1 "$GUARD" 2>/dev/null) && RC=0 || RC=$?
@@ -230,10 +251,10 @@ e2e_ask() {  # e2e_ask <fixture path> <stream capture file> -> final reply on st
   jq -r 'select(.type=="result") | .result // empty' "$2" 2>/dev/null || true
 }
 
-read_result() {  # read_result <stream file> -> what the model received from the Read TOOL
-  jq -rs '
+tool_result() {  # tool_result <stream file> <tool name> -> what the client delivered
+  jq -rs --arg tool "$2" '
     ([.[] | select(.type=="assistant") | .message.content[]?
-      | select(.type=="tool_use" and .name=="Read") | .id]) as $ids
+      | select(.type=="tool_use" and .name==$tool) | .id]) as $ids
     | .[] | select(.type=="user") | .message.content[]? | select(.type=="tool_result")
     | select(.tool_use_id as $t | $ids | index($t))
     | .content | if type=="array" then (map(.text // "") | join("\n")) else tostring end
@@ -242,17 +263,23 @@ read_result() {  # read_result <stream file> -> what the model received from the
 
 echo; echo "===== E2E (headless, haiku, --plugin-dir $PLUGIN_DIR) ====="
 e2e_ask "$ED/2026-01-01-dead.md" "$E/dead.stream.jsonl" >/dev/null
-RR1=$(read_result "$E/dead.stream.jsonl")
+RR1=$(tool_result "$E/dead.stream.jsonl" Read)
 # Banner-present is asserted FIRST: an empty tool_result (model never called Read)
 # would vacuously pass the canary-absent check, but cannot pass this one.
 if grep -qF '[IMMUTABLE DEPRECATED-DOC GUARD]' <<<"$RR1"; then ok E1-read-result-is-banner; else bad E1-read-result-is-banner "Read result lacks banner (emission dropped, or Read never ran): ${RR1:0:200}"; fi
 if grep -qF 'MAGENTA-UNICORN-PROTOCOL' <<<"$RR1"; then bad E2-read-result-canary-withheld "CANARY IN READ RESULT: the model read the real body"; else ok E2-read-result-canary-withheld; fi
 if [ -f "$LOG" ] && grep -qE '^withheld' "$LOG"; then ok E3-hook-fired-and-emitted; else bad E3-hook-fired-and-emitted "log: $(cat "$LOG" 2>/dev/null)"; fi
 R2=$(e2e_ask "$ED/2026-01-02-live.md" "$E/live.stream.jsonl")
-RR2=$(read_result "$E/live.stream.jsonl")
+RR2=$(tool_result "$E/live.stream.jsonl" Read)
 if grep -qF 'AQUA-GRIFFIN-PROTOCOL' <<<"$RR2"; then ok E4-control-read-result-intact; else bad E4-control-read-result-intact "control Read result lost its canary: ${RR2:0:200}"; fi
 if grep -qF 'AQUA-GRIFFIN-PROTOCOL' <<<"$R2"; then ok E5-control-reply-verbatim; else bad E5-control-reply-verbatim "control reply lost its canary: $R2"; fi
 if grep -qE '^pass' "$LOG"; then ok E6-control-logged-pass; else bad E6-control-logged-pass "log: $(cat "$LOG" 2>/dev/null)"; fi
+
+claude -p "Intentional raw-body audit: use Bash to cat $ED/2026-01-01-dead.md." \
+  --plugin-dir "$PLUGIN_DIR" --settings "$E/settings.json" --add-dir "$E" \
+  --model haiku --output-format stream-json --verbose < /dev/null > "$E/audit.stream.jsonl"
+RR3=$(tool_result "$E/audit.stream.jsonl" Bash)
+if grep -qF 'MAGENTA-UNICORN-PROTOCOL' <<<"$RR3"; then ok E7-raw-audit; else bad E7-raw-audit "canary absent from Bash result"; fi
 
 echo
 echo "$P passed, $FAILURES failed (incl. e2e)"

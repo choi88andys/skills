@@ -16,15 +16,25 @@ IMMUTABLE_ROOT="$(python3 -c 'from pathlib import Path; import sys; print(Path(s
 Claude Code can also use its supplied `CLAUDE_PLUGIN_ROOT` as `IMMUTABLE_ROOT`.
 Resolve relative skill links against the physical skill directory. Expand plugin paths
 in user-facing commands to quoted absolute paths usable from a fresh shell.
-Run the workflow's Bash snippets with Bash.
+Look up a catalog key with `yaml.safe_load(stream)["strings"][key]` (keys include literal
+dots). Run the workflow's Bash snippets with Bash.
 
 | Operation in the shared procedure | Claude Code | Codex |
 | --- | --- | --- |
 | Invoke or suggest `/immutable:<name>` | Use the slash command | Mention `$immutable:<name>` or select it in `/skills`. Translate invocations in rendered catalog strings and handoffs too. |
 | Ask or confirm, including `AskUserQuestion` | Use the question tool when available | Use the question tool offered in the current mode, e.g. `request_user_input` in Plan mode. |
+| Read a consumer pitch, ADR or other Markdown document | Use Read (including partial reads) | Run `python3 -B "$IMMUTABLE_ROOT/scripts/read_doc.py" -- "$path"`. Apply line ranges and searches to its **output**. |
+| Read a bundled asset or other ordinary text file | Use Read | Read it with the shell. Page long instructions and templates until you have the complete relevant stage. |
 | Glob, Grep | Use the named tools | List paths with `rg --files` (include hidden configuration when needed). Use `rg` for source searches. |
 | Write, Edit | Use the named tools | Use the workspace editor or `apply_patch`. Verify the destination and existing text before editing. |
 | Bash, WebFetch, WebSearch | Use the named tools when available | Use the shell or available web tools for the same operation. Follow the stage's fallback when a capability is unavailable. |
+
+When searching a consumer repository, enumerate filenames first. Read candidate Markdown
+through the protected path above, including previously unseen files and snippets in mixed
+code/document searches. A raw shell read is reserved for an intentional audit or a
+supersede review that needs the old wording. Keep that material separate from active
+requirements. The reader enforces withholding on its own stdout. Other shell commands and
+other tools can read the filesystem directly.
 
 For an interview question or approval, present the same prompt, choices and recommendation
 as the procedure. If the tool is absent, restricted, or unable to express the question,

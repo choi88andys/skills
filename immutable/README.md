@@ -44,12 +44,19 @@ Two-repo split — spec repo runs the first two, implementation repo runs the re
 
 ## Installation
 
-```sh
-claude plugin marketplace add choi88andys/skills
-claude plugin install immutable
-```
+Use Bash, Git, jq and Python 3 with PyYAML. Run the clients from the consumer
+repository. Both use its existing `.immutable-prd/config.yml`, profile and
+`.claude/immutable/` notes, including handoffs started in the other client.
 
-One install enables every skill listed above.
+| Client | Install from a revision containing its marketplace | Invoke in a new session | Update a Git marketplace and its installed copy |
+| --- | --- | --- | --- |
+| Claude Code | `claude plugin marketplace add choi88andys/skills` then `claude plugin install immutable@skills` | `/immutable:init`, `/immutable:prd`, or another command above | `claude plugin marketplace update skills` then `claude plugin update immutable@skills`. Restart the session. |
+| Codex CLI | `codex plugin marketplace add choi88andys/skills --ref main` then `codex plugin add immutable@skills` | `$immutable:init`, `$immutable:prd`, or select the namespaced skill in `/skills` | `codex plugin marketplace upgrade skills` then `codex plugin add immutable@skills`. Open a new session. |
+
+For a local Codex marketplace, pass the absolute path to **the checkout** to
+`codex plugin marketplace add`. After editing, run `codex plugin add immutable@skills`
+again to refresh the cached package. To test in a disposable home, use the verification
+command below. For Claude development, use `claude --plugin-dir "/path/to/checkout/immutable"`.
 
 ## Repository layouts
 
@@ -90,45 +97,83 @@ Full reference lives in [`SCHEMA.md`](SCHEMA.md):
 - Validation invariants 1–8 (validator coverage)
 - Migration guide v0.2 → v0.3/v0.4 → v0.5
 
-## Deprecated-doc read gate (the plugin's first hook)
+## Deprecated-document reads
 
-`hooks/hooks.json` registers a PostToolUse hook on the `Read` tool
-(`scripts/deprecated_read_guard.sh`). When a session reads a document whose
-frontmatter carries `deprecated: true` inside any immutable SDD repo
-(identified by a `.immutable-prd/` ancestor directory), the document's **body
-is withheld** and replaced by a banner naming the superseding file(s). The
-frontmatter itself stays visible.
+For Markdown in a directory tree marked by `.immutable-prd/`, the protected read
+paths parse YAML frontmatter. If `deprecated` is boolean true, they deliver the
+frontmatter, a withholding banner and any same-directory successors. Active documents
+remain readable. Both paths share the reader and the validator's frontmatter parser.
 
-Why a read gate: the validator and starter CI enforce deprecation on the
-*write* path only. A deprecated pitch's body is textually indistinguishable
-from a live one — the only marker is one frontmatter line — so a session that
-reads a dead spec implements from it in good faith, and every artifact it then
-produces is individually valid. The defect is *which document was read*, which
-leaves nothing for CI to catch. Withholding removes the input instead of
-hoping a warning is heeded.
+| Client | Protected path | Raw body access |
+| --- | --- | --- |
+| Claude Code | The plugin's `PostToolUse` hook rewrites the native `Read` result, including offset reads. Its replacement has the shape of a Claude text-file result. | Shell commands such as `cat` and `git show` are the intentional audit path. Other tools fall outside the Read hook. |
+| Codex CLI | Skills use `python3 -B "$IMMUTABLE_ROOT/scripts/read_doc.py" -- "$path"`. The reader classifies and filters the same snapshot before writing to stdout. Pipe its output into searches or line-range commands. | Direct `cat`, `sed`, `rg`, `git show`, and other filesystem tools can return original text. Choosing the protected command is part of the skill procedure. |
 
-Deliberate boundaries:
+Codex reports `exec_command` to hooks as `Bash`, with `tool_input.command`.
+In a local 0.169.1 probe the shell's `tool_response` was a string. There was
+no file-path field identifying all documents read by the process. Copying the
+Claude `Read` matcher or returning an extra warning cannot enforce withholding
+for arbitrary shell programs. Direct shell reads in Codex carry **no automatic
+deprecation protection**. See the [Codex hook reference](https://developers.openai.com/codex/hooks#tool-coverage).
 
-- **Read tool only.** Raw-body access for audits or supersede review stays
-  available through Bash (`cat`, `git show`, `git log -p`) — deliberately.
-  The banner says exactly this.
-- **Frontmatter passes through**, so the one sanctioned in-place edit
-  (flipping `deprecated: false` → `true`, or back) always has its exact
-  target text visible.
-- **Off switch**: set `IMMUTABLE_DEPRECATED_GUARD_DISABLE=1` (e.g. in a
-  settings `env` block). The plugin system has no per-hook toggle, so the
-  guard ships its own. Instrumentation: set
-  `IMMUTABLE_DEPRECATED_GUARD_LOG=<path>` to append one `withheld`/`pass`
-  line per gated Read.
-- **Requirements**: bash, `jq`, and python3 with PyYAML. PyYAML is already
-  required by the bundled validator; `jq` is new and used only by the hook's
-  fast path. Missing PyYAML fails **open** with a deterministic warning —
-  the gate never blocks reads it cannot judge. Windows adopters need these
-  via a POSIX-ish environment (e.g. Git Bash), which the plugin's skills
-  already assume.
+The Claude hook needs jq, Bash and Python with PyYAML. Missing PyYAML leaves
+Claude Read open with a diagnostic. The dedicated reader exits with an error
+and releases no in-scope body when PyYAML is missing.
+`IMMUTABLE_DEPRECATED_GUARD_DISABLE=1` disables the Claude hook.
+`IMMUTABLE_DEPRECATED_GUARD_LOG=<path>` records decisions from either reader.
 
-Hooks load at session start — restart the session after enabling or updating
-the plugin.
+## Maintenance
+
+Edit each procedure once, in `immutable/<name>/SKILL.md`. Runtime tool mappings,
+interview fallback and asset resolution live in [RUNTIME.md](RUNTIME.md).
+The physical skill path locates the bundled scripts, templates and catalogs,
+including when the developer's entry point is a symlink.
+
+The canonical version, skill list and plugin description live in
+`immutable/.claude-plugin/plugin.json`. Run the following from the checkout after
+editing its metadata or adding a skill:
+
+```sh
+python3 immutable/scripts/sync_manifests.py
+bash immutable/scripts/plugin_manifest.test.sh
+```
+
+Commit the generated Claude marketplace, Codex compatibility manifest and Codex
+marketplace together. The compatibility manifest accepts explicit skill roots, so
+each client loads the existing directories. The manifest test detects stale output
+and checks English/Korean string-key parity. A new bundled profile field still
+requires a schema bump in both default profiles. [Official packaging guide](https://developers.openai.com/codex/plugins/build)
+
+## Verification
+
+From the checkout, these checks load the package in both clients and exercise
+consumer-shaped repositories. The Codex script creates a temporary `CODEX_HOME`.
+Its default discovery and asset checks run without a model. Its optional model
+test uses `CODEX_API_KEY` from the environment and accepts `--model <name>`.
+
+```sh
+claude --plugin-dir "$PWD/immutable" plugin details immutable
+python3 immutable/scripts/codex_plugin.test.py
+bash immutable/scripts/validate_docs.test.sh
+bash immutable/scripts/deprecated_read_guard.test.sh --e2e
+python3 immutable/scripts/codex_plugin.test.py --e2e
+```
+
+The two end-to-end guard tests inspect **client-delivered tool results** for the
+banner, the active document's token and the explicit raw audit's token. Unit
+tests separately check Claude's JSON shape, folded and split successors, YAML
+booleans, CRLF and the reader's behavior without PyYAML.
+
+On 2026-11-18, Claude Code 2.1.327 (`--plugin-dir`) and Codex CLI 0.169.1
+(isolated marketplace install) each exposed nine skills. An isolated Claude marketplace
+install also loaded all nine and retained the shared assets in its cache. In separate copies
+of the English single-repo starter, a synthetic repository-wide timestamp ADR
+was refused when the decision and trade-offs were missing. Each client generated one ADR
+after the fixture owner resolved the three perspectives' questions and approved the write.
+Both outputs passed `validate_docs.py --type adr --strict-body` from the consumer
+directory. The existing gate named “90%” uses the bundled thresholds of seven
+of eight pitch criteria and five of six ADR criteria. The shell regression suites cover requirement contracts and supersede
+rules on additional fixtures. Desktop, IDE and hosted clients were not exercised.
 
 ## Requirement contract (opt-in, v0.11.0)
 
