@@ -2,6 +2,12 @@
 
 All notable changes to the `immutable` plugin are documented in this file. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Version is canonically declared in `.claude-plugin/plugin.json`.
 
+## [0.21.0] — 2026-11-18
+
+### Added
+
+- A trusted Codex plugin hook intercepts supported shell reads of consumer Markdown during ordinary implementation. Its retry preserves active text, ranges and search matches and names successors of deprecated documents. The shared reader labels raw historical audits explicitly.
+
 ## [0.20.0] — 2026-11-18
 
 ### Added

@@ -19,7 +19,7 @@ codex plugin marketplace add choi88andys/skills --ref main
 codex plugin add immutable@skills
 ```
 
-Open a new session in the consumer repo and type `$immutable:init`. The flow below uses Claude Code spelling. Each `/immutable:<name>` is available in Codex as `$immutable:<name>`. The Codex skills use a dedicated reader for deprecated documents. Direct shell reads can return their bodies. [Installation, updates and read coverage](immutable/README.md#installation)
+Open a new session in the consumer repo and type `$immutable:init`. The flow below uses Claude Code spelling. Each `/immutable:<name>` is available in Codex as `$immutable:<name>`. A trusted Codex hook intercepts ordinary document reads and supplies a protected retry, including outside a skill. See the shell coverage and historical audit path. [Installation, updates and read coverage](immutable/README.md#installation)
 
 ```sh
 # 1. Install (once per Claude Code workspace)
