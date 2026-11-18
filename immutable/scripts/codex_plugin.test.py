@@ -24,11 +24,11 @@ def test_reads(codex, home, consumer, installed, model):
             f"---\ndeprecated: {str(name == 'dead').lower()}\n"
             f"supersedes: {'dead.md' if name == 'live' else 'null'}\n---\n{tokens[name]}\n"
         )
-    reader = shlex.join([sys.executable, "-B", str(installed / "scripts/read_doc.py"), "--"])
+    reader = shlex.join([sys.executable, "-B", str(installed / "scripts/read_doc.py")])
     prompt = (
         "Client integration test in a synthetic repo. Run these three shell commands "
         "separately, in order, waiting for each result. Use no other file read.\n"
-        f"1. {reader} dead.md\n2. {reader} live.md\n3. cat dead.md\n"
+        f"1. {reader} -- dead.md\n2. {reader} -- live.md\n3. {reader} --audit -- dead.md\n"
         "The third command is the intentional raw audit. Report the three outcomes."
     )
     flags = ["--model", model] if model else []

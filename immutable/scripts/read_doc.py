@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
 """Read a text file, withholding deprecated immutable documents before stdout."""
 import argparse
+import io
+import itertools
 import json
 import os
+import re
+import shlex
 import sys
 from pathlib import Path
 
@@ -52,7 +56,8 @@ def replacement(path, root, text):
         lines.append("No successor found in this directory. Check the supersede history.")
     lines.extend([
         "",
-        "For an intentional raw-body audit or supersede review, use cat or git show.",
+        "Only for historical audit or supersede review, run:",
+        shlex.join(["python3", "-B", str(Path(__file__).resolve()), "--audit", "--", str(path)]),
         "To un-deprecate, edit the deprecated flag in the visible frontmatter.",
     ])
     log(path, "withheld", f"successors={len(successors)}")
@@ -71,29 +76,61 @@ def claude_result(path, content):
     }}
 
 
+def document_scope(path):
+    """Return the document spelling and nearest marker used to classify it."""
+    path = path.absolute()
+    for candidate in (path.resolve(), path):
+        if candidate.suffix == ".md":
+            root = next((p for p in candidate.parents if (p / ".immutable-prd").is_dir()), None)
+            if root:
+                return candidate, root
+    return path, None
+
+
+def read_document(path, root=None):
+    """Classify exactly the bytes we might release, including during concurrent edits."""
+    if root is None:
+        path, root = document_scope(path)
+    raw = path.read_bytes()
+    if root is not None:
+        import yaml  # Check before importing the validator, which exits if PyYAML is missing.
+
+        text = raw.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
+        banner = replacement(path, root, text)
+        if banner is not None:
+            return (banner + "\n").encode("utf-8"), True
+    return raw, False
+
+
+def line_range(value):
+    if not re.fullmatch(r"[1-9][0-9]*(?:,(?:[1-9][0-9]*|\$))?", value):
+        raise ValueError("expected a positive line N, N,M or N,$")
+    start, _, end = value.partition(",")
+    first = int(start)
+    return first - 1, None if end == "$" else max(first, int(end or start))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--claude-hook", metavar="ROOT", type=Path, help=argparse.SUPPRESS)
-    parser.add_argument("file", type=Path)
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--claude-hook", metavar="ROOT", type=Path, help=argparse.SUPPRESS)
+    mode.add_argument("--audit", action="store_true", help="show raw text for historical review")
+    mode.add_argument("--lines", type=line_range, metavar="N[,M]", help="select active document lines")
+    parser.add_argument("files", nargs="+", type=Path)
     args = parser.parse_args()
-    path = args.file.absolute()
-    root = args.claude_hook
-    if root is None:
-        # Check both names: a linked skill checkout, a document symlink inside
-        # a consumer, and an outside alias to a consumer document all work.
-        for candidate in (path.resolve(strict=True), path):
-            if candidate.suffix == ".md":
-                root = next((p for p in candidate.parents if (p / ".immutable-prd").is_dir()), None)
-                if root:
-                    path = candidate
-                    break
-
-    raw = path.read_bytes()
-    content = None
-    if root is not None:
+    if (args.claude_hook or args.lines or args.audit) and len(args.files) != 1:
+        parser.error("this mode takes one file")
+    for path in args.files:
+        if args.audit:
+            sys.stdout.buffer.write(b"[IMMUTABLE HISTORICAL AUDIT] For supersede/history review only.\n")
+            sys.stdout.buffer.write(path.read_bytes())
+            sys.stdout.buffer.write(b"\n[END IMMUTABLE HISTORICAL AUDIT]\n")
+            return
         try:
-            import yaml  # noqa: F401  (preserve Claude's missing-dependency diagnostic)
-        except ImportError:
+            data, withheld = read_document(path, args.claude_hook)
+        except ModuleNotFoundError as exc:
+            if exc.name != "yaml":
+                raise
             msg = "[immutable-deprecated-guard] PyYAML missing. Install PyYAML to read SDD documents."
             if args.claude_hook is None:
                 sys.exit(msg)
@@ -101,14 +138,13 @@ def main():
                 "hookEventName": "PostToolUse", "additionalContext": msg + " Claude Read gate is INERT.",
             }}))
             return
-        # Classify exactly the bytes we might release, even if the file changes concurrently.
-        text = raw.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
-        content = replacement(path, root, text)
-    if args.claude_hook is not None:
-        if content is not None:
-            print(json.dumps(claude_result(path, content)))
-    else:
-        sys.stdout.buffer.write(raw if content is None else content.encode("utf-8"))
+        if args.claude_hook is not None:
+            if withheld:
+                print(json.dumps(claude_result(path, data.decode("utf-8").rstrip("\n"))))
+        elif args.lines and not withheld:
+            sys.stdout.buffer.writelines(itertools.islice(io.BytesIO(data), *args.lines))
+        else:
+            sys.stdout.buffer.write(data)
 
 
 if __name__ == "__main__":
