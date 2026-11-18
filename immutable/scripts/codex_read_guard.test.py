@@ -124,6 +124,32 @@ class ReadTests(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertIsNone(self.hook(command))
 
+    def test_quoted_operand_and_compound_side_effect(self):
+        folder = self.root / "the team's $draft; v1"
+        self.docs.rename(folder)
+        renamed = folder / self.old.name
+        retry = self.hook("touch side-effect && " + shlex.join(["cat", str(renamed)]))
+        self.assertFalse((self.root / "side-effect").exists())
+        self.assertIsNone(self.hook(retry))
+        output = self.output(["sh", "-c", retry])
+        self.assertIn("Body withheld.", output)
+        self.assertIn(str(folder.name) + "/current pitch.md", output)
+        self.assertNotIn(self.dead, output)
+        self.assertFalse((self.root / "side-effect").exists())
+
+    def test_directory_selection(self):
+        subprocess.run(["git", "init", "--quiet"], cwd=self.root, check=True)
+        self.docs.rename(self.root / ".archive")
+        self.assertIsNone(self.hook("rg rule ."))
+        retry = self.hook("rg --hidden -g '*.md' -g '!current*' rule .")
+        out = self.output(["sh", "-c", retry])
+        self.assertIn("Body withheld.", out)
+        self.assertIn(".archive/current pitch.md", out)
+        self.assertNotIn(self.live, out)
+        self.assertNotIn(self.dead, out)
+        (self.root / ".gitignore").write_text(".archive/\n")
+        self.assertIsNone(self.hook("rg --hidden rule ."))
+
     def test_nested_scope_and_symlink(self):
         link = self.root.parent / (self.root.name + " alias")
         link.symlink_to(self.old)

@@ -184,8 +184,10 @@ requires a schema bump in both default profiles. [Official packaging guide](http
 
 From the checkout, these checks load the package in both clients and exercise
 consumer-shaped repositories. The Codex script creates a temporary `CODEX_HOME`.
-Its default discovery and asset checks run without a model. Its optional model
-test uses `CODEX_API_KEY` from the environment and accepts `--model <name>`.
+The default run checks discovery, assets, command coverage and the exact retries
+against the installed copy without a model. The optional live test accepts
+`--model <name>` and uses `CODEX_API_KEY` or `OPENAI_API_KEY` from the environment.
+It permits the checkout's hook to run for that invocation in the temporary home.
 
 ```sh
 claude --plugin-dir "$PWD/immutable" plugin details immutable
@@ -195,10 +197,19 @@ bash immutable/scripts/deprecated_read_guard.test.sh --e2e
 python3 immutable/scripts/codex_plugin.test.py --e2e
 ```
 
-The two end-to-end guard tests inspect **client-delivered tool results** for the
-banner, the active document's token and the explicit raw audit's token. Unit
-tests separately check Claude's JSON shape, folded and split successors, YAML
-booleans, CRLF and the reader's behavior without PyYAML.
+The Codex live test starts a coding session with an ordinary `cat` reference.
+It checks the delivered denial and installed retry path, the withholding notice,
+the successor's token, and the modified source. A second session checks a
+body-only `sed` range and a recursive `cd … && rg` search. Both scan the entire
+session record for the obsolete token. A separate historical review forces an
+early shell yield and checks that a later result delivers the token between
+audit markers. The Claude test checks native Read results and the Bash audit
+control. The fixtures contain synthetic requirements.
+
+On 2026-11-18 these guard tests passed with Codex CLI 0.169.1 (temporary local
+marketplace install) and Claude Code 2.1.327 (`--plugin-dir`). The shell coverage
+suite ran from both source and cache. Additional checks covered manifest freshness,
+English/Korean catalog parity, reader behavior without PyYAML and successor resolution.
 
 On 2026-11-18, Claude Code 2.1.327 (`--plugin-dir`) and Codex CLI 0.169.1
 (isolated marketplace install) each exposed nine skills. An isolated Claude marketplace
