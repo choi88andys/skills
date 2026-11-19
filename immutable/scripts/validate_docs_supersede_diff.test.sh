@@ -30,11 +30,15 @@
 # "supersedes nothing" and the run passed (D13). Also pinned: `--base` reads a
 # predecessor as it was at the base, so editing it in the same change cannot make
 # the diff agree (D14), and a missing pitch directory exits 2 (D15). v0.18: a
-# heading that itself holds " / " resolves by its bare name (D16).
+# heading that itself holds " / " resolves by its bare name (D16). v0.21.1: a
+# copied self-lineage sentence naming only an older version fails (D17); history
+# beside a predecessor passes once its section edit is declared (D18); each
+# successor is judged against its own targets in a group (D19); chain-history
+# narration and other uses of the word are not lineage claims (D20).
 #
 # Usage:  bash immutable/scripts/validate_docs_supersede_diff.test.sh
 # Exit:   0 all cases passed · 1 a case failed · 2 the test could not run.
-# Needs:  python3 + PyYAML, git (D7 only).
+# Needs:  python3 + PyYAML, git.
 
 set -euo pipefail
 
@@ -360,6 +364,94 @@ if [ "$RC1" -eq 0 ] && grep -qF 'modify  declared   Lock (PIN / bio)' <<<"$OUT1"
   pass "D16 a heading holding \" / \" resolves bare and as <parent> / <child>"
 else
   fail "D16 slash in heading" "rc=$RC1/$RC
+$OUT1
+$OUT"
+fi
+
+# D17: a verbatim copy can pass the section diff while naming its grandparent.
+P="$RIG/lineage"; mkrepo "$P"; PA="$P/pitches/alpha"
+grand=2026-01-01-polling.md
+parent=2026-02-01-polling.md
+child=2026-03-01-polling.md
+background() { printf '%s\n' '# Polling' '## Background' "$@"; }
+{ fm null true; background 'Poll while the screen is open.'; } >"$PA/$grand"
+stale='본 Pitch는 `2026-01-01-polling.md`를 supersede한다.'
+{ fm "$grand" true; background "$stale"; } >"$PA/$parent"
+git -C "$P" init -q
+git -C "$P" add .
+git -C "$P" -c user.name=t -c user.email=t@t commit -qm base
+{ fm "$parent" false; background "$stale"; } >"$PA/$child"
+git -C "$P" add .
+git -C "$P" -c user.name=t -c user.email=t@t commit -qm successor
+diffrun "$P" --base HEAD~1
+if [ "$RC" -eq 1 ] && [[ "$OUT" == *"$child: line 9: stale lineage"*"$grand"*"$parent"* ]]; then
+  pass "D17 --base rejects a copied lineage sentence and names the line and both versions"
+else
+  fail "D17 copied lineage" "rc=$RC
+$OUT"
+fi
+
+# D18: correcting the line changes its section. Mixed history is valid on the
+# same line. Ordinary citations, code examples and frontmatter are exempt.
+current_body() {
+  background 'This pitch SUPERSEDES `pitches/alpha/2026-02-01-polling.md` (previously `2026-01-01-polling.md`).' \
+    'See `2026-01-01-polling.md` and `2026-01-01-supersede-policy.md`.' \
+    'The example supersedes 2026-01-01-polling.md.' '~~~md' "$stale" '~~~'
+}
+{ fm "$parent" false; current_body; } >"$PA/$child"
+diffrun "$P" "$PA/$child"; RC1="$RC"; OUT1="$OUT"
+{ fm "$parent" false 'changes: [{section: Background, kind: modify}]' \
+    'note: "supersedes `2026-01-01-polling.md`"'; current_body; } >"$PA/$child"
+diffrun "$P" "$PA/$child"
+if [ "$RC1" -eq 1 ] && grep -qF '«Background» — modify not declared' <<<"$OUT1" && [ "$RC" -eq 0 ]; then
+  pass "D18 mixed history passes once the background edit is declared"
+else
+  fail "D18 corrected lineage" "rc=$RC1/$RC
+$OUT1
+$OUT"
+fi
+
+# D19: one fold member suffices, but its name on a different line or in a
+# sibling's supersedes list cannot excuse a stale line in a grouped diff.
+mention_a='This pitch supersedes `2026-01-01-a.md`.'
+mention_b='This pitch supersedes `2026-01-01-b.md`.'
+{ fm 2026-01-01-a.md false 'changes: [{section: Sa, kind: modify}]'; story A Sa
+  printf '%s\n' "$mention_a" "$mention_b"; } >"$OA/2026-02-01-s1.md"
+{ fm '[2026-01-01-a.md, 2026-01-01-b.md]' false; story AB Sa
+  printf '%s\n' "$mention_b" '### Sb' '- **[MUST]** Sb works.'; } >"$OA/2026-02-01-s3.md"
+diffrun "$O" "$OA/2026-02-01-s1.md" "$OA/2026-02-01-s3.md" --json
+if [ "$RC" -eq 1 ] && python3 -c '
+import json, sys
+result = json.load(sys.stdin)
+errors = result["violations"]
+sys.exit(not (result["clean"] is False and len(errors) == 1
+              and "2026-02-01-s1.md: line" in errors[0] and "stale lineage" in errors[0]))' <<<"$OUT"; then
+  pass "D19 a lineage sentence is judged against that successor's own targets"
+else
+  fail "D19 grouped lineage" "rc=$RC
+$OUT"
+fi
+
+# D20: only a sentence in which the pitch names itself is a lineage claim. History
+# narration stays true when copied, and the word can name another domain's work.
+# lounge-x-spec (measured 2026-11-19) carries both on their own lines; a per-line
+# rule flagged 7 such lines in 5 of its 44 active pitches.
+history_body() {
+  background '`2026-01-01-polling.md` 는 `2025-12-01-polling.md` 를 supersede 했다.' \
+    'In January `2026-01-01-polling.md` superseded `2025-12-01-polling.md`.' \
+    '본 Pitch 의 표기를 따른다. `2025-06-01-auth-lock.md` 의 오래된 참조는 후속 supersede 작업에서 정정한다.' \
+    "$@"
+}
+changed='changes: [{section: Background, kind: modify}]'
+{ fm "$parent" false "$changed"; history_body; } >"$PA/$child"
+diffrun "$P" "$PA/$child"; RC1="$RC"; OUT1="$OUT"
+{ fm "$parent" false "$changed"; history_body 'This pitch supersedes `2026-01-01-polling.md`.'; } >"$PA/$child"
+diffrun "$P" "$PA/$child"
+if [ "$RC1" -eq 0 ] && [ "$RC" -eq 1 ] && [ "$(grep -c 'stale lineage' <<<"$OUT")" = 1 ] \
+  && [[ "$OUT" == *"$child: line 13: stale lineage"* ]]; then
+  pass "D20 history narration and other uses of the word pass; a stale self-claim beside them fails"
+else
+  fail "D20 self-lineage only" "rc=$RC1/$RC
 $OUT1
 $OUT"
 fi
