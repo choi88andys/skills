@@ -2,6 +2,12 @@
 
 All notable changes to the `immutable` plugin are documented in this file. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Version is canonically declared in `.claude-plugin/plugin.json`.
 
+## [0.21.1] — 2026-11-19
+
+### Fixed
+
+- `validate_docs.py --supersede-diff` catches a copied lineage sentence that names only older pitch files. A line may include chain history alongside an immediate predecessor. The PRD skill accounts for corrections when agreeing the section changes. Consumer CI picks up the check when its validator pin is updated.
+
 ## [0.21.0] — 2026-11-18
 
 ### Added

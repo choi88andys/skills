@@ -108,7 +108,8 @@ its fail-open contract.
 
 `--supersede-diff` (v0.17+) compares a successor pitch with its predecessor(s),
 `### ` sub-section by sub-section after whitespace normalization, and fails on
-any difference its `changes` frontmatter does not declare. It judges the paths
+any difference its `changes` frontmatter does not declare. A lineage line in
+the successor must name one of its own immediate predecessors. It judges the paths
 given, or with `--base REV` every pitch added since REV — the CI and pre-push
 form. See `run_supersede_diff`.
 
@@ -203,6 +204,8 @@ CHANGE_KINDS = ("add", "modify", "remove")
 DEFAULT_MAX_BYTES = 50_000
 # Files under the pitches directory that are not pitches and are never cited as one.
 NON_PITCH_FILES = ("README.md", "TEMPLATE.md")
+# A lineage sentence can cite a bare pitch filename or its path in inline code.
+QUOTED_PITCH_RE = re.compile(r"`(?:[^`\n]*/)?(\d{4}-\d{2}-\d{2}-[^/`\s]+\.md)`")
 # How many changed lines one undeclared change prints per side.
 DIFF_SAMPLE_LINES = 6
 # Internal key for the content before a pitch's first `## ` — its title unit.
@@ -2419,6 +2422,25 @@ def supersede_diff_group(
     return report, violations
 
 
+def lineage_problems(text: str, targets: list[str]) -> list[str]:
+    """Flag copied lineage claims even when the section diff sees identical text."""
+    predecessors = {Path(target).name for target in targets}
+    problems = []
+    for lineno, line, fenced in iter_body(text):
+        # A slug such as 2026-01-01-supersede-policy.md is not itself a claim.
+        if fenced or "supersede" not in QUOTED_PITCH_RE.sub(" ", line).casefold():
+            continue
+        cited = QUOTED_PITCH_RE.findall(line)
+        if not cited or not predecessors.isdisjoint(cited):
+            continue
+        problems.append(
+            f"line {lineno}: stale lineage cites {', '.join(cited)}. "
+            f"Name a predecessor from `supersedes` ({', '.join(targets)}) "
+            "or remove the claim. Declare the section edit in `changes`."
+        )
+    return problems
+
+
 def run_supersede_diff(
     paths: list[Path],
     base: str | None,
@@ -2435,7 +2457,8 @@ def run_supersede_diff(
     kept 5 of 15 inherited normative lines identical and added a duty, another
     resurrected three items its parent had removed — while single-purpose
     supersede PRs stayed byte-identical outside their change. The authoring
-    skill now copies the predecessor and edits declared hunks; this proves it.
+    skill now copies the predecessor and edits declared hunks. Each successor's
+    prose lineage is checked against its own targets before the group diff.
 
     Judged: the given paths, plus with `base` every pitch added in base..HEAD.
     A judged pitch whose `supersedes` is null is skipped with a note; one whose
@@ -2474,7 +2497,7 @@ def run_supersede_diff(
     violations: list[str] = []
     successors: list[Path] = []
     for p in judged:
-        fm = docs.get(p, (None, ""))[0]
+        fm, text = docs.get(p, (None, ""))
         if fm is None:
             violations.append(f"{rel(p)}: frontmatter missing or malformed — what it supersedes cannot be read")
             continue
@@ -2484,7 +2507,9 @@ def run_supersede_diff(
             continue
         if "changes" in fm:
             violations.extend(f"{rel(p)}: {x}" for x in changes_shape_problems(fm, "pitch"))
-        if supersede_targets(fm, "pitch"):
+        targets = supersede_targets(fm, "pitch")
+        if targets:
+            violations.extend(f"{rel(p)}: {v}" for v in lineage_problems(text, targets))
             successors.append(p)
         else:
             sys.stderr.write(f"note: {p}: supersedes nothing — no predecessor to diff against.\n")
@@ -2598,6 +2623,7 @@ def main() -> int:
             "`supersedes` target(s), `### ` sub-section by sub-section after "
             "whitespace normalization, and fail on any difference its `changes` "
             "frontmatter does not declare (or a declaration nothing matches). "
+            "Check that each prose lineage line cites an immediate predecessor. "
             "Pass every file of a split together. With --base, also judge every "
             "pitch added since that commit. Exit 0 clean, 1 on a violation, 2 "
             "when it cannot run."
