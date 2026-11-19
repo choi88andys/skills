@@ -291,10 +291,10 @@ strings:
     Correct? (Y) yes — the interview covers only these (N) adjust the list
   prd.stage6.change_row: "  - {kind} — {section}"
   prd.stage6.supersede_diff_failure: |
-    The new file failed the supersede check against {base_files}.
+    The new file fails the supersede check against {base_files}:
     {violations}
 
-    Resolve each finding in the new file before marking its predecessor deprecated. Confirm any additional section edit with the user and record it in `changes`.
+    No predecessor was flipped. Undo the stray edits — or, when a difference is intended, add its section to `changes` after the user confirms it. A stale lineage sentence is corrected in the new file, and its section is added to `changes`.
   prd.stage6.size_over: |
     The assembled PRD is {bytes} bytes, over `max_bytes` {max_bytes}: past it, Claude Code's Read returns only part of the file and a reader can act on half a PRD.
     Split it along its user-facing feature areas (refactor-split) — never trim content to fit.

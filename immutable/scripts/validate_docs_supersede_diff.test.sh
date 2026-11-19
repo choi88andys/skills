@@ -30,7 +30,11 @@
 # "supersedes nothing" and the run passed (D13). Also pinned: `--base` reads a
 # predecessor as it was at the base, so editing it in the same change cannot make
 # the diff agree (D14), and a missing pitch directory exits 2 (D15). v0.18: a
-# heading that itself holds " / " resolves by its bare name (D16).
+# heading that itself holds " / " resolves by its bare name (D16). v0.21.1: a
+# copied self-lineage sentence naming only an older version fails (D17); history
+# beside a predecessor passes once its section edit is declared (D18); each
+# successor is judged against its own targets in a group (D19); chain-history
+# narration and other uses of the word are not lineage claims (D20).
 #
 # Usage:  bash immutable/scripts/validate_docs_supersede_diff.test.sh
 # Exit:   0 all cases passed · 1 a case failed · 2 the test could not run.
@@ -422,9 +426,33 @@ result = json.load(sys.stdin)
 errors = result["violations"]
 sys.exit(not (result["clean"] is False and len(errors) == 1
               and "2026-02-01-s1.md: line" in errors[0] and "stale lineage" in errors[0]))' <<<"$OUT"; then
-  pass "D19 a lineage sentence is judged per line against that successor's own targets"
+  pass "D19 a lineage sentence is judged against that successor's own targets"
 else
   fail "D19 grouped lineage" "rc=$RC
+$OUT"
+fi
+
+# D20: only a sentence in which the pitch names itself is a lineage claim. History
+# narration stays true when copied, and the word can name another domain's work.
+# lounge-x-spec (measured 2026-11-19) carries both on their own lines; a per-line
+# rule flagged 7 such lines in 5 of its 44 active pitches.
+history_body() {
+  background '`2026-01-01-polling.md` 는 `2025-12-01-polling.md` 를 supersede 했다.' \
+    'In January `2026-01-01-polling.md` superseded `2025-12-01-polling.md`.' \
+    '본 Pitch 의 표기를 따른다. `2025-06-01-auth-lock.md` 의 오래된 참조는 후속 supersede 작업에서 정정한다.' \
+    "$@"
+}
+changed='changes: [{section: Background, kind: modify}]'
+{ fm "$parent" false "$changed"; history_body; } >"$PA/$child"
+diffrun "$P" "$PA/$child"; RC1="$RC"; OUT1="$OUT"
+{ fm "$parent" false "$changed"; history_body 'This pitch supersedes `2026-01-01-polling.md`.'; } >"$PA/$child"
+diffrun "$P" "$PA/$child"
+if [ "$RC1" -eq 0 ] && [ "$RC" -eq 1 ] && [ "$(grep -c 'stale lineage' <<<"$OUT")" = 1 ] \
+  && [[ "$OUT" == *"$child: line 13: stale lineage"* ]]; then
+  pass "D20 history narration and other uses of the word pass; a stale self-claim beside them fails"
+else
+  fail "D20 self-lineage only" "rc=$RC1/$RC
+$OUT1
 $OUT"
 fi
 

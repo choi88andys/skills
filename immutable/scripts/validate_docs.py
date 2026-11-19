@@ -108,8 +108,9 @@ its fail-open contract.
 
 `--supersede-diff` (v0.17+) compares a successor pitch with its predecessor(s),
 `### ` sub-section by sub-section after whitespace normalization, and fails on
-any difference its `changes` frontmatter does not declare. A lineage line in
-the successor must name one of its own immediate predecessors. It judges the paths
+any difference its `changes` frontmatter does not declare. A sentence in which
+the successor names itself and what it supersedes must cite one of its own
+immediate predecessors (`lineage_problems`). It judges the paths
 given, or with `--base REV` every pitch added since REV — the CI and pre-push
 form. See `run_supersede_diff`.
 
@@ -206,6 +207,18 @@ DEFAULT_MAX_BYTES = 50_000
 NON_PITCH_FILES = ("README.md", "TEMPLATE.md")
 # A lineage sentence can cite a bare pitch filename or its path in inline code.
 QUOTED_PITCH_RE = re.compile(r"`(?:[^`\n]*/)?(\d{4}-\d{2}-\d{2}-[^/`\s]+\.md)`")
+# A pitch naming itself — "This pitch", "this version", "본 Pitch는", "이 문서" — marks
+# a lineage claim; see `lineage_problems`. A Korean particle may follow without a
+# space, so the Korean form ends on a particle, a space or punctuation, never on
+# another syllable (이 판단 is not 이 판).
+LINEAGE_SELF_RE = re.compile(
+    r"\bthis\s+(?:pitch|version|document)\b"
+    r"|(?<!\w)(?:본|이)\s*(?:pitch|문서|판)(?=$|[\s,.:(]|[은는이가의을를에도])",
+    re.IGNORECASE,
+)
+# A sentence ends at terminal punctuation followed by whitespace; a cited `x.md`
+# keeps its dot because a backtick, not a space, follows it.
+SENTENCE_END_RE = re.compile(r"(?<=[.!?。])\s+")
 # How many changed lines one undeclared change prints per side.
 DIFF_SAMPLE_LINES = 6
 # Internal key for the content before a pitch's first `## ` — its title unit.
@@ -2423,21 +2436,33 @@ def supersede_diff_group(
 
 
 def lineage_problems(text: str, targets: list[str]) -> list[str]:
-    """Flag copied lineage claims even when the section diff sees identical text."""
+    """Flag copied lineage claims even when the section diff sees identical text.
+
+    A claim is a sentence that names the pitch itself (`LINEAGE_SELF_RE`), uses
+    `supersede` outside a cited filename, and cites a pitch file; it must cite
+    one of `targets`. Only that sentence goes stale when the body is copied into
+    the next version. History narration ("`b.md` superseded `a.md`") names no
+    self and stays true, and the word can name another domain's work — a
+    per-line rule flagged 7 such accurate lines in 5 of lounge-x-spec's 44
+    active pitches (measured 2026-11-19)."""
     predecessors = {Path(target).name for target in targets}
     problems = []
     for lineno, line, fenced in iter_body(text):
-        # A slug such as 2026-01-01-supersede-policy.md is not itself a claim.
-        if fenced or "supersede" not in QUOTED_PITCH_RE.sub(" ", line).casefold():
+        if fenced:
             continue
-        cited = QUOTED_PITCH_RE.findall(line)
-        if not cited or not predecessors.isdisjoint(cited):
-            continue
-        problems.append(
-            f"line {lineno}: stale lineage cites {', '.join(cited)}. "
-            f"Name a predecessor from `supersedes` ({', '.join(targets)}) "
-            "or remove the claim. Declare the section edit in `changes`."
-        )
+        for sentence in SENTENCE_END_RE.split(line):
+            # A slug such as 2026-01-01-supersede-policy.md is not itself a claim.
+            prose = QUOTED_PITCH_RE.sub(" ", sentence)
+            if "supersede" not in prose.casefold() or not LINEAGE_SELF_RE.search(prose):
+                continue
+            cited = QUOTED_PITCH_RE.findall(sentence)
+            if not cited or not predecessors.isdisjoint(cited):
+                continue
+            problems.append(
+                f"line {lineno}: stale lineage cites {', '.join(cited)}. "
+                f"Name a predecessor from `supersedes` ({', '.join(targets)}) "
+                "or remove the claim. Declare the section edit in `changes`."
+            )
     return problems
 
 
@@ -2458,7 +2483,7 @@ def run_supersede_diff(
     resurrected three items its parent had removed — while single-purpose
     supersede PRs stayed byte-identical outside their change. The authoring
     skill now copies the predecessor and edits declared hunks. Each successor's
-    prose lineage is checked against its own targets before the group diff.
+    self-lineage sentences are checked against its own targets before the group diff.
 
     Judged: the given paths, plus with `base` every pitch added in base..HEAD.
     A judged pitch whose `supersedes` is null is skipped with a note; one whose
@@ -2623,7 +2648,7 @@ def main() -> int:
             "`supersedes` target(s), `### ` sub-section by sub-section after "
             "whitespace normalization, and fail on any difference its `changes` "
             "frontmatter does not declare (or a declaration nothing matches). "
-            "Check that each prose lineage line cites an immediate predecessor. "
+            "Check that a sentence naming the pitch itself and what it supersedes cites an immediate predecessor. "
             "Pass every file of a split together. With --base, also judge every "
             "pitch added since that commit. Exit 0 clean, 1 on a violation, 2 "
             "when it cannot run."
