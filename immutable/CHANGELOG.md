@@ -2,6 +2,12 @@
 
 All notable changes to the `immutable` plugin are documented in this file. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Version is canonically declared in `.claude-plugin/plugin.json`.
 
+## [0.21.2] — 2026-11-19
+
+### Fixed
+
+- The deprecated-document guard covers only the document folders a repo's config names (`pitches_path`, `adr_path` for its `repo_mode`). In an app repo it had denied every raw read of any Markdown file under the marker, `CLAUDE.md` and `README.md` included, so a Codex session in did_client was sent to the reader about four times in one session for files that can never be deprecated (2026-11-18). A config that cannot be read keeps the old scope, every Markdown file under the marker.
+
 ## [0.21.1] — 2026-11-19
 
 ### Fixed

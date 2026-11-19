@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Read a text file, withholding deprecated immutable documents before stdout."""
 import argparse
+import functools
 import io
 import itertools
 import json
@@ -76,8 +77,44 @@ def claude_result(path, content):
     }}
 
 
+DOC_PATH_KEYS = {
+    "two-repo-spec": ("pitches_path",),
+    "two-repo-app": ("adr_path",),
+    "single-repo": ("pitches_path", "adr_path"),
+}
+
+
+@functools.lru_cache(maxsize=None)
+def doc_dirs(root):
+    """Return the folders under ``root`` that hold its immutable documents, or None.
+
+    Only a document there can be one the validator deprecates, so a Markdown file
+    elsewhere (CLAUDE.md, README.md, docs/) reads raw. None means the config could
+    not be read; the caller then keeps every Markdown file under the marker in
+    scope, so a broken config never opens a deprecated body.
+    """
+    try:
+        import yaml
+    except ImportError:
+        return None
+    try:
+        config = yaml.safe_load((root / ".immutable-prd" / "config.yml").read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, ValueError, yaml.YAMLError):
+        return None
+    keys = DOC_PATH_KEYS.get(config.get("repo_mode")) if isinstance(config, dict) else None
+    if not keys or not all(isinstance(config.get(key), str) and config[key].strip() for key in keys):
+        return None
+    # Same spelling as ``root`` (physical or lexical alias), so is_relative_to compares like with like.
+    return tuple(Path(os.path.normpath(root / config[key])) for key in keys)
+
+
 def document_scope(path):
-    """Return the document spelling and nearest marker used to classify it."""
+    """Return the document spelling and nearest marker used to classify it.
+
+    The marker is returned only for a Markdown file inside one of the marker's
+    document folders (`doc_dirs`), or for any Markdown file under it when the
+    folders cannot be read.
+    """
     path = path.absolute()
     physical = path.resolve()
     alias = Path(os.path.normpath(path))
@@ -88,7 +125,8 @@ def document_scope(path):
     for candidate in (physical, alias):
         if candidate.suffix == ".md":
             root = next((p for p in candidate.parents if (p / ".immutable-prd").is_dir()), None)
-            if root:
+            dirs = doc_dirs(root) if root else ()
+            if root and (dirs is None or any(candidate.is_relative_to(d) for d in dirs)):
                 return candidate, root
     return path, None
 
