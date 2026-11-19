@@ -189,5 +189,50 @@ class ReadTests(unittest.TestCase):
         self.check_banner(self.output(["sh", "-c", retry]))
 
 
+class ConfiguredScopeTests(ReadTests):
+    """A repo whose config names its document folders: only those are guarded."""
+
+    def setUp(self):
+        super().setUp()
+        self.docs = self.docs.rename(self.root / "adr")
+        self.old, self.current = self.docs / self.old.name, self.docs / self.current.name
+        self.config = self.root / ".immutable-prd" / "config.yml"
+        self.config.write_text("version: 3\nrepo_mode: two-repo-app\nteam_language: ko\nadr_path: adr/\n")
+        # A Markdown file outside the document folder, carrying the flag by accident.
+        self.notes = self.root / "docs" / "notes.md"
+        self.notes.parent.mkdir()
+        self.notes.write_text(f"---\ndeprecated: true\n---\nnote {secrets.token_hex(16)}\n")
+        (self.root / "CLAUDE.md").write_text("instructions\n")
+
+    def check_banner(self, output):
+        self.assertIn("Body withheld.", output)
+        self.assertIn("adr/current pitch.md", output)
+        self.assertNotIn(self.dead, output)
+
+    # Inherited tests that name the old folder or move it are covered by ReadTests.
+    test_denied_reads_and_independent_retries = None
+    test_quoted_operand_and_compound_side_effect = None
+    test_directory_selection = None
+    test_parent_relative_scope = None
+
+    def test_files_outside_document_folders_read_raw(self):
+        for command in ["cat CLAUDE.md", "cat docs/notes.md", "sed -n '1,4p' docs/notes.md",
+                        "rg -n note docs", "rg -g '*.md' instructions CLAUDE.md docs"]:
+            with self.subTest(command=command):
+                self.assertIsNone(self.hook(command))
+        self.assertEqual(self.output([*READER, "--", self.notes]), self.notes.read_text())
+
+    def test_document_folder_stays_guarded(self):
+        retry = self.hook("cat 'adr/old pitch.md'")
+        self.assertIsNotNone(retry)
+        self.check_banner(self.output(["sh", "-c", retry]))
+
+    def test_unreadable_config_guards_every_markdown_file(self):
+        for broken in ["repo_mode: [unclosed\n", "repo_mode: two-repo-app\n", "- a list\n"]:
+            with self.subTest(config=broken):
+                self.config.write_text(broken)
+                self.assertIsNotNone(self.hook("cat docs/notes.md"))
+
+
 if __name__ == "__main__":
     unittest.main()
