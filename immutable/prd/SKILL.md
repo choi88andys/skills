@@ -269,7 +269,7 @@ Skip the standard Stage 5 gate (this is a refactor, not new content). Run instea
 - Every original edge case row appears in at least one split file
 - Every original no-go appears in at least one split file
 
-Then run `python3 "${IMMUTABLE_ROOT}/scripts/validate_docs.py" --supersede-diff <every split file>` (all of them in one call, so they are judged as one group). It must report no undeclared change and no stale declaration.
+Then run `python3 "${IMMUTABLE_ROOT}/scripts/validate_docs.py" --supersede-diff <every split file>` (all of them in one call, so they are judged as one group). It must report no undeclared change, no stale declaration and no stale lineage sentence (see "Lineage sentences" under "Mechanical supersede" below).
 
 On any failure: delete the copies (nothing else was changed yet), report the missing/duplicated items or the diff's violations, return to §1.7.2 for re-mapping.
 
@@ -302,7 +302,7 @@ Folds N active PRDs of **one domain** that describe one user-facing feature area
 1. **Pick the set.** From §1.2.1, the PRDs the feature area spans. Confirm the list with the user. Sum their sizes: a fold whose result would exceed `profile.max_bytes` is two feature areas, not one — fold fewer.
 2. **Resolve every prose override first.** Where one member outranks another's clause, the folded text states the clause as the outranking member decided, once; the overridden wording goes. Each such resolution is a declared `modify` of that section. Ask the user to confirm each one — it is a reading of the members, not a mechanical step.
 3. **Copy, then move.** `cp` the member that owns the most content to the new path; set `supersedes:` to the list of every member's filename and `deprecated: false`; merge the members' `references.tickets` records (one record per ticket — union their `covers`). Then move each other member's `### ` sub-sections, edge-case rows and no-gos into the copy with Edit, lines copied verbatim (read them with `cat`, never retype from memory). Merge the backgrounds into one and retitle: the background is a declared `modify`. Drop the sentences that only existed to point at a sibling member — they are now one file; that is a `modify` of their section.
-4. **Prove it.** `changes` lists exactly the sections steps 2-3 changed. Run `python3 "${IMMUTABLE_ROOT}/scripts/validate_docs.py" --supersede-diff <new file>`: it diffs the copy against the union of the members and must report no undeclared change. On failure delete the copy and loop.
+4. **Prove it.** `changes` lists exactly the sections steps 2-3 changed. Run `python3 "${IMMUTABLE_ROOT}/scripts/validate_docs.py" --supersede-diff <new file>`: it diffs the copy against the union of the members and must report no undeclared change and no stale lineage sentence (see "Lineage sentences" under "Mechanical supersede" below). On failure delete the copy and loop.
 5. **Flip.** Each member's `deprecated: false` → `true` (single-line edits). Run the validator with `--strict-body` — its cross-pitch reference rules must pass for the new file.
 6. **Handoff.** Render `prd.fold.handoff`. Citations of the members elsewhere need no edit: a citation names a supersede chain, and every member's chain now ends in the fold.
 
@@ -527,6 +527,8 @@ From here on the pitch is authored against the corrected text: in Stage 2 the co
 - **Forbid speculation.** When the user cannot answer or the answer is vague, record a tag in the format `<profile.gate.unresolved_tag> — <question summary>`. The tag literal comes from the active profile (one per locale). Never fill gaps with plausible-sounding content.
 - **Prefer codebase exploration over asking** when an answer is already present.
 - **A new version interviews only its change** (v0.17+, `update` and the Stage 2 of `split-from`). Before Branch A, agree the **change list** with the user — every `## ` / `### ` section the change adds, modifies or removes — and render `prd.stage6.change_list_confirmation` (`{base_files}` = the predecessor, `{change_rows}` = one `prd.stage6.change_row` per entry). The branches below then cover only those sections; every other section is carried by Stage 6's copy, byte for byte, and is never re-elicited, reworded or "tidied". A section found mid-interview to need a change is added to the list with the user's agreement, never edited silently. Stage 5 still judges the assembled whole. The list becomes the successor's `changes` frontmatter.
+
+When agreeing the change list, inspect inherited lineage sentences. Include the section if a copied sentence needs a new predecessor or if a claim about unchanged behavior conflicts with the proposed edits.
 
 ### Question Branches (fixed order)
 
@@ -819,8 +821,10 @@ A new version is never written whole. Supersedes that said they inherited text u
 1. `cp <predecessor> <new path>`.
 2. Edit the copy's frontmatter: `supersedes`, `deprecated: false`, `changes` (the agreed list), and the ticket record when a ticket is bound.
 3. Edit only the sections in `changes`, one Edit per hunk, rendering new content per "Body assembly" below. Never Write the file, never re-type an unchanged line.
-4. Run the guards below, then `python3 "${IMMUTABLE_ROOT}/scripts/validate_docs.py" --supersede-diff <new path>`. Any undeclared change or stale declaration → render `prd.stage6.supersede_diff_failure` (`{base_files}`, `{violations}` = the tool's output), undo or confirm, and re-run. Only a clean diff lets step 5 happen.
+4. Run the guards below, then `python3 "${IMMUTABLE_ROOT}/scripts/validate_docs.py" --supersede-diff <new path>`. Any undeclared change or stale declaration → render `prd.stage6.supersede_diff_failure` (`{base_files}`, `{violations}` = the tool's output), undo or confirm, and re-run. A stale lineage sentence → correct it in the copy and add its section to `changes`. Only a clean diff lets step 5 happen.
 5. Flip the predecessor's `deprecated`.
+
+**Lineage sentences.** A sentence in which the pitch names itself and says what it supersedes ("This pitch supersedes `…`", "본 Pitch 는 `…` 를 supersede 한다") is copied into the next version verbatim and goes on naming the old predecessor. `--supersede-diff` requires such a sentence to cite at least one file of the copy's own `supersedes`; older ancestors may sit beside it. A sentence narrating earlier links of the chain ("`b.md` superseded `a.md`") names no self and stays true, so it is not judged.
 
 A `new` / `new-domain` pitch has no predecessor and is assembled from the template as below.
 

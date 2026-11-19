@@ -317,10 +317,10 @@ strings:
     맞나요? (Y) 맞음 — 인터뷰는 이 절만 다룸 (N) 목록 조정
   prd.stage6.change_row: "  - {kind} — {section}"
   prd.stage6.supersede_diff_failure: |
-    새 파일이 선언한 `changes` 밖에서 {base_files} 와 다릅니다:
+    새 파일이 이전 버전 {base_files} 와의 supersede 검사를 통과하지 못했습니다:
     {violations}
 
-    이전 버전은 deprecated 로 바꾸지 않았습니다. 의도하지 않은 편집을 되돌리세요. 의도한 차이라면 사용자 확인 후 그 절을 `changes` 에 더하세요.
+    이전 버전은 deprecated 로 바꾸지 않았습니다. 의도하지 않은 편집을 되돌리세요. 의도한 차이라면 사용자 확인 후 그 절을 `changes` 에 더하세요. 직전 버전이 아닌 파일을 supersede 대상으로 적은 문장은 새 파일에서 고치고, 그 절을 `changes` 에 더하세요.
   prd.stage6.size_over: |
     작성한 PRD 가 {bytes} 바이트로 `max_bytes` {max_bytes} 를 넘습니다. 이보다 크면 Claude Code 의 Read 가 파일 일부만 돌려주고, 읽는 쪽이 PRD 절반으로 작업할 수 있습니다.
     사용자에게 보이는 기능 영역을 따라 나누세요 (refactor-split). 내용을 깎아서 맞추지 않습니다.
