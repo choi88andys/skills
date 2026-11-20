@@ -1,26 +1,30 @@
 name: Auto Release on Tag
 
-# A release tag (immutable--vX.Y.Z) creates the GitHub Release and moves the major
-# channel tag (immutable--vX) to the same commit.
+# A release tag (immutable--vX.Y.Z) creates the GitHub Release and moves two channel
+# tags to the same commit: immutable--latest (every release, majors included) and the
+# major channel immutable--vX (releases of that major only).
 #
 # WHY A CHANNEL TAG
 # Every consumer CI pinned an exact tag, so each release meant editing IMMUTABLE_REF
 # in every repo that runs the validator, and the repos drifted apart: on 2026-11-20
 # the two spec repos ran v0.21.2, the tracker v0.19.0, did_client v0.9.0 and
-# lounge-x-app v0.17.0. A repo that sets IMMUTABLE_REF to the channel follows every
-# release of that major with no edit; one that wants a frozen gate keeps an exact tag.
-# A new major is a new channel, so a breaking release still reaches no one who did
-# not move to it.
+# lounge-x-app v0.17.0. A repo that sets IMMUTABLE_REF to a channel follows releases
+# with no edit; one that wants a frozen gate keeps an exact tag. immutable--latest is
+# what the plugin owner's own repos use: a major release reaches them too, because the
+# same person ships the plugin and runs those gates. immutable--vX stops at its major,
+# for a consumer that wants a breaking release only when it moves.
 #
-# WHY THE CHANNEL MOVES ONLY FORWARD
+# WHY THE CHANNELS MOVE ONLY FORWARD
 # A patch cut on an older line after a newer release (v0.20.5 after v0.21.2) would
-# otherwise drag every channel consumer back to it. The channel goes to the highest
-# version of its major, which is this tag only when nothing newer exists.
+# otherwise drag every channel consumer back to it. Each channel goes to the highest
+# version it covers (all releases, or those of one major), which is this tag only
+# when nothing newer exists.
 #
 # WHY THE PUSH CANNOT LOOP
-# The channel tag matches this workflow's own trigger, but a push made with
-# GITHUB_TOKEN starts no workflow. A channel tag pushed by hand (recovery) does start
-# one; the release step skips any tag that is not a full X.Y.Z version.
+# immutable--vX matches this workflow's own trigger, but a push made with GITHUB_TOKEN
+# starts no workflow. A major channel pushed by hand (recovery) does start one, and
+# the release step skips any tag that is not a full X.Y.Z version. immutable--latest
+# does not match the trigger at all.
 
 on:
   push:
@@ -63,18 +67,24 @@ jobs:
             --title "$VERSION" \
             --generate-notes
 
-      - name: Move the major channel tag to this release
+      - name: Move the channel tags to this release
         if: ${{ steps.kind.outputs.release == 'true' }}
         env:
           TAG: ${{ github.ref_name }}
           CHANNEL: ${{ steps.kind.outputs.channel }}
         run: |
           git fetch --force --tags origin
-          newest="$(git tag -l "${CHANNEL}.*.*" | grep -E "^${CHANNEL}\.[0-9]+\.[0-9]+$" | sort -V | tail -1)"
-          if [ "$newest" != "$TAG" ]; then
-            echo "$TAG is not the newest ${CHANNEL} release ($newest is): channel left where it is."
-            exit 0
-          fi
-          git tag -f "$CHANNEL" "$TAG^{commit}"
-          git push --force origin "refs/tags/$CHANNEL"
-          echo "$CHANNEL -> $TAG ($(git rev-parse --short "$TAG^{commit}"))"
+          # move <channel> <regex of the release tags it covers>
+          move() {
+            local newest
+            newest="$(git tag -l | grep -E "$2" | sort -V | tail -1)"
+            if [ "$newest" != "$TAG" ]; then
+              echo "$1 left where it is: $TAG is not the newest release it covers ($newest is)."
+              return 0
+            fi
+            git tag -f "$1" "$TAG^{commit}"
+            git push --force origin "refs/tags/$1"
+            echo "$1 -> $TAG ($(git rev-parse --short "$TAG^{commit}"))"
+          }
+          move immutable--latest '^immutable--v[0-9]+\.[0-9]+\.[0-9]+$'
+          move "$CHANNEL" "^${CHANNEL}\.[0-9]+\.[0-9]+$"

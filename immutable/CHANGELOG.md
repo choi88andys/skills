@@ -2,6 +2,12 @@
 
 All notable changes to the `immutable` plugin are documented in this file. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Version is canonically declared in `.claude-plugin/plugin.json`.
 
+## [0.21.4] — 2026-11-20
+
+### Added
+
+- **Channel tag `immutable--latest`.** Each release now also moves `immutable--latest` to its commit when it is the newest release of all, majors included (`.github/workflows/release.yml`). The owner's in-house repos follow it, so a major release reaches them with no edit: the same person ships the plugin and runs those gates. `immutable--vX` still stops at its major for a consumer that wants a breaking release only when it moves, and exact tags still freeze a gate. A hand rollback of `immutable--latest` starts no workflow; the tag does not match the release trigger.
+
 ## [0.21.3] — 2026-11-20
 
 ### Added
