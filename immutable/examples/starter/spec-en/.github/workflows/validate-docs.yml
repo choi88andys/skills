@@ -17,9 +17,10 @@ name: Validate SDD docs
 # Upgrading is a deliberate act: bump IMMUTABLE_REF to a newer plugin tag. Until
 # you do, this gate cannot change underneath you.
 #
-# To follow every release of the current major with no edit, set IMMUTABLE_REF to
-# its channel tag, `immutable--v0`: each release moves it forward, never back, and a
-# new major is a new channel, so a breaking release reaches no one who stays here.
+# To follow releases with no edit, set IMMUTABLE_REF to a channel tag instead:
+# `immutable--latest` follows every release, majors included; `immutable--v0` only
+# the releases of this major, so a breaking release reaches no one who stays on it.
+# Each release moves both forward, never back.
 
 on:
   push:
