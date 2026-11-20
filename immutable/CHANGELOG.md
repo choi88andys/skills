@@ -2,6 +2,12 @@
 
 All notable changes to the `immutable` plugin are documented in this file. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Version is canonically declared in `.claude-plugin/plugin.json`.
 
+## [0.21.3] — 2026-11-20
+
+### Added
+
+- **Major channel tag `immutable--v0`.** Each release tag `immutable--vX.Y.Z` now also moves `immutable--vX` to the same commit (`.github/workflows/release.yml`), so a consumer CI that sets `IMMUTABLE_REF: immutable--v0` follows every 0.x release with no edit. Exact tags stay and still freeze a gate. The channel moves only to the highest version of its major, so a patch cut on an older line does not drag consumers back, and a new major is a new channel. Every consumer pinning an exact tag had drifted: on 2026-11-20 the two in-house spec repos ran v0.21.2, the tracker v0.19.0, and the two app repos v0.9.0 and v0.17.0. The starter workflows keep their exact pin and name the channel as the alternative.
+
 ## [0.21.2] — 2026-11-19
 
 ### Fixed

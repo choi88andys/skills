@@ -1,6 +1,6 @@
 {
   "name": "immutable",
-  "version": "0.21.2",
+  "version": "0.21.3",
   "description": "Append-only spec-driven development for Claude Code and Codex. Bootstrap a repository, interview the author, review the pitch and engineering plan, record architecture decisions, and prepare a pull request. Pitch and ADR authoring use multi-perspective review and a 90% completeness gate. Shared validators check supersede chains and optional tracker requirement contracts.",
   "skills": [
     "./init",
