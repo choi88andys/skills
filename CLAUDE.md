@@ -8,7 +8,9 @@ Gitflow. `develop` integrates unreleased work; `main` is what marketplace client
 
 1. Branch off `develop` → PR → **squash-merge** into `develop`.
 2. **`--no-ff`** merge `develop` → `main`, message `Merge branch 'develop' into main for vX.Y.Z release`. Push `main` directly — develop→main takes no PR.
-3. Tag the `main` merge commit and push the tag. That fires `.github/workflows/release.yml`, which creates a GitHub Release titled `vX.Y.Z` (the workflow strips only the `immutable--` prefix, so the `v` stays).
+3. Tag the `main` merge commit and push the tag. That fires `.github/workflows/release.yml`, which creates a GitHub Release titled `vX.Y.Z` (the workflow strips only the `immutable--` prefix, so the `v` stays) and moves the major channel tag `immutable--vX` to the same commit when this is the newest release of that major.
+
+**Never push the channel tag `immutable--vX` by hand except to roll consumers back** (`git push origin +<sha>:refs/tags/immutable--v0`). Consumer CIs that set `IMMUTABLE_REF` to the channel run whatever it points at on their next run, so moving it IS the release to them; a bad release is undone by pointing the channel at the previous release's commit. A hand push re-runs `release.yml`, which skips any tag that is not a full `X.Y.Z`.
 
 Use a **lightweight** tag — `git tag immutable--vX.Y.Z <sha>`, never `git tag -a`. Every release tag is a commit object, and `release.yml` calls `gh release create --generate-notes`, which never reads a tag message.
 
