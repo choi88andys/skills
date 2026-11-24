@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Exercise the Codex read paths using disposable consumer files and fresh tokens."""
 import json
+import os
 import secrets
 import shlex
 import subprocess
@@ -78,6 +79,26 @@ class ReadTests(unittest.TestCase):
         out = json.loads(result.stdout)["hookSpecificOutput"]
         self.assertEqual((out["hookEventName"], out["permissionDecision"]), ("PreToolUse", "deny"))
         return out["permissionDecisionReason"].split("\n", 1)[1]
+
+    def manifest_hook(self, plugin_root, command):
+        """Run the Codex manifest's hook command the way Codex does: through a shell."""
+        manifest = json.loads((SCRIPTS.parent / ".codex-plugin/plugin.json").read_text())
+        hook, = manifest["hooks"]["hooks"]["PreToolUse"][0]["hooks"]
+        event = {"hook_event_name": "PreToolUse", "tool_name": "Bash",
+                 "cwd": str(self.root), "tool_input": {"command": command}}
+        return subprocess.run(["sh", "-c", hook["command"]], cwd=self.root, input=json.dumps(event),
+                              capture_output=True, text=True,
+                              env={**os.environ, "PLUGIN_ROOT": str(plugin_root)})
+
+    def test_manifest_hook_passes_when_its_script_is_missing(self):
+        old = shlex.quote(str(self.old.relative_to(self.root)))
+        empty = self.root / "plugin without scripts"
+        empty.mkdir()
+        gone = self.manifest_hook(empty, f"cat {old}")
+        self.assertEqual((gone.returncode, gone.stdout, gone.stderr), (0, "", ""))
+        live = self.manifest_hook(SCRIPTS.parent, f"cat {old}")
+        self.assertEqual(live.returncode, 0)
+        self.assertEqual(json.loads(live.stdout)["hookSpecificOutput"]["permissionDecision"], "deny")
 
     def test_denied_reads_and_independent_retries(self):
         old = shlex.quote(str(self.old.relative_to(self.root)))

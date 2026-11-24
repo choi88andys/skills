@@ -2,6 +2,12 @@
 
 All notable changes to the `immutable` plugin are documented in this file. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Version is canonically declared in `.claude-plugin/plugin.json`.
 
+## [0.22.1] — 2026-11-24
+
+### Fixed
+
+- The Codex read guard's hook passes when its script is missing instead of refusing every Bash call. While 0.22.0 was being installed, the 0.21.4 cache of a running Codex session briefly had no `codex_read_guard.py`; `python3` exited 2, which Codex reads as a deny, so that session could not run even `ls` until the file came back. The hook command now checks for the script first (Codex runs hook commands through a shell, measured with codex-cli 0.172.0).
+
 ## [0.22.0] — 2026-11-24
 
 ### Added
