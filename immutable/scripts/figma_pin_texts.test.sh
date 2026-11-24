@@ -49,15 +49,15 @@ MD
 # (children listed 마케팅, 광고성, 야간; stacked 광고성 → 마케팅 → 야간 by y), a
 # hidden draft frame, a soft break inside one toast text.
 cat >"$RIG/responses/KEY1_18388-2385_2413576020041390627.json" <<'JSON'
-{"nodes": {"18388:2385": {"document": {"id": "18388:2385", "name": "01. 홈", "type": "SECTION", "children": [
+{"nodes": {"18388:2385": {"document": {"id": "18388:2385", "name": "01. 홈", "annotations": [{"label": "Section note"}], "type": "SECTION", "children": [
   {"id": "2:1", "name": "토스트 / 마케팅", "type": "FRAME", "absoluteBoundingBox": {"x": 0, "y": 900, "width": 360, "height": 80},
    "children": [{"id": "2:2", "name": "문구", "type": "TEXT", "characters": "마케팅 활용에 동의했어요", "absoluteBoundingBox": {"x": 10, "y": 910, "width": 300, "height": 40}}]},
   {"id": "3:1", "name": "토스트 / 광고성", "type": "FRAME", "absoluteBoundingBox": {"x": 0, "y": 500, "width": 360, "height": 80},
-   "children": [{"id": "3:2", "name": "문구", "type": "TEXT", "characters": "광고성 정보 수신에 동의했어요", "absoluteBoundingBox": {"x": 10, "y": 510, "width": 300, "height": 40}}]},
+   "children": [{"id": "3:2", "annotations": [{"labelMarkdown": "Wait a day"}], "name": "문구", "type": "TEXT", "characters": "광고성 정보 수신에 동의했어요", "absoluteBoundingBox": {"x": 10, "y": 510, "width": 300, "height": 40}}]},
   {"id": "4:1", "name": "토스트 / 야간", "type": "FRAME", "absoluteBoundingBox": {"x": 0, "y": 1300, "width": 360, "height": 80},
    "children": [{"id": "4:2", "name": "문구", "type": "TEXT", "characters": "야간 수신에 동의했어요", "absoluteBoundingBox": {"x": 10, "y": 1310, "width": 300, "height": 40}},
                 {"id": "4:3", "name": "숨김", "type": "TEXT", "visible": false, "characters": "지운 문구", "absoluteBoundingBox": {"x": 10, "y": 1300, "width": 300, "height": 40}}]},
-  {"id": "5:1", "name": "초안", "type": "FRAME", "visible": false, "absoluteBoundingBox": {"x": 0, "y": 0, "width": 360, "height": 80}, "children": []}
+  {"id": "5:1", "annotations": [{"label": "Draft note"}], "name": "초안", "type": "FRAME", "visible": false, "absoluteBoundingBox": {"x": 0, "y": 0, "width": 360, "height": 80}, "children": []}
 ]}}}}
 JSON
 # The settings screen: one frame (the node itself), texts top to bottom, two
@@ -107,6 +107,12 @@ if [ "$(q '[s["name"] for s in d["pins"][0]["screens"]]')" = "['토스트 / 광�
   pass "F2 reading order: screens and texts by position, soft breaks as newlines, hidden nodes skipped"
 else
   fail "F2 reading order" "$(q '[(s["name"], s["texts"], s["frames"]) for p in d["pins"] for s in p["screens"]]')"
+fi
+
+if [ "$(q '[(a["id"], a["path"][-1], a["label"]) for a in d["pins"][0]["annotations"]]')" = "[('18388:2385', '01. 홈', 'Section note'), ('3:2', '문구', 'Wait a day')]" ]; then
+  pass "F2a section and nested layer annotations survive; hidden drafts do not"
+else
+  fail "F2a annotation evidence" "$(q 'd["pins"][0]["annotations"]')"
 fi
 
 # F3 — no FIGMA_TOKEN and pins to fetch → exit 2 naming the variable, never an
