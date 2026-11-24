@@ -864,7 +864,7 @@ def load_frontmatter_yaml(path: str) -> dict[str, Any] | None:
     except ImportError:
         adapter_fail("reading pitch frontmatter (`coverage`, `gate`, `drift` with pitch files) needs PyYAML (pip install pyyaml)")
     try:
-        text = open(path, "rb").read().decode("utf-8")
+        text = Path(path).read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as exc:
         adapter_fail(f"cannot read pitch {path}: {exc}")
     m = FRONTMATTER_RE.match(text)

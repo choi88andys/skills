@@ -2,6 +2,12 @@
 
 All notable changes to the `immutable` plugin are documented in this file. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Version is canonically declared in `.claude-plugin/plugin.json`.
 
+## [0.22.0] — 2026-11-24
+
+### Added
+
+- Pitch authoring compares the final normative decisions and no-gos with pinned Figma screens and their designer annotations. Confirmed conflicts carry the design link, observed fact, pitch citation and requested change. A GitHub tracker can opt into delivery by installing a `design-fix.yml` receiver. The author gets a verified issue comment link or a saved handoff.
+
 ## [0.21.4] — 2026-11-20
 
 ### Added

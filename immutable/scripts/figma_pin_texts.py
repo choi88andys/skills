@@ -35,6 +35,8 @@ A link counts as pinned when it is a figma.com design/file/proto URL carrying
 Output (`schema: 1`, JSON on stdout):
   pins[]      url, label (the markdown link text, or null), file_key, node_id
               (`123:456`), version_id, name / type of the linked node, and
+              annotations[] (visible layers under the linked node, including the
+              node itself: node id, layer path and designer label), and
               screens[] — for a linked SECTION or page, its direct FRAME /
               COMPONENT / COMPONENT_SET / INSTANCE / SECTION / GROUP children;
               for any other node (a frame), the node itself — each with
@@ -203,6 +205,23 @@ def text_nodes(node: dict[str, Any]) -> list[dict[str, Any]]:
     return sorted(out, key=reading_key)
 
 
+def annotations_of(root: dict[str, Any]) -> list[dict[str, Any]]:
+    """Read notes on the entire pin, including the section above its screens."""
+    notes = []
+    stack = [(root, [])]
+    while stack:
+        node, parent = stack.pop()
+        if not visible(node):
+            continue
+        path = parent + [node.get("name") or ""]
+        for note in node.get("annotations") or []:
+            label = (note.get("label") or note.get("labelMarkdown") or "").strip()
+            if label:
+                notes.append({"id": node.get("id"), "path": path, "label": label})
+        stack.extend((c, path) for c in reversed(node.get("children") or []) if isinstance(c, dict))
+    return notes
+
+
 def screens_of(root: dict[str, Any]) -> list[dict[str, Any]]:
     """The linked node's screens: a section's or page's container children,
     else the node itself."""
@@ -225,15 +244,16 @@ def read_pin(pin: dict[str, Any], token: str | None, saved: str | None) -> dict[
     try:
         data = fetch_nodes(pin, token, saved)
     except ValueError as exc:
-        return {**pin, "name": None, "type": None, "screens": [], "error": str(exc)}
+        return {**pin, "name": None, "type": None, "annotations": [], "screens": [], "error": str(exc)}
     node = ((data or {}).get("nodes") or {}).get(pin["node_id"]) if isinstance(data, dict) else None
     doc = node.get("document") if isinstance(node, dict) else None
     if not isinstance(doc, dict):
         why = (data or {}).get("err") if isinstance(data, dict) else None
-        return {**pin, "name": None, "type": None, "screens": [],
+        return {**pin, "name": None, "type": None, "annotations": [], "screens": [],
                 "error": f"node {pin['node_id']} not in the response at version {pin['version_id']}"
                          + (f" ({why})" if why else "")}
-    return {**pin, "name": doc.get("name"), "type": doc.get("type"), "screens": screens_of(doc)}
+    return {**pin, "name": doc.get("name"), "type": doc.get("type"), "screens": screens_of(doc),
+            "annotations": annotations_of(doc)}
 
 
 def main(argv: list[str] | None = None) -> int:

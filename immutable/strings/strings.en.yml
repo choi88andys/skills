@@ -564,7 +564,7 @@ strings:
     {gaps}
 
   prd.contract.handoff_design_fix_line: |
-    - Design fixes — the binding items are the standard, so these are places the design must change. Hand them to the design team (handing over is the user's job):
+    - Design-fix requests and their delivery status:
     {fixes}
 
   prd.stage6.supersede_gap: |
