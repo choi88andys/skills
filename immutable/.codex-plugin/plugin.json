@@ -1,6 +1,6 @@
 {
   "name": "immutable",
-  "version": "0.22.0",
+  "version": "0.22.1",
   "description": "Append-only spec-driven development for Claude Code and Codex. Bootstrap a repository, interview the author, review the pitch and engineering plan, record architecture decisions, and prepare a pull request. Pitch and ADR authoring use multi-perspective review and a 90% completeness gate. Shared validators check supersede chains and optional tracker requirement contracts.",
   "skills": [
     "./init",
@@ -44,7 +44,7 @@
           "hooks": [
             {
               "type": "command",
-              "command": "python3 -B \"${PLUGIN_ROOT}/scripts/codex_read_guard.py\""
+              "command": "if [ -f \"${PLUGIN_ROOT}/scripts/codex_read_guard.py\" ]; then exec python3 -B \"${PLUGIN_ROOT}/scripts/codex_read_guard.py\"; fi; cat >/dev/null; exit 0"
             }
           ]
         }

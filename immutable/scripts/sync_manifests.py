@@ -23,9 +23,17 @@ def main():
     # same nine files, including when their installer copies the package.
     codex = {k: manifest[k] for k in ("name", "version", "description", "skills", "keywords")}
     # An explicit hook map replaces default discovery of Claude's native Read hook.
+    # A plugin update can leave a running session's PLUGIN_ROOT without the script
+    # for a while; python3 then exits 2, which Codex reads as a deny, so every Bash
+    # call of that session was refused (2026-11-24, the 0.21.4 cache during the
+    # 0.22.0 update). Codex runs the command through a shell, so a missing script
+    # passes instead: a read guard that is briefly absent costs less than a session
+    # that can run nothing.
+    guard = '"${PLUGIN_ROOT}/scripts/codex_read_guard.py"'
     codex["hooks"] = {"hooks": {"PreToolUse": [{
         "matcher": "^Bash$",
-        "hooks": [{"type": "command", "command": 'python3 -B "${PLUGIN_ROOT}/scripts/codex_read_guard.py"'}],
+        "hooks": [{"type": "command",
+                   "command": f"if [ -f {guard} ]; then exec python3 -B {guard}; fi; cat >/dev/null; exit 0"}],
     }]}}
     catalog = {
         "name": market["name"],
