@@ -590,7 +590,7 @@ strings:
     {gaps}
 
   prd.contract.handoff_design_fix_line: |
-    - 시안 수정 요청 — 구속 항목이 기준이라 시안을 고칠 곳입니다. 디자인 팀에 전달하세요 (전달은 사용자 몫):
+    - 시안 수정 요청과 전달 결과
     {fixes}
 
   prd.stage6.supersede_gap: |

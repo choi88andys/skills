@@ -249,7 +249,9 @@ What then happens, and what deliberately does not:
   pinned or not since v0.16), cross-checks the designs the ticket pins by
   version-id against what the binding items state (v0.16+,
   `scripts/figma_pin_texts.py`), hands the author a correction request to post, and writes the
-  pitch against the corrected text. The pitch records the ticket's identity and **version
+  pitch against the corrected text. After authoring it compares final pitch decisions and no-gos
+  with the pinned screens and designer notes. Confirmed conflicts go to the bound Epic through its
+  installed `design-fix.yml` receiver; other trackers get a saved handoff. The pitch records the ticket's identity and **version
   coordinate** in `references.tickets[]` — never its text; the tracker keeps
   the body at that version.
 - **A disagreement is a section, not a blocker.** Each deviation becomes an
