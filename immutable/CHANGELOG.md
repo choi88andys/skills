@@ -2,6 +2,12 @@
 
 All notable changes to the `immutable` plugin are documented in this file. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Version is canonically declared in `.claude-plugin/plugin.json`.
 
+## [0.22.2] — 2026-11-27
+
+### Fixed
+
+- `scripts/figma_pin_texts.py` also reads the token from the file `FIGMA_TOKEN_FILE` names (its first line that is neither blank nor a `#` comment) when `FIGMA_TOKEN` is unset. A machine can then export only a path to every shell and keep the secret out of every process's environment. Before it, a machine that set `FIGMA_TOKEN` only inside the spec repositories read pinned designs there and failed with exit 2 everywhere else, and a session concluded the reader "must run from the spec repo". A `FIGMA_TOKEN_FILE` that is unreadable or holds no token line fails with exit 2 naming the file.
+
 ## [0.22.1] — 2026-11-24
 
 ### Fixed
