@@ -7,7 +7,7 @@ pinned version, so a design pinned by `version-id=` (the only kind a ticket can
 cite and still mean one thing) is read here through the REST API:
 
   GET https://api.figma.com/v1/files/<file_key>/nodes?ids=<node:id>&version=<version-id>
-  header X-Figma-Token: $FIGMA_TOKEN
+  header X-Figma-Token: <token>
 
 For each pinned link it prints the linked node's screens in reading order, each
 screen's texts in reading order, and each screen's own child frames in order —
@@ -54,7 +54,8 @@ Output (`schema: 1`, JSON on stdout):
 
 Exit codes: 0 every pinned link read (none found is 0, and `pins` is empty) ·
 1 at least one pinned link could not be read · 2 usage error, unreadable
-input, or FIGMA_TOKEN unset when a fetch is needed.
+input, or no token (FIGMA_TOKEN / FIGMA_TOKEN_FILE, below) when a fetch
+is needed.
 
 `--from-response DIR` reads saved API responses instead of calling the API —
 `DIR/<file_key>_<node-id with : as ->_<version_id>.json` — for tests and for
@@ -62,8 +63,12 @@ re-reading a response without spending the token's rate limit. No token is
 needed then.
 
 Requires python3 only (urllib). The token is a Figma personal access token
-with read access to the file; it is read from the environment and never
-printed.
+with read access to the file, never printed. It comes from FIGMA_TOKEN, else
+from the file FIGMA_TOKEN_FILE names: its first line that is neither blank nor
+a `#` comment. The file form exists so a machine can export only a PATH to
+every shell and keep the secret itself out of every process's environment;
+before it, a token reached some working directories and not others, and a
+session read the resulting 403 as "this only works in the spec repo".
 """
 
 from __future__ import annotations
@@ -85,6 +90,7 @@ import requirement_contract as _contract  # noqa: E402
 SCHEMA = 1
 API_BASE = "https://api.figma.com/v1"
 TOKEN_ENV = "FIGMA_TOKEN"
+TOKEN_FILE_ENV = "FIGMA_TOKEN_FILE"
 TIMEOUT_SECONDS = 60
 FIGMA_URL_RE = re.compile(
     r"https?://(?:www\.)?figma\.com/(?:design|file|proto)/(?P<key>[A-Za-z0-9]+)[^\s)\]>\"'`]*"
@@ -95,6 +101,31 @@ CONTAINER_TYPES = ("FRAME", "COMPONENT", "COMPONENT_SET", "INSTANCE", "SECTION",
 # (a FRAME, an INSTANCE, …) is one screen, whose child frames are its parts.
 BOARD_TYPES = ("SECTION", "CANVAS")
 SOFT_BREAK = " "
+
+
+def read_token() -> str | None:
+    """The token from FIGMA_TOKEN, else from the file FIGMA_TOKEN_FILE names; None if neither.
+
+    A FIGMA_TOKEN_FILE that is set but unreadable, or holds no token line, fails
+    (exit 2) naming the file: a named file that yields nothing is a broken setup,
+    and reporting it as "no token" would send the reader looking in the wrong place.
+    """
+    token = os.environ.get(TOKEN_ENV, "").strip()
+    if token:
+        return token
+    path = os.environ.get(TOKEN_FILE_ENV, "").strip()
+    if not path:
+        return None
+    try:
+        lines = Path(path).expanduser().read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeDecodeError) as exc:
+        fail(f"{TOKEN_FILE_ENV}={path} cannot be read: {exc}")
+    for line in lines:
+        line = line.strip()
+        if line and not line.startswith("#"):
+            return line
+    fail(f"{TOKEN_FILE_ENV}={path} holds no token line (every line is blank or a # comment)")
+    return None
 
 
 def fail(msg: str) -> None:
@@ -289,12 +320,12 @@ def main(argv: list[str] | None = None) -> int:
             "first heading — use --body to scan the whole body\n"
         )
     pinned, unpinned = figma_links(scoped_text(body, sections, args.section))
-    token = os.environ.get(TOKEN_ENV, "").strip() or None
+    token = read_token() if pinned and not args.from_response else None
     if pinned and not args.from_response and not token:
         fail(
             f"{TOKEN_ENV} is not set — {len(pinned)} pinned design link(s) need the Figma REST API "
-            f"(a personal access token with read access to the file); the MCP tools cannot read a "
-            f"pinned version"
+            f"(a personal access token with read access to the file; set {TOKEN_ENV}, or "
+            f"{TOKEN_FILE_ENV} to a file holding it); the MCP tools cannot read a pinned version"
         )
     pins = [read_pin(p, token, args.from_response) for p in pinned]
     errors = [f"{p['url']}: {p['error']}" for p in pins if p.get("error")]

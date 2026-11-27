@@ -115,16 +115,41 @@ else
   fail "F2a annotation evidence" "$(q 'd["pins"][0]["annotations"]')"
 fi
 
-# F3 — no FIGMA_TOKEN and pins to fetch → exit 2 naming the variable, never an
+# F3 — no FIGMA_TOKEN / FIGMA_TOKEN_FILE and pins to fetch → exit 2 naming the variable, never an
 # empty dump that reads as "nothing to compare". No pins → no token needed.
-( unset FIGMA_TOKEN; python3 "$SUT" --body "$RIG/ticket.md" --section "기획 / 디자인" >"$RIG/out.json" 2>"$RIG/stderr.txt" ) && T_RC=0 || T_RC=$?
+( unset FIGMA_TOKEN FIGMA_TOKEN_FILE; python3 "$SUT" --body "$RIG/ticket.md" --section "기획 / 디자인" >"$RIG/out.json" 2>"$RIG/stderr.txt" ) && T_RC=0 || T_RC=$?
 T_ERR=$(cat "$RIG/stderr.txt")
-( unset FIGMA_TOKEN; python3 "$SUT" --body "$RIG/ticket.md" --section "비고" >"$RIG/out.json" 2>"$RIG/stderr.txt" ) && N_RC=0 || N_RC=$?
+( unset FIGMA_TOKEN FIGMA_TOKEN_FILE; python3 "$SUT" --body "$RIG/ticket.md" --section "비고" >"$RIG/out.json" 2>"$RIG/stderr.txt" ) && N_RC=0 || N_RC=$?
 if [ "$T_RC" -eq 2 ] && grep -qF "FIGMA_TOKEN is not set — 2 pinned design link(s)" <<<"$T_ERR" \
   && [ "$N_RC" -eq 0 ] && [ "$(q 'd["pins"], d["unpinned"]')" = "([], [])" ]; then
   pass "F3 missing FIGMA_TOKEN with pins → exit 2 naming it; nothing to fetch → no token needed"
 else
   fail "F3 token" "rc=$T_RC $T_ERR | none rc=$N_RC $(cat "$RIG/out.json")"
+fi
+
+# F3b — the token file: FIGMA_TOKEN wins; else FIGMA_TOKEN_FILE's first line that
+# is neither blank nor a # comment; a named file that is missing or holds no
+# token fails (exit 2) naming the file, never reads as "no token is set".
+tok() {  # tok <FIGMA_TOKEN or -> <FIGMA_TOKEN_FILE or -> → TOK_OUT, TOK_RC, TOK_ERR
+  ( [ "$1" = - ] && unset FIGMA_TOKEN || export FIGMA_TOKEN="$1"
+    [ "$2" = - ] && unset FIGMA_TOKEN_FILE || export FIGMA_TOKEN_FILE="$2"
+    python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import figma_pin_texts as m; print(m.read_token())' "$SCRIPT_DIR" \
+  ) >"$RIG/tok.out" 2>"$RIG/tok.err" && TOK_RC=0 || TOK_RC=$?
+  TOK_OUT=$(cat "$RIG/tok.out"); TOK_ERR=$(cat "$RIG/tok.err")
+}
+printf '# issued 2026-01-01\n\n  figd_from_file  \n# trailing note\n' >"$RIG/token.txt"
+printf '# only a comment\n\n' >"$RIG/empty-token.txt"
+tok - "$RIG/token.txt"; F_OUT=$TOK_OUT
+tok figd_from_env "$RIG/token.txt"; E_OUT=$TOK_OUT
+tok - -; N_OUT=$TOK_OUT
+tok - "$RIG/missing.txt"; M_RC=$TOK_RC; M_ERR=$TOK_ERR
+tok - "$RIG/empty-token.txt"; Z_RC=$TOK_RC; Z_ERR=$TOK_ERR
+if [ "$F_OUT" = figd_from_file ] && [ "$E_OUT" = figd_from_env ] && [ "$N_OUT" = None ] \
+  && [ "$M_RC" -eq 2 ] && grep -qF "FIGMA_TOKEN_FILE=$RIG/missing.txt cannot be read" <<<"$M_ERR" \
+  && [ "$Z_RC" -eq 2 ] && grep -qF "holds no token line" <<<"$Z_ERR"; then
+  pass "F3b FIGMA_TOKEN_FILE: first token line, env wins, a named but empty or missing file fails naming it"
+else
+  fail "F3b token file" "file=$F_OUT env=$E_OUT none=$N_OUT missing=$M_RC $M_ERR empty=$Z_RC $Z_ERR"
 fi
 
 # F4 — a pin that cannot be read (no saved response here, standing in for an
